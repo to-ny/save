@@ -1,0 +1,91 @@
+# Rust build artifacts
+/target/
+**/target/
+
+# Cargo lock file (keep for binaries, ignore for libraries)
+# We'll keep it since save-api is a binary
+# Cargo.lock
+
+# Backup files
+**/*.rs.bk
+**/*.bk
+
+# Generated documentation
+/doc/
+**/doc/
+
+# IDE / Editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+*.iml
+.project
+.classpath
+.settings/
+
+# Rust-analyzer
+rust-project.json
+
+# Save project-specific data directories
+# (from ARCHITECTURE.md and DESIGN_NOTES.md)
+/data/
+**/data/
+/objects/
+**/objects/
+/temp/
+**/temp/
+/rocksdb/
+**/rocksdb/
+
+# Configuration files with secrets
+*.secret
+*.key
+*.pem
+credentials.toml
+secrets.toml
+
+# Log files
+*.log
+logs/
+
+# Testing artifacts
+*.profraw
+*.profdata
+
+# OS-specific
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Temporary files
+*.tmp
+*.temp
+.cache/
+
+# Build output
+*.o
+*.so
+*.dylib
+*.dll
+*.a
+*.lib
+
+# Benchmark results
+criterion/
+
+# Coverage reports
+tarpaulin-report.html
+cobertura.xml
+lcov.info
+
+# Docker
+.dockerignore
+docker-compose.override.yml
+
+# Environment variables (if used)
+.env
+.env.local
+.env.*.local
