@@ -7,24 +7,14 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-# Async runtime - powers all async operations
 tokio = { workspace = true }
-
-# Web framework - HTTP routing and server
 axum = { workspace = true }
-
-# Serialization - JSON handling
 serde = { workspace = true }
 serde_json = { workspace = true }
-
-# Error handling
 anyhow = { workspace = true }
-
-# Logging and tracing - observability
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 
 [dev-dependencies]
-# Testing utilities for HTTP services
 tower = { workspace = true }
 http-body-util = { workspace = true }

@@ -2,6 +2,7 @@
 resolver = "2"
 members = [
     "crates/save-api",
+    "crates/save-storage",
 ]
 
 [workspace.package]
@@ -30,6 +31,10 @@ thiserror = "1.0"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 
+# Cryptography
+sha2 = "0.10"
+
 # Testing
 tower = { version = "0.5", features = ["util"] }
 http-body-util = "0.1"
+tempfile = "3.14"
