@@ -8,7 +8,7 @@ Implement a local, single-node S3-compatible object storage system using RocksDB
 ## Crate Setup
 - [x] Create `save-api` crate (Axum-based REST API)
 - [x] Create `save-storage` crate (object persistence)
-- [ ] Create `save-metadata` crate (RocksDB layer)
+- [x] Create `save-metadata` crate (RocksDB layer)
 - [ ] Create `save-common` crate (shared types, errors, config)
 - [ ] Add `Cargo.toml` workspace configuration
 
