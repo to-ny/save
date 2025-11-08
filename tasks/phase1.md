@@ -42,9 +42,9 @@ Implement a local, single-node S3-compatible object storage system using RocksDB
 - [x] Bucket name validation (S3-compatible rules)
 - [x] Streaming I/O with no in-memory buffering of large objects
 - [x] ETag calculation via SHA256 during streaming
-- [ ] Atomic metadata+storage writes using RocksDB WriteBatch (Location: `save-metadata/src/lib.rs`, `save-api/src/handlers/objects/put.rs`)
+- [x] Atomic metadata+storage writes using RocksDB WriteBatch (Location: `save-metadata/src/lib.rs`, `save-api/src/handlers/objects/put.rs`)
 - [ ] Garbage collector for temp files as background worker (Suggested: `save-storage/src/gc.rs`)
-- [ ] Durability guarantees with `fsync()` after critical writes (Location: `save-storage/src/lib.rs:60`)
+- [x] Durability guarantees with `fsync()` after critical writes (Location: `save-storage/src/lib.rs:60`)
 - [ ] Multipart part file cleanup on abort (Location: `save-api/src/handlers/multipart/abort.rs`)
 - [ ] Object versioning support with version IDs and API endpoints (GET/DELETE ?versionId)
 

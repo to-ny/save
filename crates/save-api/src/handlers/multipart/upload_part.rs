@@ -60,9 +60,7 @@ pub async fn upload_part(
         query.part_number,
     );
 
-    let stream = body
-        .into_data_stream()
-        .map_err(std::io::Error::other);
+    let stream = body.into_data_stream().map_err(std::io::Error::other);
     let stream_reader = StreamReader::new(stream);
 
     let mut file = fs::File::create(&part_file_path).await.map_err(|e| {

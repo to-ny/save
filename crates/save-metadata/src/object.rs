@@ -33,13 +33,32 @@ impl ObjectMetadata {
     }
 }
 
-pub(crate) fn put_object_metadata(db: &rocksdb::DB, metadata: &ObjectMetadata) -> Result<()> {
+fn prepare_metadata_write(metadata: &ObjectMetadata) -> Result<(Vec<u8>, Vec<u8>)> {
     validate_object_key(&metadata.key)
         .map_err(|e| MetadataError::InvalidOperation(e.to_string()))?;
 
     let key = ObjectMetadata::db_key(&metadata.bucket, &metadata.key);
     let value = bincode::serialize(metadata)?;
+    Ok((key.into_bytes(), value))
+}
+
+pub(crate) fn put_object_metadata(db: &rocksdb::DB, metadata: &ObjectMetadata) -> Result<()> {
+    let (key, value) = prepare_metadata_write(metadata)?;
     db.put(&key, value)?;
+    Ok(())
+}
+
+/// Atomically commits object metadata using WriteBatch with sync=true.
+pub(crate) fn commit_object_metadata(db: &rocksdb::DB, metadata: &ObjectMetadata) -> Result<()> {
+    let (key, value) = prepare_metadata_write(metadata)?;
+
+    let mut batch = rocksdb::WriteBatch::default();
+    batch.put(&key, value);
+
+    let mut write_opts = rocksdb::WriteOptions::default();
+    write_opts.set_sync(true);
+
+    db.write_opt(batch, &write_opts)?;
     Ok(())
 }
 
@@ -224,5 +243,45 @@ mod tests {
     #[test]
     fn test_validate_key_null_byte() {
         assert!(validate_object_key("file\0.txt").is_err());
+    }
+
+    #[test]
+    fn test_commit_object_metadata_with_writebatch() {
+        let db = create_test_db();
+        let metadata = ObjectMetadata::new(
+            "test-bucket".to_string(),
+            "test-key".to_string(),
+            2048,
+            "xyz789".to_string(),
+        );
+
+        commit_object_metadata(&db, &metadata).unwrap();
+        let fetched = get_object_metadata(&db, "test-bucket", "test-key").unwrap();
+
+        assert_eq!(metadata, fetched);
+    }
+
+    #[test]
+    fn test_commit_object_metadata_durability() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let db_path = temp_dir.path().join("test_db");
+
+        {
+            let db = rocksdb::DB::open_default(&db_path).unwrap();
+            let metadata = ObjectMetadata::new(
+                "bucket".to_string(),
+                "durable-object".to_string(),
+                4096,
+                "abcdef".to_string(),
+            );
+
+            commit_object_metadata(&db, &metadata).unwrap();
+        }
+
+        let db = rocksdb::DB::open_default(&db_path).unwrap();
+        let fetched = get_object_metadata(&db, "bucket", "durable-object").unwrap();
+
+        assert_eq!(fetched.size, 4096);
+        assert_eq!(fetched.etag, "abcdef");
     }
 }

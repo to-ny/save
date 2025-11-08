@@ -62,6 +62,14 @@ impl MetadataStore {
             .map_err(|e| MetadataError::TaskCancelled(e.to_string()))?
     }
 
+    /// Atomically commits object metadata with WriteBatch sync.
+    pub async fn commit_object_metadata(&self, metadata: ObjectMetadata) -> Result<()> {
+        let db = Arc::clone(&self.db);
+        tokio::task::spawn_blocking(move || object::commit_object_metadata(&db, &metadata))
+            .await
+            .map_err(|e| MetadataError::TaskCancelled(e.to_string()))?
+    }
+
     pub async fn get_object_metadata(&self, bucket: &str, key: &str) -> Result<ObjectMetadata> {
         let db = Arc::clone(&self.db);
         let bucket = bucket.to_string();

@@ -16,7 +16,7 @@ use tokio_util::io::StreamReader;
 use tracing::{debug, error, info, instrument};
 
 use crate::handlers::ApiError;
-use crate::metrics::object_size_bytes;
+use crate::metrics::{atomic_put_operations_total, object_size_bytes};
 use crate::state::AppState;
 
 use super::storage_key;
@@ -95,38 +95,64 @@ pub async fn put_object(
             }
         })?;
 
-    let stream = body
-        .into_data_stream()
-        .map_err(std::io::Error::other);
+    let stream = body.into_data_stream().map_err(std::io::Error::other);
     let stream_reader = StreamReader::new(stream);
     let mut hashing_reader = HashingReader::new(stream_reader);
 
     let full_key = storage_key(&bucket, &key);
 
-    debug!("Writing object to storage: {}", full_key);
-    state
+    let temp_object = state
         .storage
-        .put_object(&full_key, &mut hashing_reader)
+        .write_temp_object(&full_key, &mut hashing_reader)
         .await
         .map_err(|e| {
-            error!("Storage error: {}", e);
+            atomic_put_operations_total()
+                .with_label_values(&["temp_write", "error"])
+                .inc();
+            error!("Storage error writing temp object: {}", e);
             ApiError::Internal(format!("Storage error: {}", e))
         })?;
 
+    atomic_put_operations_total()
+        .with_label_values(&["temp_write", "success"])
+        .inc();
+
     let (etag, size) = hashing_reader.finalize();
 
-    debug!("Object written, size: {} bytes, etag: {}", size, etag);
+    debug!(
+        size = size,
+        etag = %etag,
+        "Object written to temp and synced"
+    );
 
     let metadata = ObjectMetadata::new(bucket.clone(), key.clone(), size, etag.clone());
 
-    state
-        .metadata
-        .put_object_metadata(metadata)
-        .await
-        .map_err(|e| {
-            error!("Metadata error: {}", e);
-            ApiError::Internal(format!("Metadata error: {}", e))
-        })?;
+    if let Err(e) = state.metadata.commit_object_metadata(metadata).await {
+        atomic_put_operations_total()
+            .with_label_values(&["metadata_commit", "error"])
+            .inc();
+        error!("Metadata commit error: {}", e);
+        return Err(ApiError::Internal(format!("Metadata error: {}", e)));
+    }
+
+    atomic_put_operations_total()
+        .with_label_values(&["metadata_commit", "success"])
+        .inc();
+
+    if let Err(e) = state.storage.commit_object(temp_object).await {
+        atomic_put_operations_total()
+            .with_label_values(&["storage_commit", "error"])
+            .inc();
+        error!("Storage commit error: {}", e);
+        return Err(ApiError::Internal(format!(
+            "Storage commit failed after metadata commit - manual recovery may be required: {}",
+            e
+        )));
+    }
+
+    atomic_put_operations_total()
+        .with_label_values(&["storage_commit", "success"])
+        .inc();
 
     object_size_bytes()
         .with_label_values(&["put"])
@@ -192,5 +218,170 @@ mod tests {
 
         let expected_hash = format!("{:x}", Sha256::digest(&data));
         assert_eq!(etag, expected_hash);
+    }
+
+    #[tokio::test]
+    async fn test_atomic_put_metadata_storage_consistency() {
+        use crate::test_helpers::test_setup;
+
+        let (state, _temp_dir) = test_setup().await;
+
+        let data = b"atomic test data";
+        let request = axum::http::Request::builder()
+            .method("PUT")
+            .uri("/test-bucket/test-object.txt")
+            .body(axum::body::Body::from(&data[..]))
+            .unwrap();
+
+        let (state_extract, path_extract, body) = (
+            axum::extract::State(state.clone()),
+            axum::extract::Path(("test-bucket".to_string(), "test-object.txt".to_string())),
+            request.into_body(),
+        );
+
+        let result = put_object(state_extract, path_extract, body).await;
+        assert!(result.is_ok(), "PUT should succeed");
+
+        let metadata = state
+            .metadata
+            .get_object_metadata("test-bucket", "test-object.txt")
+            .await
+            .unwrap();
+        assert_eq!(metadata.size, data.len() as u64);
+
+        let mut file = state
+            .storage
+            .get_object(&storage_key("test-bucket", "test-object.txt"))
+            .await
+            .unwrap();
+
+        let mut contents = Vec::new();
+        file.read_to_end(&mut contents).await.unwrap();
+        assert_eq!(contents, data);
+    }
+
+    #[tokio::test]
+    async fn test_atomic_put_raii_cleanup() {
+        use crate::test_helpers::test_setup;
+
+        let (state, _temp_dir) = test_setup().await;
+
+        let data = b"test data for RAII cleanup";
+        let storage_key_val = storage_key("test-bucket", "test-object.txt");
+
+        let temp_path = {
+            let temp_object = state
+                .storage
+                .write_temp_object(&storage_key_val, &data[..])
+                .await
+                .unwrap();
+
+            let path = temp_object.temp_path().to_path_buf();
+            assert!(path.exists(), "Temp file should exist");
+
+            path
+        };
+
+        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+
+        assert!(
+            !temp_path.exists(),
+            "Temp file should be auto-cleaned up via RAII Drop"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_atomic_put_concurrent_same_key() {
+        use crate::test_helpers::test_setup;
+
+        let (state, _temp_dir) = test_setup().await;
+
+        let data1 = b"first write";
+        let data2 = b"second write wins";
+
+        let state1 = state.clone();
+        let state2 = state.clone();
+
+        let handle1 = tokio::spawn(async move {
+            let request = axum::http::Request::builder()
+                .method("PUT")
+                .uri("/test-bucket/concurrent.txt")
+                .body(axum::body::Body::from(&data1[..]))
+                .unwrap();
+
+            let (state_extract, path_extract, body) = (
+                axum::extract::State(state1),
+                axum::extract::Path(("test-bucket".to_string(), "concurrent.txt".to_string())),
+                request.into_body(),
+            );
+
+            put_object(state_extract, path_extract, body).await
+        });
+
+        let handle2 = tokio::spawn(async move {
+            let request = axum::http::Request::builder()
+                .method("PUT")
+                .uri("/test-bucket/concurrent.txt")
+                .body(axum::body::Body::from(&data2[..]))
+                .unwrap();
+
+            let (state_extract, path_extract, body) = (
+                axum::extract::State(state2),
+                axum::extract::Path(("test-bucket".to_string(), "concurrent.txt".to_string())),
+                request.into_body(),
+            );
+
+            put_object(state_extract, path_extract, body).await
+        });
+
+        let result1 = handle1.await.unwrap();
+        let result2 = handle2.await.unwrap();
+
+        assert!(
+            result1.is_ok() || result2.is_ok(),
+            "At least one PUT should succeed"
+        );
+
+        let metadata = state
+            .metadata
+            .get_object_metadata("test-bucket", "concurrent.txt")
+            .await
+            .unwrap();
+
+        assert!(
+            metadata.size == data1.len() as u64 || metadata.size == data2.len() as u64,
+            "Object should have one of the written sizes"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_atomic_put_invalid_bucket() {
+        use crate::test_helpers::test_setup_empty;
+
+        let (state, _temp_dir) = test_setup_empty().await;
+
+        let data = b"test data";
+        let request = axum::http::Request::builder()
+            .method("PUT")
+            .uri("/nonexistent-bucket/test-object.txt")
+            .body(axum::body::Body::from(&data[..]))
+            .unwrap();
+
+        let (state_extract, path_extract, body) = (
+            axum::extract::State(state.clone()),
+            axum::extract::Path((
+                "nonexistent-bucket".to_string(),
+                "test-object.txt".to_string(),
+            )),
+            request.into_body(),
+        );
+
+        let result = put_object(state_extract, path_extract, body).await;
+
+        assert!(result.is_err(), "PUT to nonexistent bucket should fail");
+        assert!(
+            matches!(result.unwrap_err(), ApiError::BucketNotFound(_)),
+            "Should return BucketNotFound error"
+        );
     }
 }

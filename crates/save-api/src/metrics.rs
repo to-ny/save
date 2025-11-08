@@ -21,6 +21,7 @@ static HTTP_REQUESTS_TOTAL: OnceLock<IntCounterVec> = OnceLock::new();
 static HTTP_REQUEST_DURATION_SECONDS: OnceLock<HistogramVec> = OnceLock::new();
 static OBJECT_SIZE_BYTES: OnceLock<HistogramVec> = OnceLock::new();
 static MULTIPART_UPLOADS_IN_PROGRESS: OnceLock<IntGauge> = OnceLock::new();
+static ATOMIC_PUT_OPERATIONS_TOTAL: OnceLock<IntCounterVec> = OnceLock::new();
 
 /// HTTP request count by endpoint, method, and status code.
 ///
@@ -96,11 +97,24 @@ pub fn multipart_uploads_in_progress() -> &'static IntGauge {
     })
 }
 
+/// Total atomic PUT operations by stage and result.
+pub fn atomic_put_operations_total() -> &'static IntCounterVec {
+    ATOMIC_PUT_OPERATIONS_TOTAL.get_or_init(|| {
+        register_int_counter_vec!(
+            "save_atomic_put_operations_total",
+            "Total atomic PUT operations by stage and result",
+            &["stage", "result"]
+        )
+        .expect("Failed to register save_atomic_put_operations_total metric")
+    })
+}
+
 pub fn init_metrics() {
     let _ = http_requests_total();
     let _ = http_request_duration_seconds();
     let _ = object_size_bytes();
     let _ = multipart_uploads_in_progress();
+    let _ = atomic_put_operations_total();
 }
 
 pub fn encode_metrics() -> Result<String, MetricsError> {
