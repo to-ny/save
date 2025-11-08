@@ -18,7 +18,7 @@ Implement a local, single-node S3-compatible object storage system using RocksDB
 - [x] Implement PUT /{bucket}/{object} with SigV4 auth
 - [x] Implement GET /{bucket}/{object}
 - [x] Implement DELETE /{bucket}/{object}
-- [ ] Implement HEAD /{bucket}/{object} for metadata
+- [x] Implement HEAD /{bucket}/{object} for metadata
 - [ ] Implement multipart endpoints: initiate, upload part, complete, abort
 - [ ] Health and metrics endpoints: `/health`, `/metrics`
 
