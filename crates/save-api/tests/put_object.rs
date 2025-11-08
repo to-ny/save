@@ -159,3 +159,43 @@ async fn test_put_object_etag_correctness() {
 
     assert_eq!(etag, expected_etag);
 }
+
+#[tokio::test]
+async fn test_put_object_invalid_bucket_name() {
+    let (state, _temp_dir) = setup().await;
+    let app = save_api::app(state);
+
+    let request = Request::builder()
+        .method("PUT")
+        .uri("/../../etc/passwd/test-file.txt")
+        .header(
+            "Authorization",
+            "AWS4-HMAC-SHA256 Credential=saveadmin/20231201/us-east-1/s3/aws4_request, SignedHeaders=host;x-amz-date, Signature=fake"
+        )
+        .body(Body::from("Hello, World!"))
+        .unwrap();
+
+    let response = app.oneshot(request).await.unwrap();
+
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+}
+
+#[tokio::test]
+async fn test_put_object_invalid_key() {
+    let (state, _temp_dir) = setup().await;
+    let app = save_api::app(state);
+
+    let request = Request::builder()
+        .method("PUT")
+        .uri("/test-bucket/path/../../../etc/passwd")
+        .header(
+            "Authorization",
+            "AWS4-HMAC-SHA256 Credential=saveadmin/20231201/us-east-1/s3/aws4_request, SignedHeaders=host;x-amz-date, Signature=fake"
+        )
+        .body(Body::from("Hello, World!"))
+        .unwrap();
+
+    let response = app.oneshot(request).await.unwrap();
+
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+}

@@ -6,7 +6,8 @@ use axum::{
     Json,
 };
 use futures::TryStreamExt;
-use save_metadata::ObjectMetadata;
+use save_common::{validate_bucket_name, validate_object_key};
+use save_metadata::{MetadataError, ObjectMetadata};
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 use std::time::Instant;
@@ -14,7 +15,10 @@ use tokio::io::AsyncRead;
 use tokio_util::io::StreamReader;
 use tracing::{debug, error, info, instrument};
 
+use crate::handlers::ApiError;
 use crate::state::AppState;
+
+use super::storage_key;
 
 #[derive(Serialize)]
 pub struct PutObjectResponse {
@@ -68,14 +72,25 @@ pub async fn put_object(
     State(state): State<AppState>,
     Path((bucket, key)): Path<(String, String)>,
     body: Body,
-) -> Result<Response, AppError> {
+) -> Result<Response, ApiError> {
     let start = Instant::now();
     info!("PUT request started");
 
-    if state.metadata.get_bucket(&bucket).await.is_err() {
-        debug!("Bucket not found: {}", bucket);
-        return Err(AppError::BucketNotFound(bucket));
-    }
+    validate_bucket_name(&bucket)
+        .map_err(|e| ApiError::InvalidRequest(e.to_string()))?;
+    validate_object_key(&key)
+        .map_err(|e| ApiError::InvalidRequest(e.to_string()))?;
+
+    state.metadata.get_bucket(&bucket).await.map_err(|e| match e {
+        MetadataError::BucketNotFound(_) => {
+            debug!("Bucket not found: {}", bucket);
+            ApiError::BucketNotFound(bucket.clone())
+        }
+        _ => {
+            error!("Metadata error: {}", e);
+            ApiError::Internal(format!("Metadata error: {}", e))
+        }
+    })?;
 
     let stream = body
         .into_data_stream()
@@ -83,7 +98,7 @@ pub async fn put_object(
     let stream_reader = StreamReader::new(stream);
     let mut hashing_reader = HashingReader::new(stream_reader);
 
-    let full_key = format!("{}/{}", bucket, key);
+    let full_key = storage_key(&bucket, &key);
 
     debug!("Writing object to storage: {}", full_key);
     state
@@ -92,7 +107,7 @@ pub async fn put_object(
         .await
         .map_err(|e| {
             error!("Storage error: {}", e);
-            AppError::Internal(format!("Storage error: {}", e))
+            ApiError::Internal(format!("Storage error: {}", e))
         })?;
 
     let (etag, size) = hashing_reader.finalize();
@@ -107,7 +122,7 @@ pub async fn put_object(
         .await
         .map_err(|e| {
             error!("Metadata error: {}", e);
-            AppError::Internal(format!("Metadata error: {}", e))
+            ApiError::Internal(format!("Metadata error: {}", e))
         })?;
 
     let duration = start.elapsed();
@@ -117,26 +132,6 @@ pub async fn put_object(
     );
 
     Ok((StatusCode::OK, Json(PutObjectResponse { etag })).into_response())
-}
-
-pub enum AppError {
-    BucketNotFound(String),
-    Internal(String),
-}
-
-impl IntoResponse for AppError {
-    fn into_response(self) -> Response {
-        let (status, message) = match self {
-            AppError::BucketNotFound(bucket) => {
-                (StatusCode::NOT_FOUND, format!("Bucket not found: {}", bucket))
-            }
-            AppError::Internal(msg) => {
-                (StatusCode::INTERNAL_SERVER_ERROR, format!("Internal error: {}", msg))
-            }
-        };
-
-        (status, message).into_response()
-    }
 }
 
 #[cfg(test)]
@@ -187,21 +182,5 @@ mod tests {
 
         let expected_hash = format!("{:x}", Sha256::digest(&data));
         assert_eq!(etag, expected_hash);
-    }
-
-    #[test]
-    fn test_app_error_bucket_not_found() {
-        let error = AppError::BucketNotFound("test-bucket".to_string());
-        let response = error.into_response();
-
-        assert_eq!(response.status(), StatusCode::NOT_FOUND);
-    }
-
-    #[test]
-    fn test_app_error_internal() {
-        let error = AppError::Internal("something went wrong".to_string());
-        let response = error.into_response();
-
-        assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
     }
 }

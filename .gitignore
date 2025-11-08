@@ -32,13 +32,10 @@ rust-project.json
 # Save project-specific data directories
 # (from ARCHITECTURE.md and DESIGN_NOTES.md)
 /data/
-**/data/
 /objects/
-**/objects/
 /temp/
-**/temp/
 /rocksdb/
-**/rocksdb/
+/metadata/
 
 # Configuration files with secrets
 *.secret
