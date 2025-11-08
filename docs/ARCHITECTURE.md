@@ -59,6 +59,10 @@ Each crate is self-contained and tested independently.
 - **Atomic PUT** via temp file + atomic rename.
 - **Crash recovery** using RocksDB durability and file rename semantics.
 
+### Design rationale
+- **Content-addressable storage with SHA256**: Objects stored by hash prevents deduplication issues and enables built-in integrity checking via ETags.
+- **RocksDB for metadata**: Provides ACID durability guarantees and atomic batch operations (WriteBatch) needed for transactional metadata updates.
+
 ---
 
 ## 4. Phase 2–4 preview (planned evolution)
