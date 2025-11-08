@@ -34,6 +34,7 @@ pub struct MultipartUpload {
     pub key: String,
     pub parts: BTreeMap<u32, MultipartPart>,
     pub initiated_at: DateTime<Utc>,
+    pub content_type: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -42,16 +43,18 @@ struct MultipartMetadata {
     bucket: String,
     key: String,
     initiated_at: DateTime<Utc>,
+    content_type: Option<String>,
 }
 
 impl MultipartUpload {
-    pub fn new(upload_id: String, bucket: String, key: String) -> Self {
+    pub fn new(upload_id: String, bucket: String, key: String, content_type: Option<String>) -> Self {
         Self {
             upload_id,
             bucket,
             key,
             parts: BTreeMap::new(),
             initiated_at: Utc::now(),
+            content_type,
         }
     }
 
@@ -69,6 +72,7 @@ pub(crate) fn initiate_multipart_upload(
     bucket: &str,
     key: &str,
     upload_id: &str,
+    content_type: Option<String>,
 ) -> Result<MultipartUpload> {
     validate_object_key(key).map_err(|e| MetadataError::InvalidOperation(e.to_string()))?;
     validate_upload_id(upload_id)?;
@@ -78,6 +82,7 @@ pub(crate) fn initiate_multipart_upload(
         bucket: bucket.to_string(),
         key: key.to_string(),
         initiated_at: Utc::now(),
+        content_type: content_type.clone(),
     };
     let db_key = MultipartUpload::db_key(bucket, key, upload_id);
     let value = bincode::serialize(&metadata)?;
@@ -89,6 +94,7 @@ pub(crate) fn initiate_multipart_upload(
         key: key.to_string(),
         parts: BTreeMap::new(),
         initiated_at: metadata.initiated_at,
+        content_type,
     })
 }
 
@@ -130,6 +136,7 @@ pub(crate) fn get_multipart_upload(
         key: metadata.key,
         parts,
         initiated_at: metadata.initiated_at,
+        content_type: metadata.content_type,
     })
 }
 
@@ -267,6 +274,7 @@ pub(crate) fn list_multipart_uploads(
             key: metadata.key,
             parts,
             initiated_at: metadata.initiated_at,
+            content_type: metadata.content_type,
         });
     }
 
@@ -285,7 +293,7 @@ mod tests {
     #[test]
     fn test_initiate_multipart_upload() {
         let db = create_test_db();
-        let upload = initiate_multipart_upload(&db, "bucket", "key", "upload123").unwrap();
+        let upload = initiate_multipart_upload(&db, "bucket", "key", "upload123", None).unwrap();
         assert_eq!(upload.upload_id, "upload123");
         assert_eq!(upload.bucket, "bucket");
         assert_eq!(upload.key, "key");
@@ -295,7 +303,7 @@ mod tests {
     #[test]
     fn test_get_multipart_upload() {
         let db = create_test_db();
-        let created = initiate_multipart_upload(&db, "bucket", "key", "upload123").unwrap();
+        let created = initiate_multipart_upload(&db, "bucket", "key", "upload123", None).unwrap();
         let fetched = get_multipart_upload(&db, "bucket", "key", "upload123").unwrap();
         assert_eq!(created, fetched);
     }
@@ -303,7 +311,7 @@ mod tests {
     #[test]
     fn test_record_part() {
         let db = create_test_db();
-        initiate_multipart_upload(&db, "bucket", "key", "upload123").unwrap();
+        initiate_multipart_upload(&db, "bucket", "key", "upload123", None).unwrap();
 
         record_part(&db, "bucket", "key", "upload123", 1, "etag1".to_string(), 1024).unwrap();
         record_part(&db, "bucket", "key", "upload123", 2, "etag2".to_string(), 2048).unwrap();
@@ -317,7 +325,7 @@ mod tests {
     #[test]
     fn test_complete_multipart_upload() {
         let db = create_test_db();
-        initiate_multipart_upload(&db, "bucket", "key", "upload123").unwrap();
+        initiate_multipart_upload(&db, "bucket", "key", "upload123", None).unwrap();
         record_part(&db, "bucket", "key", "upload123", 1, "etag1".to_string(), 1024).unwrap();
 
         let upload = complete_multipart_upload(&db, "bucket", "key", "upload123").unwrap();
@@ -330,7 +338,7 @@ mod tests {
     #[test]
     fn test_abort_multipart_upload() {
         let db = create_test_db();
-        initiate_multipart_upload(&db, "bucket", "key", "upload123").unwrap();
+        initiate_multipart_upload(&db, "bucket", "key", "upload123", None).unwrap();
 
         abort_multipart_upload(&db, "bucket", "key", "upload123").unwrap();
 
@@ -341,9 +349,9 @@ mod tests {
     #[test]
     fn test_list_multipart_uploads() {
         let db = create_test_db();
-        initiate_multipart_upload(&db, "bucket", "key1", "upload1").unwrap();
-        initiate_multipart_upload(&db, "bucket", "key2", "upload2").unwrap();
-        initiate_multipart_upload(&db, "other-bucket", "key3", "upload3").unwrap();
+        initiate_multipart_upload(&db, "bucket", "key1", "upload1", None).unwrap();
+        initiate_multipart_upload(&db, "bucket", "key2", "upload2", None).unwrap();
+        initiate_multipart_upload(&db, "other-bucket", "key3", "upload3", None).unwrap();
 
         let uploads = list_multipart_uploads(&db, "bucket").unwrap();
         assert_eq!(uploads.len(), 2);

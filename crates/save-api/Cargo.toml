@@ -16,11 +16,13 @@ futures = "0.3"
 axum = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+serde_urlencoded = "0.7"
 anyhow = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 sha2 = { workspace = true }
 chrono = { workspace = true }
+uuid = { version = "1.0", features = ["v4"] }
 
 [dev-dependencies]
 tower = { workspace = true }

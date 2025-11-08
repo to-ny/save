@@ -51,7 +51,7 @@ async fn test_multipart_upload_lifecycle() {
     let (store, _temp_dir) = create_test_store();
 
     let upload = store
-        .initiate_multipart_upload("bucket", "key", "upload123")
+        .initiate_multipart_upload("bucket", "key", "upload123", None)
         .await
         .unwrap();
     assert_eq!(upload.upload_id, "upload123");

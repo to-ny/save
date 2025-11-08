@@ -100,13 +100,14 @@ impl MetadataStore {
         bucket: &str,
         key: &str,
         upload_id: &str,
+        content_type: Option<String>,
     ) -> Result<MultipartUpload> {
         let db = Arc::clone(&self.db);
         let bucket = bucket.to_string();
         let key = key.to_string();
         let upload_id = upload_id.to_string();
         tokio::task::spawn_blocking(move || {
-            multipart::initiate_multipart_upload(&db, &bucket, &key, &upload_id)
+            multipart::initiate_multipart_upload(&db, &bucket, &key, &upload_id, content_type)
         })
         .await
         .map_err(|e| MetadataError::TaskCancelled(e.to_string()))?
