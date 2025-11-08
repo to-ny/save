@@ -1,6 +1,8 @@
+mod delete;
 mod get;
 mod put;
 
+pub use delete::delete_object;
 pub use get::get_object;
 pub use put::put_object;
 
