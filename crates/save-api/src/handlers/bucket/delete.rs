@@ -17,8 +17,7 @@ pub async fn delete_bucket(
 ) -> Result<Response, ApiError> {
     info!("Delete bucket request");
 
-    validate_bucket_name(&bucket)
-        .map_err(|e| ApiError::InvalidRequest(e.to_string()))?;
+    validate_bucket_name(&bucket).map_err(|e| ApiError::InvalidRequest(e.to_string()))?;
 
     state
         .metadata

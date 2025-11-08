@@ -21,10 +21,8 @@ pub async fn delete_object(
     let start = Instant::now();
     info!("DELETE request started");
 
-    validate_bucket_name(&bucket)
-        .map_err(|e| ApiError::InvalidRequest(e.to_string()))?;
-    validate_object_key(&key)
-        .map_err(|e| ApiError::InvalidRequest(e.to_string()))?;
+    validate_bucket_name(&bucket).map_err(|e| ApiError::InvalidRequest(e.to_string()))?;
+    validate_object_key(&key).map_err(|e| ApiError::InvalidRequest(e.to_string()))?;
 
     state
         .metadata
@@ -44,14 +42,10 @@ pub async fn delete_object(
     let full_key = storage_key(&bucket, &key);
 
     debug!("Deleting object from storage: {}", full_key);
-    state
-        .storage
-        .delete_object(&full_key)
-        .await
-        .map_err(|e| {
-            error!("Storage error: {}", e);
-            ApiError::Internal(format!("Storage error: {}", e))
-        })?;
+    state.storage.delete_object(&full_key).await.map_err(|e| {
+        error!("Storage error: {}", e);
+        ApiError::Internal(format!("Storage error: {}", e))
+    })?;
 
     debug!("Deleting object metadata: {}/{}", bucket, key);
     state

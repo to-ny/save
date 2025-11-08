@@ -31,10 +31,7 @@ async fn main() -> anyhow::Result<()> {
     info!("Initializing storage at: {}", config.storage.data_path);
     let storage = ObjectStorage::new(&config.storage.data_path).await?;
 
-    info!(
-        "Initializing metadata at: {}",
-        config.storage.metadata_path
-    );
+    info!("Initializing metadata at: {}", config.storage.metadata_path);
     let metadata = MetadataStore::new(&config.storage.metadata_path)?;
 
     let bind_addr = config.server.bind_address.clone();

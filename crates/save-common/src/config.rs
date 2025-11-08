@@ -38,7 +38,11 @@ pub struct CredentialsConfig {
 impl SaveConfig {
     pub fn load(path: &Path) -> Result<Self> {
         let contents = fs::read_to_string(path).map_err(|e| {
-            Error::config(format!("Failed to read config file {}: {}", path.display(), e))
+            Error::config(format!(
+                "Failed to read config file {}: {}",
+                path.display(),
+                e
+            ))
         })?;
 
         let config: SaveConfig = toml::from_str(&contents)?;
@@ -70,7 +74,14 @@ impl SaveConfig {
         Ok(())
     }
 
-    pub fn default() -> Self {
+    #[cfg(test)]
+    pub fn test_default() -> Self {
+        Self::default()
+    }
+}
+
+impl Default for SaveConfig {
+    fn default() -> Self {
         Self {
             server: ServerConfig {
                 bind_address: "127.0.0.1:9000".to_string(),
@@ -86,11 +97,6 @@ impl SaveConfig {
                 secret_key: "savepass".to_string(),
             },
         }
-    }
-
-    #[cfg(test)]
-    pub fn test_default() -> Self {
-        Self::default()
     }
 }
 

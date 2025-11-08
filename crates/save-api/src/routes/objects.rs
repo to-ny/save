@@ -1,8 +1,4 @@
-use axum::{
-    response::IntoResponse,
-    routing::get,
-    Router,
-};
+use axum::{Router, response::IntoResponse, routing::get};
 
 use crate::handlers::multipart::{abort_multipart, upload_part};
 use crate::handlers::objects::{delete_object, get_object, head_object, put_object};
@@ -21,7 +17,9 @@ pub fn routes() -> Router<AppState> {
 async fn put_or_upload_part(
     state: axum::extract::State<AppState>,
     path: axum::extract::Path<(String, String)>,
-    axum::extract::Query(params): axum::extract::Query<crate::handlers::multipart::MultipartQueryParams>,
+    axum::extract::Query(params): axum::extract::Query<
+        crate::handlers::multipart::MultipartQueryParams,
+    >,
     body: axum::body::Body,
 ) -> axum::response::Response {
     match (params.part_number, params.upload_id) {
@@ -41,7 +39,9 @@ async fn put_or_upload_part(
 async fn delete_or_abort(
     state: axum::extract::State<AppState>,
     path: axum::extract::Path<(String, String)>,
-    axum::extract::Query(params): axum::extract::Query<crate::handlers::multipart::MultipartQueryParams>,
+    axum::extract::Query(params): axum::extract::Query<
+        crate::handlers::multipart::MultipartQueryParams,
+    >,
 ) -> axum::response::Response {
     if let Some(upload_id) = params.upload_id {
         let query = crate::handlers::multipart::CompleteQuery { upload_id };

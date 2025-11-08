@@ -1,7 +1,7 @@
 use axum::{
     body::Body,
     extract::{Path, State},
-    http::{header, StatusCode},
+    http::{StatusCode, header},
     response::{IntoResponse, Response},
 };
 use save_common::{validate_bucket_name, validate_object_key};
@@ -23,10 +23,8 @@ pub async fn get_object(
     let start = Instant::now();
     info!("GET request started");
 
-    validate_bucket_name(&bucket)
-        .map_err(|e| ApiError::InvalidRequest(e.to_string()))?;
-    validate_object_key(&key)
-        .map_err(|e| ApiError::InvalidRequest(e.to_string()))?;
+    validate_bucket_name(&bucket).map_err(|e| ApiError::InvalidRequest(e.to_string()))?;
+    validate_object_key(&key).map_err(|e| ApiError::InvalidRequest(e.to_string()))?;
 
     let metadata = state
         .metadata
@@ -46,20 +44,18 @@ pub async fn get_object(
     let full_key = storage_key(&bucket, &key);
 
     debug!("Reading object from storage: {}", full_key);
-    let file = state
-        .storage
-        .get_object(&full_key)
-        .await
-        .map_err(|e| {
-            error!("Storage error: {}", e);
-            ApiError::Internal(format!("Storage error: {}", e))
-        })?;
+    let file = state.storage.get_object(&full_key).await.map_err(|e| {
+        error!("Storage error: {}", e);
+        ApiError::Internal(format!("Storage error: {}", e))
+    })?;
 
     let stream = ReaderStream::new(file);
     let body = Body::from_stream(stream);
 
     let last_modified = metadata.modified_at.to_rfc2822();
-    let content_type = metadata.content_type.unwrap_or_else(|| "application/octet-stream".to_string());
+    let content_type = metadata
+        .content_type
+        .unwrap_or_else(|| "application/octet-stream".to_string());
 
     let duration = start.elapsed();
     info!(

@@ -149,7 +149,7 @@ async fn test_metrics_track_multipart_upload() {
 
     let part_request = Request::builder()
         .method("PUT")
-        .uri(&format!(
+        .uri(format!(
             "/test-bucket/multipart-test.txt?partNumber=1&uploadId={}",
             upload_id
         ))
@@ -164,7 +164,7 @@ async fn test_metrics_track_multipart_upload() {
 
     let complete_request = Request::builder()
         .method("POST")
-        .uri(&format!(
+        .uri(format!(
             "/test-bucket/multipart-test.txt?uploadId={}",
             upload_id
         ))
@@ -202,7 +202,7 @@ async fn test_metrics_endpoint_normalization() {
     for object_name in &["obj1.txt", "obj2.txt", "folder/obj3.txt"] {
         let request = Request::builder()
             .method("PUT")
-            .uri(&format!("/test-bucket/{}", object_name))
+            .uri(format!("/test-bucket/{}", object_name))
             .header("Authorization", "AWS4-HMAC-SHA256 Credential=saveadmin/20240101/us-east-1/s3/aws4_request, SignedHeaders=host;x-amz-content-sha256;x-amz-date, Signature=test")
             .header("x-amz-content-sha256", "UNSIGNED-PAYLOAD")
             .header("x-amz-date", "20240101T000000Z")

@@ -1,14 +1,11 @@
 use crate::error::{MetadataError, Result};
-use save_common::{validate_bucket_name, Bucket};
+use save_common::{Bucket, validate_bucket_name};
 
 fn bucket_key(name: &str) -> String {
     format!("bkt:{}", name)
 }
 
-pub(crate) fn create_bucket(
-    db: &rocksdb::DB,
-    name: &str,
-) -> Result<Bucket> {
+pub(crate) fn create_bucket(db: &rocksdb::DB, name: &str) -> Result<Bucket> {
     validate_bucket_name(name).map_err(|e| MetadataError::InvalidOperation(e.to_string()))?;
 
     let key = bucket_key(name);

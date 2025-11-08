@@ -13,11 +13,7 @@ pub struct AppState {
 }
 
 impl AppState {
-    pub fn new(
-        storage: ObjectStorage,
-        metadata: MetadataStore,
-        config: SaveConfig,
-    ) -> Self {
+    pub fn new(storage: ObjectStorage, metadata: MetadataStore, config: SaveConfig) -> Self {
         Self {
             storage: Arc::new(storage),
             metadata: Arc::new(metadata),

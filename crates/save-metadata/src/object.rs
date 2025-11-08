@@ -33,11 +33,9 @@ impl ObjectMetadata {
     }
 }
 
-pub(crate) fn put_object_metadata(
-    db: &rocksdb::DB,
-    metadata: &ObjectMetadata,
-) -> Result<()> {
-    validate_object_key(&metadata.key).map_err(|e| MetadataError::InvalidOperation(e.to_string()))?;
+pub(crate) fn put_object_metadata(db: &rocksdb::DB, metadata: &ObjectMetadata) -> Result<()> {
+    validate_object_key(&metadata.key)
+        .map_err(|e| MetadataError::InvalidOperation(e.to_string()))?;
 
     let key = ObjectMetadata::db_key(&metadata.bucket, &metadata.key);
     let value = bincode::serialize(metadata)?;
@@ -66,11 +64,7 @@ pub(crate) fn get_object_metadata(
     }
 }
 
-pub(crate) fn delete_object_metadata(
-    db: &rocksdb::DB,
-    bucket: &str,
-    key: &str,
-) -> Result<()> {
+pub(crate) fn delete_object_metadata(db: &rocksdb::DB, bucket: &str, key: &str) -> Result<()> {
     validate_object_key(key).map_err(|e| MetadataError::InvalidOperation(e.to_string()))?;
 
     let db_key = ObjectMetadata::db_key(bucket, key);

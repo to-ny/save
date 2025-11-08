@@ -1,4 +1,4 @@
-use axum::{extract::State, http::StatusCode, response::IntoResponse, routing::get, Router, Json};
+use axum::{Json, Router, extract::State, http::StatusCode, response::IntoResponse, routing::get};
 use chrono::{DateTime, Utc};
 use serde::Serialize;
 use tracing::{error, info, instrument};
@@ -49,8 +49,8 @@ mod tests {
     use super::*;
     use axum::body::Body;
     use axum::http::{Request, StatusCode};
-    use tower::ServiceExt;
     use http_body_util::BodyExt;
+    use tower::ServiceExt;
 
     #[tokio::test]
     async fn test_health_endpoint() {

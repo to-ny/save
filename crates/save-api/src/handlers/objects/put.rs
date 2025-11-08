@@ -1,9 +1,9 @@
 use axum::{
+    Json,
     body::Body,
     extract::{Path, State},
     http::StatusCode,
     response::{IntoResponse, Response},
-    Json,
 };
 use futures::TryStreamExt;
 use save_common::{validate_bucket_name, validate_object_key};
@@ -77,25 +77,27 @@ pub async fn put_object(
     let start = Instant::now();
     info!("PUT request started");
 
-    validate_bucket_name(&bucket)
-        .map_err(|e| ApiError::InvalidRequest(e.to_string()))?;
-    validate_object_key(&key)
-        .map_err(|e| ApiError::InvalidRequest(e.to_string()))?;
+    validate_bucket_name(&bucket).map_err(|e| ApiError::InvalidRequest(e.to_string()))?;
+    validate_object_key(&key).map_err(|e| ApiError::InvalidRequest(e.to_string()))?;
 
-    state.metadata.get_bucket(&bucket).await.map_err(|e| match e {
-        MetadataError::BucketNotFound(_) => {
-            debug!("Bucket not found: {}", bucket);
-            ApiError::BucketNotFound(bucket.clone())
-        }
-        _ => {
-            error!("Metadata error: {}", e);
-            ApiError::Internal(format!("Metadata error: {}", e))
-        }
-    })?;
+    state
+        .metadata
+        .get_bucket(&bucket)
+        .await
+        .map_err(|e| match e {
+            MetadataError::BucketNotFound(_) => {
+                debug!("Bucket not found: {}", bucket);
+                ApiError::BucketNotFound(bucket.clone())
+            }
+            _ => {
+                error!("Metadata error: {}", e);
+                ApiError::Internal(format!("Metadata error: {}", e))
+            }
+        })?;
 
     let stream = body
         .into_data_stream()
-        .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e));
+        .map_err(std::io::Error::other);
     let stream_reader = StreamReader::new(stream);
     let mut hashing_reader = HashingReader::new(stream_reader);
 
@@ -154,7 +156,10 @@ mod tests {
         let (etag, size) = reader.finalize();
 
         assert_eq!(size, 0);
-        assert_eq!(etag, "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855");
+        assert_eq!(
+            etag,
+            "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        );
     }
 
     #[tokio::test]

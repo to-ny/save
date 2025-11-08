@@ -1,26 +1,18 @@
-use axum::{
-    response::IntoResponse,
-    routing::post,
-    Router,
-};
+use axum::{Router, response::IntoResponse, routing::post};
 
-use crate::handlers::multipart::{
-    complete_multipart, initiate_multipart,
-};
+use crate::handlers::multipart::{complete_multipart, initiate_multipart};
 use crate::state::AppState;
 
 pub fn routes() -> Router<AppState> {
-    Router::new()
-        .route(
-            "/{bucket}/{*key}",
-            post(initiate_or_complete),
-        )
+    Router::new().route("/{bucket}/{*key}", post(initiate_or_complete))
 }
 
 async fn initiate_or_complete(
     state: axum::extract::State<AppState>,
     path: axum::extract::Path<(String, String)>,
-    axum::extract::Query(params): axum::extract::Query<crate::handlers::multipart::MultipartQueryParams>,
+    axum::extract::Query(params): axum::extract::Query<
+        crate::handlers::multipart::MultipartQueryParams,
+    >,
     query: axum::extract::Query<crate::handlers::multipart::InitiateQuery>,
     headers: axum::http::HeaderMap,
 ) -> axum::response::Response {
@@ -30,7 +22,9 @@ async fn initiate_or_complete(
             .await
             .into_response()
     } else if query.uploads.is_some() {
-        initiate_multipart(state, path, query, headers).await.into_response()
+        initiate_multipart(state, path, query, headers)
+            .await
+            .into_response()
     } else {
         axum::http::StatusCode::BAD_REQUEST.into_response()
     }
@@ -71,7 +65,14 @@ mod tests {
             .unwrap();
         state
             .metadata
-            .record_part("test-bucket", "file.txt", "test-upload-id", 1, "etag".to_string(), 100)
+            .record_part(
+                "test-bucket",
+                "file.txt",
+                "test-upload-id",
+                1,
+                "etag".to_string(),
+                100,
+            )
             .await
             .unwrap();
 

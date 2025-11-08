@@ -16,27 +16,30 @@ pub enum ApiError {
 impl IntoResponse for ApiError {
     fn into_response(self) -> Response {
         let (status, message) = match self {
-            ApiError::BucketNotFound(bucket) => {
-                (StatusCode::NOT_FOUND, format!("Bucket not found: {}", bucket))
-            }
-            ApiError::BucketAlreadyExists(bucket) => {
-                (StatusCode::CONFLICT, format!("Bucket already exists: {}", bucket))
-            }
-            ApiError::BucketNotEmpty(bucket) => {
-                (StatusCode::CONFLICT, format!("Bucket not empty: {}", bucket))
-            }
-            ApiError::ObjectNotFound(bucket, key) => {
-                (StatusCode::NOT_FOUND, format!("Object not found: {}/{}", bucket, key))
-            }
+            ApiError::BucketNotFound(bucket) => (
+                StatusCode::NOT_FOUND,
+                format!("Bucket not found: {}", bucket),
+            ),
+            ApiError::BucketAlreadyExists(bucket) => (
+                StatusCode::CONFLICT,
+                format!("Bucket already exists: {}", bucket),
+            ),
+            ApiError::BucketNotEmpty(bucket) => (
+                StatusCode::CONFLICT,
+                format!("Bucket not empty: {}", bucket),
+            ),
+            ApiError::ObjectNotFound(bucket, key) => (
+                StatusCode::NOT_FOUND,
+                format!("Object not found: {}/{}", bucket, key),
+            ),
             ApiError::InvalidRequest(msg) => {
                 (StatusCode::BAD_REQUEST, format!("Invalid request: {}", msg))
             }
-            ApiError::Unauthorized => {
-                (StatusCode::UNAUTHORIZED, "Unauthorized".to_string())
-            }
-            ApiError::Internal(msg) => {
-                (StatusCode::INTERNAL_SERVER_ERROR, format!("Internal error: {}", msg))
-            }
+            ApiError::Unauthorized => (StatusCode::UNAUTHORIZED, "Unauthorized".to_string()),
+            ApiError::Internal(msg) => (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Internal error: {}", msg),
+            ),
         };
 
         (status, message).into_response()

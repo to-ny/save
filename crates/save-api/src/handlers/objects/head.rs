@@ -1,6 +1,6 @@
 use axum::{
     extract::{Path, State},
-    http::{header, StatusCode},
+    http::{StatusCode, header},
     response::{IntoResponse, Response},
 };
 use save_common::{validate_bucket_name, validate_object_key};
@@ -19,10 +19,8 @@ pub async fn head_object(
     let start = Instant::now();
     info!("HEAD request started");
 
-    validate_bucket_name(&bucket)
-        .map_err(|e| ApiError::InvalidRequest(e.to_string()))?;
-    validate_object_key(&key)
-        .map_err(|e| ApiError::InvalidRequest(e.to_string()))?;
+    validate_bucket_name(&bucket).map_err(|e| ApiError::InvalidRequest(e.to_string()))?;
+    validate_object_key(&key).map_err(|e| ApiError::InvalidRequest(e.to_string()))?;
 
     let metadata = state
         .metadata

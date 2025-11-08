@@ -104,10 +104,11 @@ mod tests {
         let id = layout.object_id("bucket/key").unwrap();
         let prefix = &id[..2];
 
-        assert!(path
-            .to_str()
-            .unwrap()
-            .contains(&format!("objects/{}/{}", prefix, id)));
+        assert!(
+            path.to_str()
+                .unwrap()
+                .contains(&format!("objects/{}/{}", prefix, id))
+        );
         assert!(path.starts_with("/data"));
     }
 
@@ -125,7 +126,10 @@ mod tests {
     #[test]
     fn test_directories() {
         let layout = StorageLayout::new("/data");
-        assert_eq!(layout.objects_dir(), std::path::PathBuf::from("/data/objects"));
+        assert_eq!(
+            layout.objects_dir(),
+            std::path::PathBuf::from("/data/objects")
+        );
         assert_eq!(layout.temp_dir(), std::path::PathBuf::from("/data/temp"));
     }
 }

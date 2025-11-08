@@ -1,8 +1,4 @@
-use axum::{
-    extract::Request,
-    middleware::Next,
-    response::Response,
-};
+use axum::{extract::Request, middleware::Next, response::Response};
 use std::time::Instant;
 use tracing::debug;
 
@@ -74,7 +70,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_track_metrics_middleware() {
-        use axum::{body::Body, http::StatusCode, routing::get, Router};
+        use axum::{Router, body::Body, http::StatusCode, routing::get};
         use tower::ServiceExt;
 
         async fn handler() -> &'static str {
@@ -85,10 +81,7 @@ mod tests {
             .route("/test", get(handler))
             .layer(axum::middleware::from_fn(track_metrics));
 
-        let request = Request::builder()
-            .uri("/test")
-            .body(Body::empty())
-            .unwrap();
+        let request = Request::builder().uri("/test").body(Body::empty()).unwrap();
 
         let response = app.oneshot(request).await.unwrap();
         assert_eq!(response.status(), StatusCode::OK);

@@ -1,8 +1,8 @@
 use axum::{
+    Json,
     extract::{Path, State},
     http::StatusCode,
     response::{IntoResponse, Response},
-    Json,
 };
 use chrono::{DateTime, Utc};
 use save_common::validate_bucket_name;
@@ -26,8 +26,7 @@ pub async fn create_bucket(
 ) -> Result<Response, ApiError> {
     info!("Create bucket request");
 
-    validate_bucket_name(&bucket)
-        .map_err(|e| ApiError::InvalidRequest(e.to_string()))?;
+    validate_bucket_name(&bucket).map_err(|e| ApiError::InvalidRequest(e.to_string()))?;
 
     let bucket_obj = state
         .metadata

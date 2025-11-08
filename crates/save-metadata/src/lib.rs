@@ -1,15 +1,15 @@
-mod error;
 mod bucket;
-mod object;
+mod error;
 mod multipart;
+mod object;
 
 #[cfg(test)]
 mod tests;
 
 pub use error::{MetadataError, Result};
-pub use save_common::Bucket;
+pub use multipart::{MultipartPart, MultipartUpload};
 pub use object::ObjectMetadata;
-pub use multipart::{MultipartUpload, MultipartPart};
+pub use save_common::Bucket;
 
 use std::path::Path;
 use std::sync::Arc;
@@ -88,11 +88,9 @@ impl MetadataStore {
         let db = Arc::clone(&self.db);
         let bucket = bucket.to_string();
         let prefix = prefix.map(|s| s.to_string());
-        tokio::task::spawn_blocking(move || {
-            object::list_objects(&db, &bucket, prefix.as_deref())
-        })
-        .await
-        .map_err(|e| MetadataError::TaskCancelled(e.to_string()))?
+        tokio::task::spawn_blocking(move || object::list_objects(&db, &bucket, prefix.as_deref()))
+            .await
+            .map_err(|e| MetadataError::TaskCancelled(e.to_string()))?
     }
 
     pub async fn initiate_multipart_upload(

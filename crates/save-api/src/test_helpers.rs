@@ -14,9 +14,7 @@ pub async fn test_setup_empty() -> (AppState, TempDir) {
     config.storage.data_path = data_path.to_str().unwrap().to_string();
     config.storage.metadata_path = metadata_path.to_str().unwrap().to_string();
 
-    let storage = ObjectStorage::new(&config.storage.data_path)
-        .await
-        .unwrap();
+    let storage = ObjectStorage::new(&config.storage.data_path).await.unwrap();
     let metadata = MetadataStore::new(&config.storage.metadata_path).unwrap();
 
     let state = AppState::new(storage, metadata, config);
@@ -32,7 +30,7 @@ pub async fn test_setup() -> (AppState, TempDir) {
 pub fn auth_header() -> (&'static str, &'static str) {
     (
         "Authorization",
-        "AWS4-HMAC-SHA256 Credential=saveadmin/20231201/us-east-1/s3/aws4_request, SignedHeaders=host;x-amz-date, Signature=fake"
+        "AWS4-HMAC-SHA256 Credential=saveadmin/20231201/us-east-1/s3/aws4_request, SignedHeaders=host;x-amz-date, Signature=fake",
     )
 }
 

@@ -7,14 +7,15 @@ use std::collections::BTreeMap;
 fn validate_upload_id(upload_id: &str) -> Result<()> {
     if upload_id.is_empty() {
         return Err(MetadataError::InvalidOperation(
-            "Upload ID cannot be empty".to_string()
+            "Upload ID cannot be empty".to_string(),
         ));
     }
 
     if upload_id.len() > 256 {
-        return Err(MetadataError::InvalidOperation(
-            format!("Upload ID too long: {} bytes (max 256)", upload_id.len())
-        ));
+        return Err(MetadataError::InvalidOperation(format!(
+            "Upload ID too long: {} bytes (max 256)",
+            upload_id.len()
+        )));
     }
 
     Ok(())
@@ -47,7 +48,12 @@ struct MultipartMetadata {
 }
 
 impl MultipartUpload {
-    pub fn new(upload_id: String, bucket: String, key: String, content_type: Option<String>) -> Self {
+    pub fn new(
+        upload_id: String,
+        bucket: String,
+        key: String,
+        content_type: Option<String>,
+    ) -> Self {
         Self {
             upload_id,
             bucket,
@@ -114,7 +120,11 @@ pub(crate) fn get_multipart_upload(
             let metadata: MultipartMetadata = bincode::deserialize(&data)?;
             metadata
         }
-        None => return Err(MetadataError::MultipartUploadNotFound(upload_id.to_string())),
+        None => {
+            return Err(MetadataError::MultipartUploadNotFound(
+                upload_id.to_string(),
+            ));
+        }
     };
 
     let mut parts = BTreeMap::new();
@@ -154,7 +164,9 @@ pub(crate) fn record_part(
 
     let metadata_key = MultipartUpload::db_key(bucket, key, upload_id);
     if db.get(&metadata_key)?.is_none() {
-        return Err(MetadataError::MultipartUploadNotFound(upload_id.to_string()));
+        return Err(MetadataError::MultipartUploadNotFound(
+            upload_id.to_string(),
+        ));
     }
 
     let part = MultipartPart {
@@ -256,7 +268,10 @@ pub(crate) fn list_multipart_uploads(
         let metadata: MultipartMetadata = bincode::deserialize(&value)?;
 
         let mut parts = BTreeMap::new();
-        let part_prefix = format!("mpu:{}:{}:{}:part:", metadata.bucket, metadata.key, metadata.upload_id);
+        let part_prefix = format!(
+            "mpu:{}:{}:{}:part:",
+            metadata.bucket, metadata.key, metadata.upload_id
+        );
         let part_iter = db.prefix_iterator(&part_prefix);
 
         for part_item in part_iter {
@@ -313,8 +328,26 @@ mod tests {
         let db = create_test_db();
         initiate_multipart_upload(&db, "bucket", "key", "upload123", None).unwrap();
 
-        record_part(&db, "bucket", "key", "upload123", 1, "etag1".to_string(), 1024).unwrap();
-        record_part(&db, "bucket", "key", "upload123", 2, "etag2".to_string(), 2048).unwrap();
+        record_part(
+            &db,
+            "bucket",
+            "key",
+            "upload123",
+            1,
+            "etag1".to_string(),
+            1024,
+        )
+        .unwrap();
+        record_part(
+            &db,
+            "bucket",
+            "key",
+            "upload123",
+            2,
+            "etag2".to_string(),
+            2048,
+        )
+        .unwrap();
 
         let upload = get_multipart_upload(&db, "bucket", "key", "upload123").unwrap();
         assert_eq!(upload.parts.len(), 2);
@@ -326,13 +359,25 @@ mod tests {
     fn test_complete_multipart_upload() {
         let db = create_test_db();
         initiate_multipart_upload(&db, "bucket", "key", "upload123", None).unwrap();
-        record_part(&db, "bucket", "key", "upload123", 1, "etag1".to_string(), 1024).unwrap();
+        record_part(
+            &db,
+            "bucket",
+            "key",
+            "upload123",
+            1,
+            "etag1".to_string(),
+            1024,
+        )
+        .unwrap();
 
         let upload = complete_multipart_upload(&db, "bucket", "key", "upload123").unwrap();
         assert_eq!(upload.parts.len(), 1);
 
         let result = get_multipart_upload(&db, "bucket", "key", "upload123");
-        assert!(matches!(result, Err(MetadataError::MultipartUploadNotFound(_))));
+        assert!(matches!(
+            result,
+            Err(MetadataError::MultipartUploadNotFound(_))
+        ));
     }
 
     #[test]
@@ -343,7 +388,10 @@ mod tests {
         abort_multipart_upload(&db, "bucket", "key", "upload123").unwrap();
 
         let result = get_multipart_upload(&db, "bucket", "key", "upload123");
-        assert!(matches!(result, Err(MetadataError::MultipartUploadNotFound(_))));
+        assert!(matches!(
+            result,
+            Err(MetadataError::MultipartUploadNotFound(_))
+        ));
     }
 
     #[test]

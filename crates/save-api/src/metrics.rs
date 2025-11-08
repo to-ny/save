@@ -1,6 +1,6 @@
 use prometheus::{
-    register_histogram_vec, register_int_counter_vec, register_int_gauge, Encoder, HistogramVec,
-    IntCounterVec, IntGauge, TextEncoder,
+    Encoder, HistogramVec, IntCounterVec, IntGauge, TextEncoder, register_histogram_vec,
+    register_int_counter_vec, register_int_gauge,
 };
 use std::sync::OnceLock;
 use thiserror::Error;
@@ -50,7 +50,9 @@ pub fn http_request_duration_seconds() -> &'static HistogramVec {
             "save_http_request_duration_seconds",
             "HTTP request latency in seconds",
             &["endpoint", "method"],
-            vec![0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0]
+            vec![
+                0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0
+            ]
         )
         .expect("Failed to register save_http_request_duration_seconds metric")
     })
@@ -66,7 +68,16 @@ pub fn object_size_bytes() -> &'static HistogramVec {
             "save_object_size_bytes",
             "Object size in bytes for PUT operations",
             &["operation"],
-            vec![KB, 10.0 * KB, 100.0 * KB, MB, 10.0 * MB, 100.0 * MB, GB, 5.0 * GB]
+            vec![
+                KB,
+                10.0 * KB,
+                100.0 * KB,
+                MB,
+                10.0 * MB,
+                100.0 * MB,
+                GB,
+                5.0 * GB
+            ]
         )
         .expect("Failed to register save_object_size_bytes metric")
     })
