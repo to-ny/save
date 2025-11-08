@@ -6,6 +6,7 @@ use axum::{
 pub enum ApiError {
     BucketNotFound(String),
     BucketAlreadyExists(String),
+    BucketNotEmpty(String),
     ObjectNotFound(String, String),
     InvalidRequest(String),
     Unauthorized,
@@ -20,6 +21,9 @@ impl IntoResponse for ApiError {
             }
             ApiError::BucketAlreadyExists(bucket) => {
                 (StatusCode::CONFLICT, format!("Bucket already exists: {}", bucket))
+            }
+            ApiError::BucketNotEmpty(bucket) => {
+                (StatusCode::CONFLICT, format!("Bucket not empty: {}", bucket))
             }
             ApiError::ObjectNotFound(bucket, key) => {
                 (StatusCode::NOT_FOUND, format!("Object not found: {}/{}", bucket, key))
@@ -54,6 +58,14 @@ mod tests {
     #[test]
     fn test_api_error_bucket_already_exists() {
         let error = ApiError::BucketAlreadyExists("test-bucket".to_string());
+        let response = error.into_response();
+
+        assert_eq!(response.status(), StatusCode::CONFLICT);
+    }
+
+    #[test]
+    fn test_api_error_bucket_not_empty() {
+        let error = ApiError::BucketNotEmpty("test-bucket".to_string());
         let response = error.into_response();
 
         assert_eq!(response.status(), StatusCode::CONFLICT);

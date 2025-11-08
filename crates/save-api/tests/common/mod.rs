@@ -1,3 +1,4 @@
+use axum::http::Request;
 use save_api::AppState;
 use save_common::config::SaveConfig;
 use save_metadata::MetadataStore;
@@ -20,4 +21,31 @@ pub async fn setup_empty() -> (AppState, TempDir) {
 
     let state = AppState::new(storage, metadata, config);
     (state, temp_dir)
+}
+
+pub async fn setup() -> (AppState, TempDir) {
+    let (state, temp_dir) = setup_empty().await;
+    state.metadata.create_bucket("test-bucket").await.unwrap();
+    (state, temp_dir)
+}
+
+pub async fn test_setup() -> (AppState, TempDir) {
+    setup().await
+}
+
+pub fn auth_header() -> (&'static str, &'static str) {
+    (
+        "Authorization",
+        "AWS4-HMAC-SHA256 Credential=saveadmin/20231201/us-east-1/s3/aws4_request, SignedHeaders=host;x-amz-date, Signature=fake"
+    )
+}
+
+pub fn request_with_auth<B>(method: &str, uri: &str, body: B) -> Request<B> {
+    let (key, value) = auth_header();
+    Request::builder()
+        .method(method)
+        .uri(uri)
+        .header(key, value)
+        .body(body)
+        .unwrap()
 }
