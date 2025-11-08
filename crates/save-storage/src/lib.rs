@@ -8,6 +8,7 @@ pub use error::{Result, StorageError};
 
 use layout::StorageLayout;
 use std::path::{Path, PathBuf};
+use std::time::SystemTime;
 use tokio::fs;
 use tokio::io::{AsyncRead, AsyncWriteExt};
 use tracing::{debug, instrument, warn};
@@ -214,4 +215,51 @@ impl ObjectStorage {
             Err(e) => Err(StorageError::Io(e)),
         }
     }
+
+    pub fn temp_dir(&self) -> PathBuf {
+        self.layout.temp_dir()
+    }
+}
+
+pub async fn remove_if_exists<P: AsRef<Path>>(path: P) -> Result<bool> {
+    match fs::remove_file(path.as_ref()).await {
+        Ok(()) => Ok(true),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(false),
+        Err(e) => Err(StorageError::Io(e)),
+    }
+}
+
+pub async fn list_temp_files<P: AsRef<Path>>(temp_dir: P) -> Result<Vec<(PathBuf, SystemTime)>> {
+    let temp_dir = temp_dir.as_ref();
+
+    if !temp_dir.exists() {
+        return Ok(Vec::new());
+    }
+
+    let mut files = Vec::new();
+    let mut dirs_to_process = vec![temp_dir.to_path_buf()];
+
+    while let Some(dir) = dirs_to_process.pop() {
+        let mut entries = fs::read_dir(&dir).await.map_err(|e| {
+            if e.kind() == std::io::ErrorKind::NotFound {
+                return StorageError::NotFound(dir.display().to_string());
+            }
+            StorageError::Io(e)
+        })?;
+
+        while let Some(entry) = entries.next_entry().await.map_err(StorageError::Io)? {
+            let path = entry.path();
+            let metadata = entry.metadata().await.map_err(StorageError::Io)?;
+
+            if metadata.is_file() {
+                if let Ok(modified) = metadata.modified() {
+                    files.push((path, modified));
+                }
+            } else if metadata.is_dir() {
+                dirs_to_process.push(path);
+            }
+        }
+    }
+
+    Ok(files)
 }

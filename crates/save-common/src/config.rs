@@ -27,6 +27,18 @@ pub struct StorageConfig {
     pub metadata_path: String,
     #[serde(default)]
     pub max_object_size: Option<u64>,
+    #[serde(default = "default_gc_interval_secs")]
+    pub gc_interval_secs: u64,
+    #[serde(default = "default_gc_temp_file_max_age_secs")]
+    pub gc_temp_file_max_age_secs: u64,
+}
+
+fn default_gc_interval_secs() -> u64 {
+    10 * 60 // 10 minutes
+}
+
+fn default_gc_temp_file_max_age_secs() -> u64 {
+    60 * 60 // 1 hour
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -91,6 +103,8 @@ impl Default for SaveConfig {
                 data_path: "/tmp/save/data".to_string(),
                 metadata_path: "/tmp/save/metadata".to_string(),
                 max_object_size: Some(5 * 1024 * 1024 * 1024), // 5 GB
+                gc_interval_secs: default_gc_interval_secs(),
+                gc_temp_file_max_age_secs: default_gc_temp_file_max_age_secs(),
             },
             credentials: CredentialsConfig {
                 access_key: "saveadmin".to_string(),

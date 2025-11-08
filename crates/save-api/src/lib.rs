@@ -1,6 +1,7 @@
 use axum::Router;
 
 pub mod auth;
+pub mod gc;
 pub mod handlers;
 pub mod metrics;
 pub mod middleware;
@@ -10,6 +11,7 @@ pub mod state;
 #[cfg(test)]
 pub mod test_helpers;
 
+pub use gc::{GcConfig, run_gc_worker};
 pub use state::AppState;
 
 pub fn app(state: AppState) -> Router {

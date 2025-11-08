@@ -1,4 +1,7 @@
-use crate::{ObjectStorage, StorageError, fsync_dir, fsync_file};
+use crate::{
+    ObjectStorage, StorageError, fsync_dir, fsync_file, list_temp_files, remove_if_exists,
+};
+use std::time::SystemTime;
 use tokio::io::AsyncReadExt;
 
 #[tokio::test]
@@ -168,4 +171,117 @@ async fn test_temp_object_no_cleanup_after_commit() {
     let mut contents = Vec::new();
     file.read_to_end(&mut contents).await.unwrap();
     assert_eq!(contents, data);
+}
+
+#[tokio::test]
+async fn test_remove_if_exists_existing_file() {
+    let temp_dir = tempfile::tempdir().unwrap();
+    let file_path = temp_dir.path().join("test.txt");
+    tokio::fs::write(&file_path, b"data").await.unwrap();
+
+    let result = remove_if_exists(&file_path).await.unwrap();
+    assert!(result, "Should return true when file was deleted");
+    assert!(!file_path.exists(), "File should be deleted");
+}
+
+#[tokio::test]
+async fn test_remove_if_exists_nonexistent_file() {
+    let temp_dir = tempfile::tempdir().unwrap();
+    let file_path = temp_dir.path().join("nonexistent.txt");
+
+    let result = remove_if_exists(&file_path).await.unwrap();
+    assert!(!result, "Should return false when file doesn't exist");
+}
+
+#[tokio::test]
+async fn test_remove_if_exists_idempotent() {
+    let temp_dir = tempfile::tempdir().unwrap();
+    let file_path = temp_dir.path().join("test.txt");
+    tokio::fs::write(&file_path, b"data").await.unwrap();
+
+    let result1 = remove_if_exists(&file_path).await.unwrap();
+    assert!(result1, "First call should delete file");
+
+    let result2 = remove_if_exists(&file_path).await.unwrap();
+    assert!(!result2, "Second call should return false");
+}
+
+#[tokio::test]
+async fn test_list_temp_files_empty_directory() {
+    let temp_dir = tempfile::tempdir().unwrap();
+    let files = list_temp_files(temp_dir.path()).await.unwrap();
+    assert_eq!(files.len(), 0, "Empty directory should return no files");
+}
+
+#[tokio::test]
+async fn test_list_temp_files_nonexistent_directory() {
+    let temp_dir = tempfile::tempdir().unwrap();
+    let nonexistent = temp_dir.path().join("does-not-exist");
+    let files = list_temp_files(&nonexistent).await.unwrap();
+    assert_eq!(
+        files.len(),
+        0,
+        "Nonexistent directory should return empty list"
+    );
+}
+
+#[tokio::test]
+async fn test_list_temp_files_flat_structure() {
+    let temp_dir = tempfile::tempdir().unwrap();
+
+    tokio::fs::write(temp_dir.path().join("file1.txt"), b"data1")
+        .await
+        .unwrap();
+    tokio::fs::write(temp_dir.path().join("file2.txt"), b"data2")
+        .await
+        .unwrap();
+
+    let files = list_temp_files(temp_dir.path()).await.unwrap();
+    assert_eq!(files.len(), 2, "Should find 2 files");
+
+    for (path, modified) in &files {
+        assert!(path.exists(), "File should exist");
+        assert!(
+            modified.elapsed().unwrap().as_secs() < 10,
+            "File should be recently created"
+        );
+    }
+}
+
+#[tokio::test]
+async fn test_list_temp_files_nested_structure() {
+    let temp_dir = tempfile::tempdir().unwrap();
+
+    let nested_dir = temp_dir.path().join("subdir");
+    tokio::fs::create_dir(&nested_dir).await.unwrap();
+
+    tokio::fs::write(temp_dir.path().join("file1.txt"), b"data1")
+        .await
+        .unwrap();
+    tokio::fs::write(nested_dir.join("file2.txt"), b"data2")
+        .await
+        .unwrap();
+    tokio::fs::write(nested_dir.join("file3.txt"), b"data3")
+        .await
+        .unwrap();
+
+    let files = list_temp_files(temp_dir.path()).await.unwrap();
+    assert_eq!(files.len(), 3, "Should find 3 files recursively");
+}
+
+#[tokio::test]
+async fn test_list_temp_files_with_modification_time() {
+    let temp_dir = tempfile::tempdir().unwrap();
+
+    let file_path = temp_dir.path().join("test.txt");
+    tokio::fs::write(&file_path, b"data").await.unwrap();
+
+    let files = list_temp_files(temp_dir.path()).await.unwrap();
+    assert_eq!(files.len(), 1);
+
+    let (path, modified) = &files[0];
+    assert_eq!(path, &file_path);
+
+    let age = SystemTime::now().duration_since(*modified).unwrap();
+    assert!(age.as_secs() < 5, "File should be very recent");
 }

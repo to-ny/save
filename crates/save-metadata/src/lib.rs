@@ -197,4 +197,11 @@ impl MetadataStore {
             .await
             .map_err(|e| MetadataError::TaskCancelled(e.to_string()))?
     }
+
+    pub async fn list_all_multipart_uploads(&self) -> Result<Vec<MultipartUpload>> {
+        let db = Arc::clone(&self.db);
+        tokio::task::spawn_blocking(move || multipart::list_all_multipart_uploads(&db))
+            .await
+            .map_err(|e| MetadataError::TaskCancelled(e.to_string()))?
+    }
 }

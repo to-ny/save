@@ -1,6 +1,6 @@
 use prometheus::{
-    Encoder, HistogramVec, IntCounterVec, IntGauge, TextEncoder, register_histogram_vec,
-    register_int_counter_vec, register_int_gauge,
+    Encoder, HistogramVec, IntCounter, IntCounterVec, IntGauge, TextEncoder,
+    register_histogram_vec, register_int_counter, register_int_counter_vec, register_int_gauge,
 };
 use std::sync::OnceLock;
 use thiserror::Error;
@@ -22,6 +22,11 @@ static HTTP_REQUEST_DURATION_SECONDS: OnceLock<HistogramVec> = OnceLock::new();
 static OBJECT_SIZE_BYTES: OnceLock<HistogramVec> = OnceLock::new();
 static MULTIPART_UPLOADS_IN_PROGRESS: OnceLock<IntGauge> = OnceLock::new();
 static ATOMIC_PUT_OPERATIONS_TOTAL: OnceLock<IntCounterVec> = OnceLock::new();
+static GC_FILES_DELETED_TOTAL: OnceLock<IntCounter> = OnceLock::new();
+static GC_ERRORS_TOTAL: OnceLock<IntCounter> = OnceLock::new();
+static GC_LAST_RUN_SECONDS: OnceLock<IntGauge> = OnceLock::new();
+static GC_CYCLES_TOTAL: OnceLock<IntCounterVec> = OnceLock::new();
+static MULTIPART_CLEANUP_FAILURES_TOTAL: OnceLock<IntCounter> = OnceLock::new();
 
 /// HTTP request count by endpoint, method, and status code.
 ///
@@ -109,12 +114,65 @@ pub fn atomic_put_operations_total() -> &'static IntCounterVec {
     })
 }
 
+pub(crate) fn gc_files_deleted_total() -> &'static IntCounter {
+    GC_FILES_DELETED_TOTAL.get_or_init(|| {
+        register_int_counter!(
+            "save_gc_files_deleted_total",
+            "Total number of files deleted by GC"
+        )
+        .expect("Failed to register save_gc_files_deleted_total metric")
+    })
+}
+
+pub(crate) fn gc_errors_total() -> &'static IntCounter {
+    GC_ERRORS_TOTAL.get_or_init(|| {
+        register_int_counter!("save_gc_errors_total", "Total number of GC errors")
+            .expect("Failed to register save_gc_errors_total metric")
+    })
+}
+
+pub(crate) fn gc_last_run_seconds() -> &'static IntGauge {
+    GC_LAST_RUN_SECONDS.get_or_init(|| {
+        register_int_gauge!(
+            "save_gc_last_run_seconds",
+            "Unix timestamp of last successful GC run"
+        )
+        .expect("Failed to register save_gc_last_run_seconds metric")
+    })
+}
+
+pub(crate) fn gc_cycles_total() -> &'static IntCounterVec {
+    GC_CYCLES_TOTAL.get_or_init(|| {
+        register_int_counter_vec!(
+            "save_gc_cycles_total",
+            "Total number of GC cycles by result",
+            &["result"]
+        )
+        .expect("Failed to register save_gc_cycles_total metric")
+    })
+}
+
+pub(crate) fn multipart_cleanup_failures_total() -> &'static IntCounter {
+    MULTIPART_CLEANUP_FAILURES_TOTAL.get_or_init(|| {
+        register_int_counter!(
+            "save_multipart_cleanup_failures_total",
+            "Total number of multipart upload cleanup failures"
+        )
+        .expect("Failed to register save_multipart_cleanup_failures_total metric")
+    })
+}
+
 pub fn init_metrics() {
     let _ = http_requests_total();
     let _ = http_request_duration_seconds();
     let _ = object_size_bytes();
     let _ = multipart_uploads_in_progress();
     let _ = atomic_put_operations_total();
+    let _ = gc_files_deleted_total();
+    let _ = gc_errors_total();
+    let _ = gc_last_run_seconds();
+    let _ = gc_cycles_total();
+    let _ = multipart_cleanup_failures_total();
 }
 
 pub fn encode_metrics() -> Result<String, MetricsError> {

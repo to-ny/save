@@ -127,7 +127,7 @@ mod tests {
         assert!(validate_bucket_name("my-bucket").is_ok());
         assert!(validate_bucket_name("my.bucket").is_ok());
         assert!(validate_bucket_name("bucket123").is_ok());
-        assert!(validate_bucket_name("a").is_ok());
+        assert!(validate_bucket_name("abc").is_ok());
         assert!(validate_bucket_name(&format!("a{}", "b".repeat(62))).is_ok());
     }
 

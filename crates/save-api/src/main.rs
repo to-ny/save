@@ -2,7 +2,10 @@ use save_common::config::SaveConfig;
 use save_metadata::MetadataStore;
 use save_storage::ObjectStorage;
 use std::net::SocketAddr;
-use std::path::Path;
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
+use std::time::Duration;
+use tokio::signal;
 use tracing::{error, info};
 
 fn init_tracing() {
@@ -35,7 +38,30 @@ async fn main() -> anyhow::Result<()> {
     let metadata = MetadataStore::new(&config.storage.metadata_path)?;
 
     let bind_addr = config.server.bind_address.clone();
-    let state = save_api::AppState::new(storage, metadata, config);
+    let state = save_api::AppState::new(storage, metadata, config.clone());
+
+    let (shutdown_tx, shutdown_rx) = tokio::sync::broadcast::channel(1);
+
+    let gc_config = save_api::GcConfig {
+        interval: Duration::from_secs(config.storage.gc_interval_secs),
+        temp_file_max_age: Duration::from_secs(config.storage.gc_temp_file_max_age_secs),
+    };
+
+    let temp_dir = PathBuf::from(&config.storage.data_path).join("temp");
+    let gc_metadata = Arc::clone(&state.metadata);
+
+    info!(
+        interval_secs = gc_config.interval.as_secs(),
+        max_age_secs = gc_config.temp_file_max_age.as_secs(),
+        "Starting GC worker"
+    );
+
+    let gc_handle = tokio::spawn(async move {
+        if let Err(e) = save_api::run_gc_worker(gc_metadata, temp_dir, gc_config, shutdown_rx).await
+        {
+            error!("GC worker failed: {}", e);
+        }
+    });
 
     let app = save_api::app(state);
     let addr: SocketAddr = bind_addr.parse()?;
@@ -46,9 +72,16 @@ async fn main() -> anyhow::Result<()> {
 
     info!("Server listening on http://{}", addr);
 
-    match axum::serve(listener, app).await {
+    let graceful = axum::serve(listener, app).with_graceful_shutdown(async move {
+        let _ = signal::ctrl_c().await;
+        info!("Shutdown signal received");
+        let _ = shutdown_tx.send(());
+    });
+
+    match graceful.await {
         Ok(_) => {
             info!("Server shutdown gracefully");
+            let _ = gc_handle.await;
             Ok(())
         }
         Err(e) => {

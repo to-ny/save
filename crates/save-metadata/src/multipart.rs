@@ -246,14 +246,13 @@ pub(crate) fn abort_multipart_upload(
     Ok(())
 }
 
-pub(crate) fn list_multipart_uploads(
+fn list_multipart_uploads_with_prefix(
     db: &rocksdb::DB,
-    bucket: &str,
+    prefix: &str,
 ) -> Result<Vec<MultipartUpload>> {
-    let prefix = format!("mpu:{}:", bucket);
     let mut uploads = Vec::new();
 
-    let iter = db.prefix_iterator(&prefix);
+    let iter = db.prefix_iterator(prefix);
     for item in iter {
         let (key, value) = item?;
         if !key.starts_with(prefix.as_bytes()) {
@@ -294,6 +293,18 @@ pub(crate) fn list_multipart_uploads(
     }
 
     Ok(uploads)
+}
+
+pub(crate) fn list_multipart_uploads(
+    db: &rocksdb::DB,
+    bucket: &str,
+) -> Result<Vec<MultipartUpload>> {
+    let prefix = format!("mpu:{}:", bucket);
+    list_multipart_uploads_with_prefix(db, &prefix)
+}
+
+pub(crate) fn list_all_multipart_uploads(db: &rocksdb::DB) -> Result<Vec<MultipartUpload>> {
+    list_multipart_uploads_with_prefix(db, "mpu:")
 }
 
 #[cfg(test)]
@@ -448,5 +459,62 @@ mod tests {
         let long_id = "x".repeat(257);
         let result = validate_upload_id(&long_id);
         assert!(matches!(result, Err(MetadataError::InvalidOperation(_))));
+    }
+
+    #[test]
+    fn test_list_all_multipart_uploads() {
+        let db = create_test_db();
+
+        initiate_multipart_upload(&db, "bucket1", "key1", "upload1", None).unwrap();
+        initiate_multipart_upload(&db, "bucket1", "key2", "upload2", None).unwrap();
+        initiate_multipart_upload(&db, "bucket2", "key3", "upload3", None).unwrap();
+        initiate_multipart_upload(&db, "bucket3", "key4", "upload4", None).unwrap();
+
+        let all_uploads = list_all_multipart_uploads(&db).unwrap();
+        assert_eq!(all_uploads.len(), 4);
+
+        let upload_ids: Vec<_> = all_uploads.iter().map(|u| u.upload_id.as_str()).collect();
+        assert!(upload_ids.contains(&"upload1"));
+        assert!(upload_ids.contains(&"upload2"));
+        assert!(upload_ids.contains(&"upload3"));
+        assert!(upload_ids.contains(&"upload4"));
+    }
+
+    #[test]
+    fn test_list_all_multipart_uploads_empty() {
+        let db = create_test_db();
+        let all_uploads = list_all_multipart_uploads(&db).unwrap();
+        assert_eq!(all_uploads.len(), 0);
+    }
+
+    #[test]
+    fn test_list_all_multipart_uploads_with_parts() {
+        let db = create_test_db();
+
+        initiate_multipart_upload(&db, "bucket", "key", "upload1", None).unwrap();
+        record_part(
+            &db,
+            "bucket",
+            "key",
+            "upload1",
+            1,
+            "etag1".to_string(),
+            1024,
+        )
+        .unwrap();
+        record_part(
+            &db,
+            "bucket",
+            "key",
+            "upload1",
+            2,
+            "etag2".to_string(),
+            2048,
+        )
+        .unwrap();
+
+        let all_uploads = list_all_multipart_uploads(&db).unwrap();
+        assert_eq!(all_uploads.len(), 1);
+        assert_eq!(all_uploads[0].parts.len(), 2);
     }
 }
