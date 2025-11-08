@@ -40,10 +40,7 @@ pub async fn complete_multipart(
                 debug!("Multipart upload not found: {}", query.upload_id);
                 ApiError::InvalidRequest(format!("Upload ID not found: {}", query.upload_id))
             }
-            _ => {
-                error!("Metadata error: {}", e);
-                ApiError::Internal(format!("Metadata error: {}", e))
-            }
+            _ => ApiError::internal(format!("Metadata error: {}", e)),
         })?;
 
     if upload.parts.is_empty() {
@@ -61,10 +58,9 @@ pub async fn complete_multipart(
         .unwrap()
         .to_path_buf();
 
-    let mut temp_file = fs::File::create(&temp_final_path).await.map_err(|e| {
-        error!("Failed to create temp final file: {}", e);
-        ApiError::Internal(format!("Storage error: {}", e))
-    })?;
+    let mut temp_file = fs::File::create(&temp_final_path)
+        .await
+        .map_err(|e| ApiError::internal(format!("Storage error: {}", e)))?;
 
     let cleanup_guard = MultipartCleanupGuard::new(temp_final_path.clone(), parts_dir);
 
@@ -77,18 +73,14 @@ pub async fn complete_multipart(
         let part_file_path =
             part_path(&state.config.storage.data_path, &query.upload_id, *part_num);
 
-        let mut part_file = fs::File::open(&part_file_path).await.map_err(|e| {
-            error!("Failed to open part {}: {}", part_num, e);
-            ApiError::Internal(format!("Missing part {}", part_num))
-        })?;
+        let mut part_file = fs::File::open(&part_file_path)
+            .await
+            .map_err(|_e| ApiError::internal(format!("Missing part {}", part_num)))?;
 
         loop {
             let n = tokio::io::AsyncReadExt::read(&mut part_file, &mut buffer)
                 .await
-                .map_err(|e| {
-                    error!("Failed to read part {}: {}", part_num, e);
-                    ApiError::Internal(format!("I/O error reading part {}", part_num))
-                })?;
+                .map_err(|_e| ApiError::internal(format!("I/O error reading part {}", part_num)))?;
 
             if n == 0 {
                 break;
@@ -97,35 +89,31 @@ pub async fn complete_multipart(
             hasher.update(&buffer[..n]);
             total_size += n as u64;
 
-            temp_file.write_all(&buffer[..n]).await.map_err(|e| {
-                error!("Failed to write to temp file: {}", e);
-                ApiError::Internal(format!("Storage error: {}", e))
-            })?;
+            temp_file
+                .write_all(&buffer[..n])
+                .await
+                .map_err(|e| ApiError::internal(format!("Storage error: {}", e)))?;
         }
     }
 
-    temp_file.flush().await.map_err(|e| {
-        error!("Failed to flush temp file: {}", e);
-        ApiError::Internal(format!("Storage error: {}", e))
-    })?;
+    temp_file
+        .flush()
+        .await
+        .map_err(|e| ApiError::internal(format!("Storage error: {}", e)))?;
     drop(temp_file);
 
     let final_etag = format!("{:x}", hasher.finalize());
 
     let full_key = crate::handlers::objects::storage_key(&bucket, &key);
-    let mut file_reader = fs::File::open(&temp_final_path).await.map_err(|e| {
-        error!("Failed to open temp file for storage: {}", e);
-        ApiError::Internal(format!("Storage error: {}", e))
-    })?;
+    let mut file_reader = fs::File::open(&temp_final_path)
+        .await
+        .map_err(|e| ApiError::internal(format!("Storage error: {}", e)))?;
 
     state
         .storage
         .put_object(&full_key, &mut file_reader)
         .await
-        .map_err(|e| {
-            error!("Failed to store object: {}", e);
-            ApiError::Internal(format!("Storage error: {}", e))
-        })?;
+        .map_err(|e| ApiError::internal(format!("Storage error: {}", e)))?;
 
     let mut metadata =
         ObjectMetadata::new(bucket.clone(), key.clone(), total_size, final_etag.clone());
@@ -135,19 +123,13 @@ pub async fn complete_multipart(
         .metadata
         .put_object_metadata(metadata)
         .await
-        .map_err(|e| {
-            error!("Failed to store object metadata: {}", e);
-            ApiError::Internal(format!("Metadata error: {}", e))
-        })?;
+        .map_err(|e| ApiError::internal(format!("Metadata error: {}", e)))?;
 
     state
         .metadata
         .abort_multipart_upload(&bucket, &key, &query.upload_id)
         .await
-        .map_err(|e| {
-            error!("Failed to clean up multipart metadata: {}", e);
-            ApiError::Internal(format!("Metadata error: {}", e))
-        })?;
+        .map_err(|e| ApiError::internal(format!("Metadata error: {}", e)))?;
 
     let parts_dir_clone = cleanup_guard.parts_dir().clone();
     cleanup_guard.disarm();

@@ -6,7 +6,7 @@ use axum::{
 };
 use chrono::{DateTime, Utc};
 use serde::Serialize;
-use tracing::{error, info, instrument};
+use tracing::{info, instrument};
 
 use crate::handlers::ApiError;
 use crate::state::AppState;
@@ -26,10 +26,11 @@ pub struct ListBucketsResponse {
 pub async fn list_buckets(State(state): State<AppState>) -> Result<Response, ApiError> {
     info!("List buckets request");
 
-    let buckets = state.metadata.list_buckets().await.map_err(|e| {
-        error!("Failed to list buckets: {}", e);
-        ApiError::Internal(format!("Failed to list buckets: {}", e))
-    })?;
+    let buckets = state
+        .metadata
+        .list_buckets()
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to list buckets: {}", e)))?;
 
     let bucket_infos: Vec<BucketInfo> = buckets
         .into_iter()

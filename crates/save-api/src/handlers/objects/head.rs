@@ -6,7 +6,7 @@ use axum::{
 use save_common::{validate_bucket_name, validate_object_key};
 use save_metadata::MetadataError;
 use std::time::Instant;
-use tracing::{debug, error, info, instrument};
+use tracing::{debug, info, instrument};
 
 use crate::handlers::ApiError;
 use crate::state::AppState;
@@ -29,12 +29,12 @@ pub async fn head_object(
         .map_err(|e| match e {
             MetadataError::ObjectNotFound { .. } | MetadataError::BucketNotFound(_) => {
                 debug!("Object not found: {}/{}", bucket, key);
-                ApiError::ObjectNotFound(bucket.clone(), key.clone())
+                ApiError::ObjectNotFound {
+                    bucket: bucket.clone(),
+                    key: key.clone(),
+                }
             }
-            _ => {
-                error!("Metadata error: {}", e);
-                ApiError::Internal(format!("Metadata error: {}", e))
-            }
+            _ => ApiError::internal(format!("Metadata error: {}", e)),
         })?;
 
     let last_modified = metadata.modified_at.to_rfc2822();

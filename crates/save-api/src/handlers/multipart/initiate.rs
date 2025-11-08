@@ -8,7 +8,7 @@ use save_common::{validate_bucket_name, validate_object_key};
 use save_metadata::MetadataError;
 use std::time::Instant;
 use tokio::fs;
-use tracing::{debug, error, info, instrument};
+use tracing::{debug, info, instrument};
 use uuid::Uuid;
 
 use crate::handlers::ApiError;
@@ -38,10 +38,7 @@ pub async fn initiate_multipart(
                 debug!("Bucket not found: {}", bucket);
                 ApiError::BucketNotFound(bucket.clone())
             }
-            _ => {
-                error!("Metadata error: {}", e);
-                ApiError::Internal(format!("Metadata error: {}", e))
-            }
+            _ => ApiError::internal(format!("Metadata error: {}", e)),
         })?;
 
     let upload_id = Uuid::new_v4().to_string();
@@ -57,19 +54,15 @@ pub async fn initiate_multipart(
         .metadata
         .initiate_multipart_upload(&bucket, &key, &upload_id, content_type)
         .await
-        .map_err(|e| {
-            error!("Failed to initiate multipart upload: {}", e);
-            ApiError::Internal(format!("Metadata error: {}", e))
-        })?;
+        .map_err(|e| ApiError::internal(format!("Metadata error: {}", e)))?;
 
     let parts_dir = part_path(&state.config.storage.data_path, &upload_id, 0)
         .parent()
         .unwrap()
         .to_path_buf();
-    fs::create_dir_all(&parts_dir).await.map_err(|e| {
-        error!("Failed to create parts directory: {}", e);
-        ApiError::Internal(format!("Storage error: {}", e))
-    })?;
+    fs::create_dir_all(&parts_dir)
+        .await
+        .map_err(|e| ApiError::internal(format!("Storage error: {}", e)))?;
 
     gauge_guard.disarm();
 

@@ -13,7 +13,7 @@ use sha2::{Digest, Sha256};
 use std::time::Instant;
 use tokio::io::AsyncRead;
 use tokio_util::io::StreamReader;
-use tracing::{debug, error, info, instrument};
+use tracing::{debug, info, instrument};
 
 use crate::handlers::ApiError;
 use crate::metrics::{atomic_put_operations_total, object_size_bytes};
@@ -89,10 +89,7 @@ pub async fn put_object(
                 debug!("Bucket not found: {}", bucket);
                 ApiError::BucketNotFound(bucket.clone())
             }
-            _ => {
-                error!("Metadata error: {}", e);
-                ApiError::Internal(format!("Metadata error: {}", e))
-            }
+            _ => ApiError::internal(format!("Metadata error: {}", e)),
         })?;
 
     let stream = body.into_data_stream().map_err(std::io::Error::other);
@@ -109,8 +106,7 @@ pub async fn put_object(
             atomic_put_operations_total()
                 .with_label_values(&["temp_write", "error"])
                 .inc();
-            error!("Storage error writing temp object: {}", e);
-            ApiError::Internal(format!("Storage error: {}", e))
+            ApiError::internal(format!("Storage error: {}", e))
         })?;
 
     atomic_put_operations_total()
@@ -131,8 +127,7 @@ pub async fn put_object(
         atomic_put_operations_total()
             .with_label_values(&["metadata_commit", "error"])
             .inc();
-        error!("Metadata commit error: {}", e);
-        return Err(ApiError::Internal(format!("Metadata error: {}", e)));
+        return Err(ApiError::internal(format!("Metadata error: {}", e)));
     }
 
     atomic_put_operations_total()
@@ -143,8 +138,7 @@ pub async fn put_object(
         atomic_put_operations_total()
             .with_label_values(&["storage_commit", "error"])
             .inc();
-        error!("Storage commit error: {}", e);
-        return Err(ApiError::Internal(format!(
+        return Err(ApiError::internal(format!(
             "Storage commit failed after metadata commit - manual recovery may be required: {}",
             e
         )));

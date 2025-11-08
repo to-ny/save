@@ -6,7 +6,7 @@ use axum::{
 use save_common::{validate_bucket_name, validate_object_key};
 use save_metadata::MetadataError;
 use std::time::Instant;
-use tracing::{debug, error, info, instrument};
+use tracing::{debug, info, instrument};
 
 use crate::handlers::ApiError;
 use crate::state::AppState;
@@ -31,31 +31,29 @@ pub async fn delete_object(
         .map_err(|e| match e {
             MetadataError::ObjectNotFound { .. } | MetadataError::BucketNotFound(_) => {
                 debug!("Object not found: {}/{}", bucket, key);
-                ApiError::ObjectNotFound(bucket.clone(), key.clone())
+                ApiError::ObjectNotFound {
+                    bucket: bucket.clone(),
+                    key: key.clone(),
+                }
             }
-            _ => {
-                error!("Metadata error: {}", e);
-                ApiError::Internal(format!("Metadata error: {}", e))
-            }
+            _ => ApiError::internal(format!("Metadata error: {}", e)),
         })?;
 
     let full_key = storage_key(&bucket, &key);
 
     debug!("Deleting object from storage: {}", full_key);
-    state.storage.delete_object(&full_key).await.map_err(|e| {
-        error!("Storage error: {}", e);
-        ApiError::Internal(format!("Storage error: {}", e))
-    })?;
+    state
+        .storage
+        .delete_object(&full_key)
+        .await
+        .map_err(|e| ApiError::internal(format!("Storage error: {}", e)))?;
 
     debug!("Deleting object metadata: {}/{}", bucket, key);
     state
         .metadata
         .delete_object_metadata(&bucket, &key)
         .await
-        .map_err(|e| {
-            error!("Metadata error: {}", e);
-            ApiError::Internal(format!("Metadata error: {}", e))
-        })?;
+        .map_err(|e| ApiError::internal(format!("Metadata error: {}", e)))?;
 
     let duration = start.elapsed();
     info!("DELETE completed in {:?}", duration);

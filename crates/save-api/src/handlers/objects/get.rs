@@ -8,7 +8,7 @@ use save_common::{validate_bucket_name, validate_object_key};
 use save_metadata::MetadataError;
 use std::time::Instant;
 use tokio_util::io::ReaderStream;
-use tracing::{debug, error, info, instrument};
+use tracing::{debug, info, instrument};
 
 use crate::handlers::ApiError;
 use crate::state::AppState;
@@ -33,21 +33,22 @@ pub async fn get_object(
         .map_err(|e| match e {
             MetadataError::ObjectNotFound { .. } | MetadataError::BucketNotFound(_) => {
                 debug!("Object not found: {}/{}", bucket, key);
-                ApiError::ObjectNotFound(bucket.clone(), key.clone())
+                ApiError::ObjectNotFound {
+                    bucket: bucket.clone(),
+                    key: key.clone(),
+                }
             }
-            _ => {
-                error!("Metadata error: {}", e);
-                ApiError::Internal(format!("Metadata error: {}", e))
-            }
+            _ => ApiError::internal(format!("Metadata error: {}", e)),
         })?;
 
     let full_key = storage_key(&bucket, &key);
 
     debug!("Reading object from storage: {}", full_key);
-    let file = state.storage.get_object(&full_key).await.map_err(|e| {
-        error!("Storage error: {}", e);
-        ApiError::Internal(format!("Storage error: {}", e))
-    })?;
+    let file = state
+        .storage
+        .get_object(&full_key)
+        .await
+        .map_err(|e| ApiError::internal(format!("Storage error: {}", e)))?;
 
     let stream = ReaderStream::new(file);
     let body = Body::from_stream(stream);

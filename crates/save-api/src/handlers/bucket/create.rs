@@ -8,7 +8,7 @@ use chrono::{DateTime, Utc};
 use save_common::validate_bucket_name;
 use save_metadata::MetadataError;
 use serde::Serialize;
-use tracing::{debug, error, info, instrument};
+use tracing::{debug, info, instrument};
 
 use crate::handlers::ApiError;
 use crate::state::AppState;
@@ -37,10 +37,7 @@ pub async fn create_bucket(
                 debug!("Bucket already exists: {}", bucket);
                 ApiError::BucketAlreadyExists(bucket.clone())
             }
-            _ => {
-                error!("Failed to create bucket: {}", e);
-                ApiError::Internal(format!("Failed to create bucket: {}", e))
-            }
+            _ => ApiError::internal(format!("Failed to create bucket: {}", e)),
         })?;
 
     info!("Bucket created successfully");

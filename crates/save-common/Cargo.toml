@@ -11,6 +11,8 @@ thiserror = { workspace = true }
 serde = { workspace = true }
 toml = { workspace = true }
 chrono = { workspace = true }
+quick-xml = { workspace = true }
+uuid = { workspace = true }
 
 [dev-dependencies]
 tempfile = { workspace = true }

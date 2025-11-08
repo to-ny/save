@@ -63,6 +63,13 @@ Each crate is self-contained and tested independently.
 - **Content-addressable storage with SHA256**: Objects stored by hash prevents deduplication issues and enables built-in integrity checking via ETags.
 - **RocksDB for metadata**: Provides ACID durability guarantees and atomic batch operations (WriteBatch) needed for transactional metadata updates.
 
+### Error handling
+- **S3-compatible XML responses**: All API errors return XML in AWS S3 format with proper error codes (NoSuchBucket, NoSuchKey, AccessDenied, etc.).
+- **Request IDs**: Every error response includes a unique request ID (UUID v4) for request correlation across logs, metrics, and client retries.
+- **Internal error logging**: Errors are logged at creation time with full context using `tracing::error!`, while client responses are sanitized to prevent information leakage.
+- **Structured error types**: Internal errors (`ApiError`) use `thiserror` for rich error context, then convert to S3-compliant responses at the HTTP boundary.
+- **HTTP status code mapping**: Error codes map to appropriate HTTP statuses (404 for NoSuchBucket/NoSuchKey, 403 for AccessDenied, 409 for conflicts, 400 for invalid requests, 500 for internal errors).
+
 ---
 
 ## 4. Phase 2–4 preview (planned evolution)

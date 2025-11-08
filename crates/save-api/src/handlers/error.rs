@@ -1,108 +1,209 @@
 use axum::{
-    http::StatusCode,
+    http::{StatusCode, header},
     response::{IntoResponse, Response},
 };
+use save_common::S3Error;
+use thiserror::Error;
 
+#[derive(Error, Debug)]
 pub enum ApiError {
+    #[error("Bucket not found: {0}")]
     BucketNotFound(String),
+
+    #[error("Bucket already exists: {0}")]
     BucketAlreadyExists(String),
+
+    #[error("Bucket not empty: {0}")]
     BucketNotEmpty(String),
-    ObjectNotFound(String, String),
+
+    #[error("Object not found: {bucket}/{key}")]
+    ObjectNotFound { bucket: String, key: String },
+
+    #[error("Invalid request: {0}")]
     InvalidRequest(String),
+
+    #[error("Unauthorized")]
     Unauthorized,
+
+    #[error("Internal error: {0}")]
     Internal(String),
+}
+
+impl ApiError {
+    pub fn internal(msg: impl Into<String>) -> Self {
+        let msg = msg.into();
+        tracing::error!(error = %msg, "Internal error occurred");
+        Self::Internal(msg)
+    }
+
+    fn to_s3_error(&self) -> S3Error {
+        match self {
+            ApiError::BucketNotFound(bucket) => S3Error::no_such_bucket(bucket),
+            ApiError::BucketAlreadyExists(bucket) => S3Error::bucket_already_exists(bucket),
+            ApiError::BucketNotEmpty(bucket) => S3Error::bucket_not_empty(bucket),
+            ApiError::ObjectNotFound { bucket, key } => S3Error::no_such_key(bucket, key),
+            ApiError::InvalidRequest(msg) => S3Error::invalid_request(msg),
+            ApiError::Unauthorized => S3Error::access_denied("/"),
+            ApiError::Internal(_) => {
+                S3Error::internal_error("We encountered an internal error. Please try again.")
+            }
+        }
+    }
+
+    fn status_code(&self) -> StatusCode {
+        match self {
+            ApiError::BucketNotFound(_) => StatusCode::NOT_FOUND,
+            ApiError::BucketAlreadyExists(_) => StatusCode::CONFLICT,
+            ApiError::BucketNotEmpty(_) => StatusCode::CONFLICT,
+            ApiError::ObjectNotFound { .. } => StatusCode::NOT_FOUND,
+            ApiError::InvalidRequest(_) => StatusCode::BAD_REQUEST,
+            ApiError::Unauthorized => StatusCode::FORBIDDEN,
+            ApiError::Internal(_) => StatusCode::INTERNAL_SERVER_ERROR,
+        }
+    }
 }
 
 impl IntoResponse for ApiError {
     fn into_response(self) -> Response {
-        let (status, message) = match self {
-            ApiError::BucketNotFound(bucket) => (
-                StatusCode::NOT_FOUND,
-                format!("Bucket not found: {}", bucket),
-            ),
-            ApiError::BucketAlreadyExists(bucket) => (
-                StatusCode::CONFLICT,
-                format!("Bucket already exists: {}", bucket),
-            ),
-            ApiError::BucketNotEmpty(bucket) => (
-                StatusCode::CONFLICT,
-                format!("Bucket not empty: {}", bucket),
-            ),
-            ApiError::ObjectNotFound(bucket, key) => (
-                StatusCode::NOT_FOUND,
-                format!("Object not found: {}/{}", bucket, key),
-            ),
-            ApiError::InvalidRequest(msg) => {
-                (StatusCode::BAD_REQUEST, format!("Invalid request: {}", msg))
-            }
-            ApiError::Unauthorized => (StatusCode::UNAUTHORIZED, "Unauthorized".to_string()),
-            ApiError::Internal(msg) => (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                format!("Internal error: {}", msg),
-            ),
-        };
+        let status = self.status_code();
+        let s3_error = self.to_s3_error();
+        let xml_body = s3_error.to_xml();
 
-        (status, message).into_response()
+        (
+            status,
+            [(header::CONTENT_TYPE, "application/xml")],
+            xml_body,
+        )
+            .into_response()
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use http_body_util::BodyExt;
 
-    #[test]
-    fn test_api_error_bucket_not_found() {
+    async fn response_to_string(response: Response) -> String {
+        let body = response.into_body();
+        let bytes = body.collect().await.unwrap().to_bytes();
+        String::from_utf8(bytes.to_vec()).unwrap()
+    }
+
+    #[tokio::test]
+    async fn test_api_error_bucket_not_found() {
         let error = ApiError::BucketNotFound("test-bucket".to_string());
         let response = error.into_response();
 
         assert_eq!(response.status(), StatusCode::NOT_FOUND);
+        assert_eq!(
+            response.headers().get(header::CONTENT_TYPE).unwrap(),
+            "application/xml"
+        );
+
+        let body = response_to_string(response).await;
+        assert!(body.contains("<?xml version=\"1.0\" encoding=\"UTF-8\"?>"));
+        assert!(body.contains("<Code>NoSuchBucket</Code>"));
+        assert!(body.contains("<Resource>/test-bucket</Resource>"));
+        assert!(body.contains("<RequestId>"));
     }
 
-    #[test]
-    fn test_api_error_bucket_already_exists() {
+    #[tokio::test]
+    async fn test_api_error_bucket_already_exists() {
         let error = ApiError::BucketAlreadyExists("test-bucket".to_string());
         let response = error.into_response();
 
         assert_eq!(response.status(), StatusCode::CONFLICT);
+        assert_eq!(
+            response.headers().get(header::CONTENT_TYPE).unwrap(),
+            "application/xml"
+        );
+
+        let body = response_to_string(response).await;
+        assert!(body.contains("<Code>BucketAlreadyExists</Code>"));
+        assert!(body.contains("<Resource>/test-bucket</Resource>"));
     }
 
-    #[test]
-    fn test_api_error_bucket_not_empty() {
+    #[tokio::test]
+    async fn test_api_error_bucket_not_empty() {
         let error = ApiError::BucketNotEmpty("test-bucket".to_string());
         let response = error.into_response();
 
         assert_eq!(response.status(), StatusCode::CONFLICT);
+        assert_eq!(
+            response.headers().get(header::CONTENT_TYPE).unwrap(),
+            "application/xml"
+        );
+
+        let body = response_to_string(response).await;
+        assert!(body.contains("<Code>BucketNotEmpty</Code>"));
+        assert!(body.contains("<Resource>/test-bucket</Resource>"));
     }
 
-    #[test]
-    fn test_api_error_object_not_found() {
-        let error = ApiError::ObjectNotFound("test-bucket".to_string(), "test-key.txt".to_string());
+    #[tokio::test]
+    async fn test_api_error_object_not_found() {
+        let error = ApiError::ObjectNotFound {
+            bucket: "test-bucket".to_string(),
+            key: "test-key.txt".to_string(),
+        };
         let response = error.into_response();
 
         assert_eq!(response.status(), StatusCode::NOT_FOUND);
+        assert_eq!(
+            response.headers().get(header::CONTENT_TYPE).unwrap(),
+            "application/xml"
+        );
+
+        let body = response_to_string(response).await;
+        assert!(body.contains("<Code>NoSuchKey</Code>"));
+        assert!(body.contains("<Resource>/test-bucket/test-key.txt</Resource>"));
     }
 
-    #[test]
-    fn test_api_error_invalid_request() {
+    #[tokio::test]
+    async fn test_api_error_invalid_request() {
         let error = ApiError::InvalidRequest("Invalid bucket name".to_string());
         let response = error.into_response();
 
         assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        assert_eq!(
+            response.headers().get(header::CONTENT_TYPE).unwrap(),
+            "application/xml"
+        );
+
+        let body = response_to_string(response).await;
+        assert!(body.contains("<Code>InvalidRequest</Code>"));
+        assert!(body.contains("<Message>Invalid bucket name</Message>"));
     }
 
-    #[test]
-    fn test_api_error_unauthorized() {
+    #[tokio::test]
+    async fn test_api_error_unauthorized() {
         let error = ApiError::Unauthorized;
         let response = error.into_response();
 
-        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+        assert_eq!(response.status(), StatusCode::FORBIDDEN);
+        assert_eq!(
+            response.headers().get(header::CONTENT_TYPE).unwrap(),
+            "application/xml"
+        );
+
+        let body = response_to_string(response).await;
+        assert!(body.contains("<Code>AccessDenied</Code>"));
     }
 
-    #[test]
-    fn test_api_error_internal() {
-        let error = ApiError::Internal("something went wrong".to_string());
+    #[tokio::test]
+    async fn test_api_error_internal() {
+        let error = ApiError::internal("something went wrong".to_string());
         let response = error.into_response();
 
         assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
+        assert_eq!(
+            response.headers().get(header::CONTENT_TYPE).unwrap(),
+            "application/xml"
+        );
+
+        let body = response_to_string(response).await;
+        assert!(body.contains("<Code>InternalError</Code>"));
+        assert!(
+            body.contains("<Message>We encountered an internal error. Please try again.</Message>")
+        );
     }
 }

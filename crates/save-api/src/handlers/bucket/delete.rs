@@ -5,7 +5,7 @@ use axum::{
 };
 use save_common::validate_bucket_name;
 use save_metadata::MetadataError;
-use tracing::{debug, error, info, instrument};
+use tracing::{debug, info, instrument};
 
 use crate::handlers::ApiError;
 use crate::state::AppState;
@@ -28,30 +28,25 @@ pub async fn delete_bucket(
                 debug!("Bucket not found: {}", bucket);
                 ApiError::BucketNotFound(bucket.clone())
             }
-            _ => {
-                error!("Failed to get bucket: {}", e);
-                ApiError::Internal(format!("Failed to get bucket: {}", e))
-            }
+            _ => ApiError::internal(format!("Failed to get bucket: {}", e)),
         })?;
 
     let objects = state
         .metadata
         .list_objects(&bucket, None)
         .await
-        .map_err(|e| {
-            error!("Failed to list objects: {}", e);
-            ApiError::Internal(format!("Failed to list objects: {}", e))
-        })?;
+        .map_err(|e| ApiError::internal(format!("Failed to list objects: {}", e)))?;
 
     if !objects.is_empty() {
         debug!("Bucket not empty: {} objects found", objects.len());
         return Err(ApiError::BucketNotEmpty(bucket));
     }
 
-    state.metadata.delete_bucket(&bucket).await.map_err(|e| {
-        error!("Failed to delete bucket: {}", e);
-        ApiError::Internal(format!("Failed to delete bucket: {}", e))
-    })?;
+    state
+        .metadata
+        .delete_bucket(&bucket)
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to delete bucket: {}", e)))?;
 
     info!("Bucket deleted successfully");
 

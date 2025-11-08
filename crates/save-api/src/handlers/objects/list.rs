@@ -8,7 +8,7 @@ use chrono::{DateTime, Utc};
 use save_common::validate_bucket_name;
 use save_metadata::MetadataError;
 use serde::{Deserialize, Serialize};
-use tracing::{debug, error, info, instrument};
+use tracing::{debug, info, instrument};
 
 use crate::handlers::ApiError;
 use crate::state::AppState;
@@ -58,10 +58,7 @@ pub async fn list_objects(
                 debug!("Bucket not found: {}", bucket);
                 ApiError::BucketNotFound(bucket.clone())
             }
-            _ => {
-                error!("Failed to get bucket: {}", e);
-                ApiError::Internal(format!("Failed to get bucket: {}", e))
-            }
+            _ => ApiError::internal(format!("Failed to get bucket: {}", e)),
         })?;
 
     let prefix = params.prefix.as_deref();
@@ -69,10 +66,7 @@ pub async fn list_objects(
         .metadata
         .list_objects(&bucket, prefix)
         .await
-        .map_err(|e| {
-            error!("Failed to list objects: {}", e);
-            ApiError::Internal(format!("Failed to list objects: {}", e))
-        })?;
+        .map_err(|e| ApiError::internal(format!("Failed to list objects: {}", e)))?;
 
     if let Some(ref marker) = params.marker {
         objects.retain(|obj| obj.key > *marker);

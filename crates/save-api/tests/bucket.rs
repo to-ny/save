@@ -110,7 +110,7 @@ mod create {
 
         let response = app.oneshot(request).await.unwrap();
 
-        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+        assert_eq!(response.status(), StatusCode::FORBIDDEN);
     }
 
     #[tokio::test]
@@ -130,7 +130,7 @@ mod create {
 
         let response = app.oneshot(request).await.unwrap();
 
-        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+        assert_eq!(response.status(), StatusCode::FORBIDDEN);
     }
 }
 
@@ -220,7 +220,7 @@ mod delete {
 
         let response = app.oneshot(request).await.unwrap();
 
-        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+        assert_eq!(response.status(), StatusCode::FORBIDDEN);
     }
 
     #[tokio::test]
@@ -243,7 +243,7 @@ mod delete {
 
         let response = app.oneshot(request).await.unwrap();
 
-        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+        assert_eq!(response.status(), StatusCode::FORBIDDEN);
     }
 
     #[tokio::test]
@@ -353,6 +353,6 @@ mod list {
             .unwrap();
 
         let response = app.oneshot(request).await.unwrap();
-        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+        assert_eq!(response.status(), StatusCode::FORBIDDEN);
     }
 }

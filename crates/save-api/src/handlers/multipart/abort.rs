@@ -38,20 +38,14 @@ pub async fn abort_multipart(
                 debug!("Multipart upload not found: {}", query.upload_id);
                 ApiError::InvalidRequest(format!("Upload ID not found: {}", query.upload_id))
             }
-            _ => {
-                error!("Metadata error: {}", e);
-                ApiError::Internal(format!("Metadata error: {}", e))
-            }
+            _ => ApiError::internal(format!("Metadata error: {}", e)),
         })?;
 
     state
         .metadata
         .abort_multipart_upload(&bucket, &key, &query.upload_id)
         .await
-        .map_err(|e| {
-            error!("Failed to abort multipart upload metadata: {}", e);
-            ApiError::Internal(format!("Metadata error: {}", e))
-        })?;
+        .map_err(|e| ApiError::internal(format!("Metadata error: {}", e)))?;
 
     cleanup_part_files(&state.config.storage.data_path, &query.upload_id, &upload).await;
 

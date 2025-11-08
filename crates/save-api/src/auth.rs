@@ -1,18 +1,18 @@
 use axum::{
     extract::{Request, State},
-    http::StatusCode,
     middleware::Next,
     response::Response,
 };
 use tracing::{debug, warn};
 
+use crate::handlers::ApiError;
 use crate::state::AppState;
 
 pub async fn validate_sigv4(
     State(state): State<AppState>,
     request: Request,
     next: Next,
-) -> Result<Response, StatusCode> {
+) -> Result<Response, ApiError> {
     let auth_header = request
         .headers()
         .get("authorization")
@@ -22,7 +22,7 @@ pub async fn validate_sigv4(
         Some(auth) => {
             if !auth.starts_with("AWS4-HMAC-SHA256") {
                 warn!("Invalid authorization header format");
-                return Err(StatusCode::UNAUTHORIZED);
+                return Err(ApiError::Unauthorized);
             }
 
             let access_key = extract_access_key(auth);
@@ -33,17 +33,17 @@ pub async fn validate_sigv4(
                 }
                 Some(key) => {
                     warn!("Access key mismatch: {}", key);
-                    Err(StatusCode::UNAUTHORIZED)
+                    Err(ApiError::Unauthorized)
                 }
                 None => {
                     warn!("Could not extract access key from authorization header");
-                    Err(StatusCode::UNAUTHORIZED)
+                    Err(ApiError::Unauthorized)
                 }
             }
         }
         None => {
             warn!("Missing authorization header");
-            Err(StatusCode::UNAUTHORIZED)
+            Err(ApiError::Unauthorized)
         }
     }
 }

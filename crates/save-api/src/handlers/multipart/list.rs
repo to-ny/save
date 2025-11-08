@@ -8,7 +8,7 @@ use chrono::{DateTime, Utc};
 use save_common::validate_bucket_name;
 use save_metadata::MetadataError;
 use serde::Serialize;
-use tracing::{debug, error, info, instrument};
+use tracing::{debug, info, instrument};
 
 use crate::handlers::ApiError;
 use crate::state::AppState;
@@ -44,20 +44,14 @@ pub async fn list_multipart_uploads(
                 debug!("Bucket not found: {}", bucket);
                 ApiError::BucketNotFound(bucket.clone())
             }
-            _ => {
-                error!("Failed to get bucket: {}", e);
-                ApiError::Internal(format!("Failed to get bucket: {}", e))
-            }
+            _ => ApiError::internal(format!("Failed to get bucket: {}", e)),
         })?;
 
     let uploads = state
         .metadata
         .list_multipart_uploads(&bucket)
         .await
-        .map_err(|e| {
-            error!("Failed to list multipart uploads: {}", e);
-            ApiError::Internal(format!("Failed to list multipart uploads: {}", e))
-        })?;
+        .map_err(|e| ApiError::internal(format!("Failed to list multipart uploads: {}", e)))?;
 
     let upload_infos: Vec<UploadInfo> = uploads
         .into_iter()

@@ -13,7 +13,7 @@ use std::time::Instant;
 use tokio::fs;
 use tokio::io::AsyncWriteExt;
 use tokio_util::io::StreamReader;
-use tracing::{debug, error, info, instrument};
+use tracing::{debug, info, instrument};
 
 use crate::handlers::ApiError;
 use crate::state::AppState;
@@ -48,10 +48,7 @@ pub async fn upload_part(
                 debug!("Multipart upload not found: {}", query.upload_id);
                 ApiError::InvalidRequest(format!("Upload ID not found: {}", query.upload_id))
             }
-            _ => {
-                error!("Metadata error: {}", e);
-                ApiError::Internal(format!("Metadata error: {}", e))
-            }
+            _ => ApiError::internal(format!("Metadata error: {}", e)),
         })?;
 
     let part_file_path = part_path(
@@ -63,10 +60,9 @@ pub async fn upload_part(
     let stream = body.into_data_stream().map_err(std::io::Error::other);
     let stream_reader = StreamReader::new(stream);
 
-    let mut file = fs::File::create(&part_file_path).await.map_err(|e| {
-        error!("Failed to create part file: {}", e);
-        ApiError::Internal(format!("Storage error: {}", e))
-    })?;
+    let mut file = fs::File::create(&part_file_path)
+        .await
+        .map_err(|e| ApiError::internal(format!("Storage error: {}", e)))?;
 
     let mut hasher = Sha256::new();
     let mut size = 0u64;
@@ -77,10 +73,7 @@ pub async fn upload_part(
     loop {
         let n = tokio::io::AsyncReadExt::read(&mut reader, &mut buffer)
             .await
-            .map_err(|e| {
-                error!("Failed to read part data: {}", e);
-                ApiError::Internal(format!("I/O error: {}", e))
-            })?;
+            .map_err(|e| ApiError::internal(format!("I/O error: {}", e)))?;
 
         if n == 0 {
             break;
@@ -96,16 +89,14 @@ pub async fn upload_part(
             )));
         }
 
-        file.write_all(&buffer[..n]).await.map_err(|e| {
-            error!("Failed to write part data: {}", e);
-            ApiError::Internal(format!("Storage error: {}", e))
-        })?;
+        file.write_all(&buffer[..n])
+            .await
+            .map_err(|e| ApiError::internal(format!("Storage error: {}", e)))?;
     }
 
-    file.flush().await.map_err(|e| {
-        error!("Failed to flush part file: {}", e);
-        ApiError::Internal(format!("Storage error: {}", e))
-    })?;
+    file.flush()
+        .await
+        .map_err(|e| ApiError::internal(format!("Storage error: {}", e)))?;
 
     let etag = format!("{:x}", hasher.finalize());
 
@@ -120,10 +111,7 @@ pub async fn upload_part(
             size,
         )
         .await
-        .map_err(|e| {
-            error!("Failed to record part: {}", e);
-            ApiError::Internal(format!("Metadata error: {}", e))
-        })?;
+        .map_err(|e| ApiError::internal(format!("Metadata error: {}", e)))?;
 
     let duration = start.elapsed();
     info!(
