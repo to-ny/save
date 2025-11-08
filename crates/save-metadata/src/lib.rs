@@ -7,7 +7,7 @@ mod multipart;
 mod tests;
 
 pub use error::{MetadataError, Result};
-pub use bucket::Bucket;
+pub use save_common::Bucket;
 pub use object::ObjectMetadata;
 pub use multipart::{MultipartUpload, MultipartPart};
 

@@ -1,28 +1,7 @@
 use crate::error::{MetadataError, Result};
 use chrono::{DateTime, Utc};
+use save_common::validate_object_key;
 use serde::{Deserialize, Serialize};
-
-fn validate_key(key: &str) -> Result<()> {
-    if key.is_empty() {
-        return Err(MetadataError::InvalidOperation(
-            "Object key cannot be empty".to_string()
-        ));
-    }
-
-    if key.len() > 1024 {
-        return Err(MetadataError::InvalidOperation(
-            format!("Object key too long: {} bytes (max 1024)", key.len())
-        ));
-    }
-
-    if key.contains('\0') {
-        return Err(MetadataError::InvalidOperation(
-            "Object key cannot contain null bytes".to_string()
-        ));
-    }
-
-    Ok(())
-}
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ObjectMetadata {
@@ -58,7 +37,7 @@ pub(crate) fn put_object_metadata(
     db: &rocksdb::DB,
     metadata: &ObjectMetadata,
 ) -> Result<()> {
-    validate_key(&metadata.key)?;
+    validate_object_key(&metadata.key).map_err(|e| MetadataError::InvalidOperation(e.to_string()))?;
 
     let key = ObjectMetadata::db_key(&metadata.bucket, &metadata.key);
     let value = bincode::serialize(metadata)?;
@@ -71,7 +50,7 @@ pub(crate) fn get_object_metadata(
     bucket: &str,
     key: &str,
 ) -> Result<ObjectMetadata> {
-    validate_key(key)?;
+    validate_object_key(key).map_err(|e| MetadataError::InvalidOperation(e.to_string()))?;
 
     let db_key = ObjectMetadata::db_key(bucket, key);
 
@@ -92,7 +71,7 @@ pub(crate) fn delete_object_metadata(
     bucket: &str,
     key: &str,
 ) -> Result<()> {
-    validate_key(key)?;
+    validate_object_key(key).map_err(|e| MetadataError::InvalidOperation(e.to_string()))?;
 
     let db_key = ObjectMetadata::db_key(bucket, key);
     db.delete(&db_key)?;
@@ -231,28 +210,25 @@ mod tests {
 
     #[test]
     fn test_validate_key_valid() {
-        assert!(validate_key("file.txt").is_ok());
-        assert!(validate_key("path/to/file.txt").is_ok());
-        assert!(validate_key("a").is_ok());
-        assert!(validate_key(&"x".repeat(1024)).is_ok());
+        assert!(validate_object_key("file.txt").is_ok());
+        assert!(validate_object_key("path/to/file.txt").is_ok());
+        assert!(validate_object_key("a").is_ok());
+        assert!(validate_object_key(&"x".repeat(1024)).is_ok());
     }
 
     #[test]
     fn test_validate_key_empty() {
-        let result = validate_key("");
-        assert!(matches!(result, Err(MetadataError::InvalidOperation(_))));
+        assert!(validate_object_key("").is_err());
     }
 
     #[test]
     fn test_validate_key_too_long() {
         let long_key = "x".repeat(1025);
-        let result = validate_key(&long_key);
-        assert!(matches!(result, Err(MetadataError::InvalidOperation(_))));
+        assert!(validate_object_key(&long_key).is_err());
     }
 
     #[test]
     fn test_validate_key_null_byte() {
-        let result = validate_key("file\0.txt");
-        assert!(matches!(result, Err(MetadataError::InvalidOperation(_))));
+        assert!(validate_object_key("file\0.txt").is_err());
     }
 }

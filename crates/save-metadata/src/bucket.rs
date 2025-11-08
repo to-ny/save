@@ -1,55 +1,17 @@
 use crate::error::{MetadataError, Result};
-use chrono::{DateTime, Utc};
-use serde::{Deserialize, Serialize};
+use save_common::{validate_bucket_name, Bucket};
 
-fn validate_bucket_name(name: &str) -> Result<()> {
-    if name.is_empty() || name.len() > 63 {
-        return Err(MetadataError::InvalidOperation(
-            format!("Bucket name must be 1-63 characters, got {}", name.len())
-        ));
-    }
-
-    if !name.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-' || c == '.') {
-        return Err(MetadataError::InvalidOperation(
-            "Bucket name must contain only lowercase letters, numbers, hyphens, and dots".to_string()
-        ));
-    }
-
-    if name.starts_with('-') || name.starts_with('.') || name.ends_with('-') || name.ends_with('.') {
-        return Err(MetadataError::InvalidOperation(
-            "Bucket name cannot start or end with hyphen or dot".to_string()
-        ));
-    }
-
-    Ok(())
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct Bucket {
-    pub name: String,
-    pub created_at: DateTime<Utc>,
-}
-
-impl Bucket {
-    pub fn new(name: String) -> Self {
-        Self {
-            name,
-            created_at: Utc::now(),
-        }
-    }
-
-    pub(crate) fn key(name: &str) -> String {
-        format!("bkt:{}", name)
-    }
+fn bucket_key(name: &str) -> String {
+    format!("bkt:{}", name)
 }
 
 pub(crate) fn create_bucket(
     db: &rocksdb::DB,
     name: &str,
 ) -> Result<Bucket> {
-    validate_bucket_name(name)?;
+    validate_bucket_name(name).map_err(|e| MetadataError::InvalidOperation(e.to_string()))?;
 
-    let key = Bucket::key(name);
+    let key = bucket_key(name);
 
     if db.get(&key)?.is_some() {
         return Err(MetadataError::BucketAlreadyExists(name.to_string()));
@@ -63,9 +25,9 @@ pub(crate) fn create_bucket(
 }
 
 pub(crate) fn get_bucket(db: &rocksdb::DB, name: &str) -> Result<Bucket> {
-    validate_bucket_name(name)?;
+    validate_bucket_name(name).map_err(|e| MetadataError::InvalidOperation(e.to_string()))?;
 
-    let key = Bucket::key(name);
+    let key = bucket_key(name);
 
     match db.get(&key)? {
         Some(data) => {
@@ -77,9 +39,9 @@ pub(crate) fn get_bucket(db: &rocksdb::DB, name: &str) -> Result<Bucket> {
 }
 
 pub(crate) fn delete_bucket(db: &rocksdb::DB, name: &str) -> Result<()> {
-    validate_bucket_name(name)?;
+    validate_bucket_name(name).map_err(|e| MetadataError::InvalidOperation(e.to_string()))?;
 
-    let key = Bucket::key(name);
+    let key = bucket_key(name);
     db.delete(&key)?;
     Ok(())
 }
@@ -169,35 +131,33 @@ mod tests {
         assert!(validate_bucket_name("my.bucket").is_ok());
         assert!(validate_bucket_name("bucket123").is_ok());
         assert!(validate_bucket_name("a").is_ok());
-        assert!(validate_bucket_name("a" + &"b".repeat(62)).is_ok());
+        assert!(validate_bucket_name(&format!("a{}", "b".repeat(62))).is_ok());
     }
 
     #[test]
     fn test_validate_bucket_name_empty() {
-        let result = validate_bucket_name("");
-        assert!(matches!(result, Err(MetadataError::InvalidOperation(_))));
+        assert!(validate_bucket_name("").is_err());
     }
 
     #[test]
     fn test_validate_bucket_name_too_long() {
         let long_name = "a".repeat(64);
-        let result = validate_bucket_name(&long_name);
-        assert!(matches!(result, Err(MetadataError::InvalidOperation(_))));
+        assert!(validate_bucket_name(&long_name).is_err());
     }
 
     #[test]
     fn test_validate_bucket_name_invalid_characters() {
-        assert!(matches!(validate_bucket_name("MyBucket"), Err(MetadataError::InvalidOperation(_))));
-        assert!(matches!(validate_bucket_name("bucket_name"), Err(MetadataError::InvalidOperation(_))));
-        assert!(matches!(validate_bucket_name("bucket name"), Err(MetadataError::InvalidOperation(_))));
-        assert!(matches!(validate_bucket_name("bucket@example"), Err(MetadataError::InvalidOperation(_))));
+        assert!(validate_bucket_name("MyBucket").is_err());
+        assert!(validate_bucket_name("bucket_name").is_err());
+        assert!(validate_bucket_name("bucket name").is_err());
+        assert!(validate_bucket_name("bucket@example").is_err());
     }
 
     #[test]
     fn test_validate_bucket_name_invalid_start_end() {
-        assert!(matches!(validate_bucket_name("-bucket"), Err(MetadataError::InvalidOperation(_))));
-        assert!(matches!(validate_bucket_name("bucket-"), Err(MetadataError::InvalidOperation(_))));
-        assert!(matches!(validate_bucket_name(".bucket"), Err(MetadataError::InvalidOperation(_))));
-        assert!(matches!(validate_bucket_name("bucket."), Err(MetadataError::InvalidOperation(_))));
+        assert!(validate_bucket_name("-bucket").is_err());
+        assert!(validate_bucket_name("bucket-").is_err());
+        assert!(validate_bucket_name(".bucket").is_err());
+        assert!(validate_bucket_name("bucket.").is_err());
     }
 }

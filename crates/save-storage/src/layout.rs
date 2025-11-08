@@ -1,4 +1,5 @@
 use crate::error::{Result, StorageError};
+use save_common::validate_object_key;
 use sha2::{Digest, Sha256};
 use std::path::{Path, PathBuf};
 
@@ -13,34 +14,8 @@ impl StorageLayout {
         }
     }
 
-    fn validate_key(&self, key: &str) -> Result<()> {
-        if key.is_empty() {
-            return Err(StorageError::InvalidKey("Key cannot be empty".to_string()));
-        }
-
-        if key.contains("..") {
-            return Err(StorageError::InvalidKey(
-                "Key cannot contain '..'".to_string(),
-            ));
-        }
-
-        if key.starts_with('/') || key.ends_with('/') {
-            return Err(StorageError::InvalidKey(
-                "Key cannot start or end with '/'".to_string(),
-            ));
-        }
-
-        if key.contains('\0') {
-            return Err(StorageError::InvalidKey(
-                "Key cannot contain null bytes".to_string(),
-            ));
-        }
-
-        Ok(())
-    }
-
     pub fn object_id(&self, key: &str) -> Result<String> {
-        self.validate_key(key)?;
+        validate_object_key(key).map_err(|e| StorageError::InvalidKey(e.to_string()))?;
         let mut hasher = Sha256::new();
         hasher.update(key.as_bytes());
         Ok(format!("{:x}", hasher.finalize()))
@@ -75,39 +50,34 @@ mod tests {
 
     #[test]
     fn test_validate_key_valid() {
-        let layout = StorageLayout::new("/tmp");
-        assert!(layout.validate_key("bucket/key").is_ok());
-        assert!(layout.validate_key("bucket/path/to/object").is_ok());
-        assert!(layout.validate_key("a").is_ok());
+        assert!(validate_object_key("bucket/key").is_ok());
+        assert!(validate_object_key("bucket/path/to/object").is_ok());
+        assert!(validate_object_key("a").is_ok());
     }
 
     #[test]
     fn test_validate_key_path_traversal() {
-        let layout = StorageLayout::new("/tmp");
-        assert!(layout.validate_key("../etc/passwd").is_err());
-        assert!(layout.validate_key("bucket/../key").is_err());
-        assert!(layout.validate_key("..").is_err());
+        assert!(validate_object_key("../etc/passwd").is_err());
+        assert!(validate_object_key("bucket/../key").is_err());
+        assert!(validate_object_key("..").is_err());
     }
 
     #[test]
     fn test_validate_key_empty() {
-        let layout = StorageLayout::new("/tmp");
-        assert!(layout.validate_key("").is_err());
+        assert!(validate_object_key("").is_err());
     }
 
     #[test]
     fn test_validate_key_slashes() {
-        let layout = StorageLayout::new("/tmp");
-        assert!(layout.validate_key("/bucket/key").is_err());
-        assert!(layout.validate_key("bucket/key/").is_err());
-        assert!(layout.validate_key("/").is_err());
+        assert!(validate_object_key("/bucket/key").is_err());
+        assert!(validate_object_key("bucket/key/").is_err());
+        assert!(validate_object_key("/").is_err());
     }
 
     #[test]
     fn test_validate_key_null_byte() {
-        let layout = StorageLayout::new("/tmp");
-        assert!(layout.validate_key("bucket/key\0").is_err());
-        assert!(layout.validate_key("\0").is_err());
+        assert!(validate_object_key("bucket/key\0").is_err());
+        assert!(validate_object_key("\0").is_err());
     }
 
     #[test]
