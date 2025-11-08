@@ -20,7 +20,7 @@ Implement a local, single-node S3-compatible object storage system using RocksDB
 - [x] Implement DELETE /{bucket}/{object}
 - [x] Implement HEAD /{bucket}/{object} for metadata
 - [x] Implement multipart endpoints: initiate, upload part, complete, abort
-- [ ] Health and metrics endpoints: `/health`, `/metrics`
+- [x] Health and metrics endpoints: `/health`, `/metrics`
 - [ ] Implement PUT /{bucket} — create bucket
 - [ ] Implement GET / — list all buckets
 - [ ] Implement DELETE /{bucket} — delete bucket (only if empty)

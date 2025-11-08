@@ -16,6 +16,7 @@ use tokio_util::io::StreamReader;
 use tracing::{debug, error, info, instrument};
 
 use crate::handlers::ApiError;
+use crate::metrics::object_size_bytes;
 use crate::state::AppState;
 
 use super::storage_key;
@@ -124,6 +125,10 @@ pub async fn put_object(
             error!("Metadata error: {}", e);
             ApiError::Internal(format!("Metadata error: {}", e))
         })?;
+
+    object_size_bytes()
+        .with_label_values(&["put"])
+        .observe(size as f64);
 
     let duration = start.elapsed();
     info!(

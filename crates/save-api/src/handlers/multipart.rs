@@ -19,6 +19,7 @@ use tracing::{debug, error, info, instrument};
 use uuid::Uuid;
 
 use crate::handlers::ApiError;
+use crate::metrics::{multipart_uploads_in_progress, object_size_bytes};
 use crate::state::AppState;
 
 #[derive(Debug, Default, Deserialize)]
@@ -106,6 +107,29 @@ impl Drop for MultipartCleanupGuard {
     }
 }
 
+struct MultipartGaugeGuard {
+    armed: bool,
+}
+
+impl MultipartGaugeGuard {
+    fn new() -> Self {
+        multipart_uploads_in_progress().inc();
+        Self { armed: true }
+    }
+
+    fn disarm(mut self) {
+        self.armed = false;
+    }
+}
+
+impl Drop for MultipartGaugeGuard {
+    fn drop(&mut self) {
+        if self.armed {
+            multipart_uploads_in_progress().dec();
+        }
+    }
+}
+
 #[instrument(skip(state, headers), fields(bucket = %bucket, key = %key))]
 pub async fn initiate_multipart(
     State(state): State<AppState>,
@@ -139,6 +163,8 @@ pub async fn initiate_multipart(
         .and_then(|v| v.to_str().ok())
         .map(|s| s.to_string());
 
+    let gauge_guard = MultipartGaugeGuard::new();
+
     state
         .metadata
         .initiate_multipart_upload(&bucket, &key, &upload_id, content_type)
@@ -156,6 +182,8 @@ pub async fn initiate_multipart(
         error!("Failed to create parts directory: {}", e);
         ApiError::Internal(format!("Storage error: {}", e))
     })?;
+
+    gauge_guard.disarm();
 
     let duration = start.elapsed();
     info!(
@@ -436,6 +464,11 @@ pub async fn complete_multipart(
         error!("Failed to clean up temp final file: {}", e);
     }
 
+    multipart_uploads_in_progress().dec();
+    object_size_bytes()
+        .with_label_values(&["multipart_complete"])
+        .observe(total_size as f64);
+
     let duration = start.elapsed();
     info!(
         "Complete multipart upload in {:?}, total size: {} bytes, etag: {}",
@@ -490,6 +523,8 @@ pub async fn abort_multipart(
     if let Err(e) = fs::remove_dir_all(&parts_dir).await {
         error!("Failed to clean up part files: {}", e);
     }
+
+    multipart_uploads_in_progress().dec();
 
     let duration = start.elapsed();
     info!("Abort multipart upload completed in {:?}", duration);
