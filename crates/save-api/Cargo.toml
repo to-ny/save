@@ -8,14 +8,21 @@ repository.workspace = true
 
 [dependencies]
 save-common = { path = "../save-common" }
+save-storage = { path = "../save-storage" }
+save-metadata = { path = "../save-metadata" }
 tokio = { workspace = true }
+tokio-util = { version = "0.7", features = ["io"] }
+futures = "0.3"
 axum = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 anyhow = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
+sha2 = { workspace = true }
+chrono = { workspace = true }
 
 [dev-dependencies]
 tower = { workspace = true }
 http-body-util = { workspace = true }
+tempfile = { workspace = true }

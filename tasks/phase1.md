@@ -15,7 +15,7 @@ Implement a local, single-node S3-compatible object storage system using RocksDB
 ---
 
 ## Core HTTP API
-- [ ] Implement PUT /{bucket}/{object} with SigV4 auth
+- [x] Implement PUT /{bucket}/{object} with SigV4 auth
 - [ ] Implement GET /{bucket}/{object}
 - [ ] Implement DELETE /{bucket}/{object}
 - [ ] Implement HEAD /{bucket}/{object} for metadata

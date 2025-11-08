@@ -70,8 +70,7 @@ impl SaveConfig {
         Ok(())
     }
 
-    #[cfg(test)]
-    pub fn test_default() -> Self {
+    pub fn default() -> Self {
         Self {
             server: ServerConfig {
                 bind_address: "127.0.0.1:9000".to_string(),
@@ -87,6 +86,11 @@ impl SaveConfig {
                 secret_key: "savepass".to_string(),
             },
         }
+    }
+
+    #[cfg(test)]
+    pub fn test_default() -> Self {
+        Self::default()
     }
 }
 
