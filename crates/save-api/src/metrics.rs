@@ -85,6 +85,13 @@ pub fn multipart_uploads_in_progress() -> &'static IntGauge {
     })
 }
 
+pub fn init_metrics() {
+    let _ = http_requests_total();
+    let _ = http_request_duration_seconds();
+    let _ = object_size_bytes();
+    let _ = multipart_uploads_in_progress();
+}
+
 pub fn encode_metrics() -> Result<String, MetricsError> {
     let encoder = TextEncoder::new();
     let metric_families = prometheus::gather();
@@ -100,6 +107,8 @@ mod tests {
 
     #[test]
     fn test_metrics_encode() {
+        init_metrics();
+
         http_requests_total()
             .with_label_values(&["/health", "GET", "200"])
             .inc();

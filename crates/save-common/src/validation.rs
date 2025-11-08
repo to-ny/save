@@ -1,6 +1,7 @@
 use crate::error::{Error, Result};
 
 pub const MAX_OBJECT_KEY_LENGTH: usize = 1024;
+pub const MIN_BUCKET_NAME_LENGTH: usize = 3;
 pub const MAX_BUCKET_NAME_LENGTH: usize = 63;
 
 pub fn validate_object_key(key: &str) -> Result<()> {
@@ -32,9 +33,10 @@ pub fn validate_object_key(key: &str) -> Result<()> {
 }
 
 pub fn validate_bucket_name(name: &str) -> Result<()> {
-    if name.is_empty() || name.len() > MAX_BUCKET_NAME_LENGTH {
+    if name.len() < MIN_BUCKET_NAME_LENGTH || name.len() > MAX_BUCKET_NAME_LENGTH {
         return Err(Error::validation(format!(
-            "Bucket name must be 1-{} characters, got {}",
+            "Bucket name must be {}-{} characters, got {}",
+            MIN_BUCKET_NAME_LENGTH,
             MAX_BUCKET_NAME_LENGTH,
             name.len()
         )));
@@ -110,6 +112,23 @@ mod tests {
     }
 
     #[test]
+    fn test_validate_bucket_name_too_short() {
+        assert!(validate_bucket_name("a").is_err());
+        assert!(validate_bucket_name("ab").is_err());
+    }
+
+    #[test]
+    fn test_validate_bucket_name_minimum_length() {
+        assert!(validate_bucket_name("abc").is_ok());
+    }
+
+    #[test]
+    fn test_validate_bucket_name_maximum_length() {
+        let max_name = "a".repeat(MAX_BUCKET_NAME_LENGTH);
+        assert!(validate_bucket_name(&max_name).is_ok());
+    }
+
+    #[test]
     fn test_validate_bucket_name_too_long() {
         let long_name = "a".repeat(MAX_BUCKET_NAME_LENGTH + 1);
         assert!(validate_bucket_name(&long_name).is_err());
@@ -127,5 +146,22 @@ mod tests {
         assert!(validate_bucket_name("bucket-").is_err());
         assert!(validate_bucket_name(".bucket").is_err());
         assert!(validate_bucket_name("bucket.").is_err());
+    }
+
+    #[test]
+    fn test_validate_bucket_name_with_dots() {
+        assert!(validate_bucket_name("my.bucket").is_ok());
+        assert!(validate_bucket_name("my.test.bucket").is_ok());
+    }
+
+    #[test]
+    fn test_validate_bucket_name_consecutive_hyphens() {
+        assert!(validate_bucket_name("my--bucket").is_ok());
+    }
+
+    #[test]
+    fn test_validate_bucket_name_starts_with_number() {
+        assert!(validate_bucket_name("123bucket").is_ok());
+        assert!(validate_bucket_name("1-bucket").is_ok());
     }
 }

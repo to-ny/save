@@ -1,10 +1,11 @@
 use crate::AppState;
+use axum::http::Request;
 use save_common::config::SaveConfig;
 use save_metadata::MetadataStore;
 use save_storage::ObjectStorage;
 use tempfile::TempDir;
 
-pub async fn test_setup() -> (AppState, TempDir) {
+pub async fn test_setup_empty() -> (AppState, TempDir) {
     let temp_dir = TempDir::new().unwrap();
     let data_path = temp_dir.path().join("data");
     let metadata_path = temp_dir.path().join("metadata");
@@ -18,8 +19,29 @@ pub async fn test_setup() -> (AppState, TempDir) {
         .unwrap();
     let metadata = MetadataStore::new(&config.storage.metadata_path).unwrap();
 
-    metadata.create_bucket("test-bucket").await.unwrap();
-
     let state = AppState::new(storage, metadata, config);
     (state, temp_dir)
+}
+
+pub async fn test_setup() -> (AppState, TempDir) {
+    let (state, temp_dir) = test_setup_empty().await;
+    state.metadata.create_bucket("test-bucket").await.unwrap();
+    (state, temp_dir)
+}
+
+pub fn auth_header() -> (&'static str, &'static str) {
+    (
+        "Authorization",
+        "AWS4-HMAC-SHA256 Credential=saveadmin/20231201/us-east-1/s3/aws4_request, SignedHeaders=host;x-amz-date, Signature=fake"
+    )
+}
+
+pub fn request_with_auth<B>(method: &str, uri: &str, body: B) -> Request<B> {
+    let (key, value) = auth_header();
+    Request::builder()
+        .method(method)
+        .uri(uri)
+        .header(key, value)
+        .body(body)
+        .unwrap()
 }

@@ -1,3 +1,4 @@
+pub mod bucket;
 mod error;
 pub mod multipart;
 pub mod objects;

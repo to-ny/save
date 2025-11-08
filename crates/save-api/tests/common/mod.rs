@@ -4,7 +4,7 @@ use save_metadata::MetadataStore;
 use save_storage::ObjectStorage;
 use tempfile::TempDir;
 
-pub async fn test_setup() -> (AppState, TempDir) {
+pub async fn setup_empty() -> (AppState, TempDir) {
     let temp_dir = TempDir::new().unwrap();
     let data_path = temp_dir.path().join("data");
     let metadata_path = temp_dir.path().join("metadata");
@@ -17,8 +17,6 @@ pub async fn test_setup() -> (AppState, TempDir) {
         .await
         .unwrap();
     let metadata = MetadataStore::new(&config.storage.metadata_path).unwrap();
-
-    metadata.create_bucket("test-bucket").await.unwrap();
 
     let state = AppState::new(storage, metadata, config);
     (state, temp_dir)
