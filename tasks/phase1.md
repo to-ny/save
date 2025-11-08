@@ -10,7 +10,7 @@ Implement a local, single-node S3-compatible object storage system using RocksDB
 - [x] Create `save-storage` crate (object persistence)
 - [x] Create `save-metadata` crate (RocksDB layer)
 - [x] Create `save-common` crate (shared types, errors, config)
-- [ ] Add `Cargo.toml` workspace configuration
+- [x] Add `Cargo.toml` workspace configuration
 
 ---
 
