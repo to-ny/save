@@ -24,6 +24,21 @@ Implement a local, single-node S3-compatible object storage system using RocksDB
 
 ---
 
+## Bucket Management
+- [ ] Implement PUT /{bucket} — create bucket
+- [ ] Implement GET / — list all buckets
+- [ ] Implement DELETE /{bucket} — delete bucket (only if empty)
+
+---
+
+## List & Metadata APIs
+- [ ] Implement GET /{bucket} — list objects in a bucket
+  - Support basic query parameters: `prefix`, `marker`, `max-keys`
+  - Return object keys, sizes, ETags, last modified timestamps
+- [ ] Implement GET /{bucket}?uploads — list ongoing multipart uploads
+
+---
+
 ## Storage & Metadata
 - [ ] FS layout: `objects/` + `temp/parts/`
 - [ ] RocksDB metadata: buckets, objects, multipart uploads
