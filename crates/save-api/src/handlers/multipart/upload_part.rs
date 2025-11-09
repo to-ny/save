@@ -1,5 +1,4 @@
 use axum::{
-    Json,
     body::Body,
     extract::{Path, Query, State},
     http::StatusCode,
@@ -18,7 +17,7 @@ use tracing::{debug, info, instrument};
 use crate::handlers::ApiError;
 use crate::state::AppState;
 
-use super::{UploadPartQuery, UploadPartResponse, part_path};
+use super::{UploadPartQuery, part_path};
 
 #[instrument(skip(state, body), fields(bucket = %bucket, key = %key, part_number = query.part_number, upload_id = %query.upload_id))]
 pub async fn upload_part(
@@ -119,12 +118,5 @@ pub async fn upload_part(
         duration, query.part_number, size, etag
     );
 
-    Ok((
-        StatusCode::OK,
-        Json(UploadPartResponse {
-            part_number: query.part_number,
-            etag,
-        }),
-    )
-        .into_response())
+    Ok((StatusCode::OK, [("etag", format!("\"{}\"", etag).as_str())]).into_response())
 }

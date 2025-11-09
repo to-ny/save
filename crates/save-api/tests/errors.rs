@@ -177,7 +177,6 @@ async fn test_error_response_has_request_id() {
     let request_id = &body[start..end];
 
     assert!(!request_id.is_empty(), "RequestId should not be empty");
-    assert!(request_id.len() > 0, "RequestId should have content");
 }
 
 #[tokio::test]

@@ -1,13 +1,11 @@
 use axum::{
-    Json,
     extract::{Path, Query, State},
     http::StatusCode,
     response::{IntoResponse, Response},
 };
-use chrono::{DateTime, Utc};
-use save_common::validate_bucket_name;
+use save_common::{ListBucketResult, S3XmlResponse, validate_bucket_name};
 use save_metadata::MetadataError;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use tracing::{debug, info, instrument};
 
 use crate::handlers::ApiError;
@@ -19,24 +17,6 @@ pub struct ListObjectsQuery {
     pub marker: Option<String>,
     #[serde(rename = "max-keys")]
     pub max_keys: Option<usize>,
-}
-
-#[derive(Debug, Clone, Serialize)]
-pub struct ObjectInfo {
-    pub key: String,
-    pub size: u64,
-    pub etag: String,
-    pub last_modified: DateTime<Utc>,
-}
-
-#[derive(Debug, Clone, Serialize)]
-pub struct ListObjectsResponse {
-    pub name: String,
-    pub prefix: Option<String>,
-    pub marker: Option<String>,
-    pub max_keys: Option<usize>,
-    pub is_truncated: bool,
-    pub contents: Vec<ObjectInfo>,
 }
 
 #[instrument(skip(state), fields(bucket = %bucket))]
@@ -76,28 +56,28 @@ pub async fn list_objects(
     let is_truncated = objects.len() > max_keys;
     objects.truncate(max_keys);
 
-    let object_infos: Vec<ObjectInfo> = objects
+    let object_list: Vec<(String, _, String, u64)> = objects
         .into_iter()
-        .map(|obj| ObjectInfo {
-            key: obj.key,
-            size: obj.size,
-            etag: obj.etag,
-            last_modified: obj.modified_at,
-        })
+        .map(|obj| (obj.key, obj.modified_at, obj.etag, obj.size))
         .collect();
 
-    info!("Listed {} objects", object_infos.len());
+    info!("Listed {} objects", object_list.len());
 
-    Ok((
-        StatusCode::OK,
-        Json(ListObjectsResponse {
-            name: bucket,
-            prefix: params.prefix,
-            marker: params.marker,
-            max_keys: Some(max_keys),
-            is_truncated,
-            contents: object_infos,
-        }),
-    )
-        .into_response())
+    let result = ListBucketResult::new(
+        bucket,
+        params.prefix,
+        params.marker,
+        max_keys,
+        is_truncated,
+        object_list,
+    );
+    let xml = result
+        .to_xml()
+        .map_err(|e| ApiError::internal(format!("Failed to serialize response: {}", e)))?;
+
+    crate::metrics::response_size_bytes()
+        .with_label_values(&["list_objects"])
+        .observe(xml.len() as f64);
+
+    Ok((StatusCode::OK, [("content-type", "application/xml")], xml).into_response())
 }

@@ -1,8 +1,8 @@
 mod common;
 
 use axum::{body::Body, http::StatusCode};
+use common::{get_all_elements, get_element_text, parse_xml};
 use http_body_util::BodyExt;
-use serde_json::Value;
 use tower::ServiceExt;
 
 mod complete_flow {
@@ -33,8 +33,11 @@ mod complete_flow {
             .await
             .unwrap()
             .to_bytes();
-        let init_json: Value = serde_json::from_slice(&init_body).unwrap();
-        let upload_id = init_json["upload_id"].as_str().unwrap();
+        let init_body_str = String::from_utf8(init_body.to_vec()).unwrap();
+
+        let start = init_body_str.find("<UploadId>").unwrap() + "<UploadId>".len();
+        let end = init_body_str.find("</UploadId>").unwrap();
+        let upload_id = &init_body_str[start..end];
 
         let part1_content = b"First part of the file.";
         let part1_request = Request::builder()
@@ -92,8 +95,10 @@ mod complete_flow {
             .await
             .unwrap()
             .to_bytes();
-        let complete_json: Value = serde_json::from_slice(&complete_body).unwrap();
-        assert!(complete_json["etag"].is_string());
+        let complete_body_str = String::from_utf8(complete_body.to_vec()).unwrap();
+
+        assert!(complete_body_str.contains("<ETag>"));
+        assert!(complete_body_str.contains("</ETag>"));
 
         let get_request = Request::builder()
             .method("GET")
@@ -137,8 +142,11 @@ mod complete_flow {
             .await
             .unwrap()
             .to_bytes();
-        let init_json: Value = serde_json::from_slice(&init_body).unwrap();
-        let upload_id = init_json["upload_id"].as_str().unwrap();
+        let init_body_str = String::from_utf8(init_body.to_vec()).unwrap();
+
+        let start = init_body_str.find("<UploadId>").unwrap() + "<UploadId>".len();
+        let end = init_body_str.find("</UploadId>").unwrap();
+        let upload_id = &init_body_str[start..end];
 
         let part_request = Request::builder()
             .method("PUT")
@@ -246,8 +254,11 @@ mod complete_flow {
             .await
             .unwrap()
             .to_bytes();
-        let init_json: Value = serde_json::from_slice(&init_body).unwrap();
-        let upload_id = init_json["upload_id"].as_str().unwrap();
+        let init_body_str = String::from_utf8(init_body.to_vec()).unwrap();
+
+        let start = init_body_str.find("<UploadId>").unwrap() + "<UploadId>".len();
+        let end = init_body_str.find("</UploadId>").unwrap();
+        let upload_id = &init_body_str[start..end];
 
         let request = Request::builder()
             .method("PUT")
@@ -288,8 +299,11 @@ mod complete_flow {
             .await
             .unwrap()
             .to_bytes();
-        let init_json: Value = serde_json::from_slice(&init_body).unwrap();
-        let upload_id = init_json["upload_id"].as_str().unwrap();
+        let init_body_str = String::from_utf8(init_body.to_vec()).unwrap();
+
+        let start = init_body_str.find("<UploadId>").unwrap() + "<UploadId>".len();
+        let end = init_body_str.find("</UploadId>").unwrap();
+        let upload_id = &init_body_str[start..end];
 
         let complete_request = Request::builder()
             .method("POST")
@@ -345,8 +359,11 @@ mod complete_flow {
             .await
             .unwrap()
             .to_bytes();
-        let init_json: Value = serde_json::from_slice(&init_body).unwrap();
-        let upload_id = init_json["upload_id"].as_str().unwrap();
+        let init_body_str = String::from_utf8(init_body.to_vec()).unwrap();
+
+        let start = init_body_str.find("<UploadId>").unwrap() + "<UploadId>".len();
+        let end = init_body_str.find("</UploadId>").unwrap();
+        let upload_id = &init_body_str[start..end];
 
         let part1_content = vec![0xAA; 50_000];
         let part1_request = Request::builder()
@@ -441,25 +458,16 @@ mod list {
         assert_eq!(response.status(), StatusCode::OK);
 
         let body = response.into_body().collect().await.unwrap().to_bytes();
-        let json: Value = serde_json::from_slice(&body).unwrap();
+        let body_str = String::from_utf8(body.to_vec()).unwrap();
 
-        assert_eq!(json["bucket"], "test-bucket");
-        assert_eq!(json["uploads"].as_array().unwrap().len(), 2);
-
-        let upload_ids: Vec<&str> = json["uploads"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .map(|u| u["upload_id"].as_str().unwrap())
-            .collect();
-
-        assert!(upload_ids.contains(&upload1.upload_id.as_str()));
-        assert!(upload_ids.contains(&upload2.upload_id.as_str()));
-
-        for upload in json["uploads"].as_array().unwrap() {
-            assert!(upload["key"].is_string());
-            assert!(upload["initiated"].is_string());
-        }
+        assert!(body_str.contains("<?xml version=\"1.0\" encoding=\"UTF-8\"?>"));
+        assert!(body_str.contains("<ListMultipartUploadsResult"));
+        assert!(body_str.contains("<Bucket>test-bucket</Bucket>"));
+        assert!(body_str.contains(&format!("<UploadId>{}</UploadId>", upload1.upload_id)));
+        assert!(body_str.contains(&format!("<UploadId>{}</UploadId>", upload2.upload_id)));
+        assert!(body_str.contains("<Key>file1.txt</Key>"));
+        assert!(body_str.contains("<Key>file2.txt</Key>"));
+        assert!(body_str.contains("<Initiated>"));
     }
 
     #[tokio::test]
@@ -473,10 +481,11 @@ mod list {
         assert_eq!(response.status(), StatusCode::OK);
 
         let body = response.into_body().collect().await.unwrap().to_bytes();
-        let json: Value = serde_json::from_slice(&body).unwrap();
+        let body_str = String::from_utf8(body.to_vec()).unwrap();
 
-        assert_eq!(json["bucket"], "test-bucket");
-        assert_eq!(json["uploads"].as_array().unwrap().len(), 0);
+        assert!(body_str.contains("<?xml version=\"1.0\" encoding=\"UTF-8\"?>"));
+        assert!(body_str.contains("<ListMultipartUploadsResult"));
+        assert!(body_str.contains("<Bucket>test-bucket</Bucket>"));
     }
 
     #[tokio::test]

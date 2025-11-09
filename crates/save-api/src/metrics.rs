@@ -20,6 +20,7 @@ const GB: f64 = 1024.0 * MB;
 static HTTP_REQUESTS_TOTAL: OnceLock<IntCounterVec> = OnceLock::new();
 static HTTP_REQUEST_DURATION_SECONDS: OnceLock<HistogramVec> = OnceLock::new();
 static OBJECT_SIZE_BYTES: OnceLock<HistogramVec> = OnceLock::new();
+static RESPONSE_SIZE_BYTES: OnceLock<HistogramVec> = OnceLock::new();
 static MULTIPART_UPLOADS_IN_PROGRESS: OnceLock<IntGauge> = OnceLock::new();
 static ATOMIC_PUT_OPERATIONS_TOTAL: OnceLock<IntCounterVec> = OnceLock::new();
 static GC_FILES_DELETED_TOTAL: OnceLock<IntCounter> = OnceLock::new();
@@ -86,6 +87,22 @@ pub fn object_size_bytes() -> &'static HistogramVec {
             ]
         )
         .expect("Failed to register save_object_size_bytes metric")
+    })
+}
+
+/// Response size distribution for list/query operations.
+///
+/// Labels have bounded cardinality:
+/// - `endpoint`: Fixed set of values ("list_buckets", "list_objects", "list_multipart", "initiate_multipart", "complete_multipart")
+pub fn response_size_bytes() -> &'static HistogramVec {
+    RESPONSE_SIZE_BYTES.get_or_init(|| {
+        register_histogram_vec!(
+            "save_response_size_bytes",
+            "Response payload size in bytes for list/query operations",
+            &["endpoint"],
+            vec![KB, 10.0 * KB, 100.0 * KB, MB, 10.0 * MB,]
+        )
+        .expect("Failed to register save_response_size_bytes metric")
     })
 }
 

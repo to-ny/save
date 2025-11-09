@@ -1,5 +1,4 @@
 use axum::{
-    Json,
     body::Body,
     extract::{Path, State},
     http::StatusCode,
@@ -8,7 +7,6 @@ use axum::{
 use futures::TryStreamExt;
 use save_common::{validate_bucket_name, validate_object_key};
 use save_metadata::{MetadataError, ObjectMetadata};
-use serde::Serialize;
 use sha2::{Digest, Sha256};
 use std::time::Instant;
 use tokio::io::AsyncRead;
@@ -20,11 +18,6 @@ use crate::metrics::{atomic_put_operations_total, object_size_bytes};
 use crate::state::AppState;
 
 use super::storage_key;
-
-#[derive(Serialize)]
-pub struct PutObjectResponse {
-    etag: String,
-}
 
 pub struct HashingReader<R> {
     inner: R,
@@ -158,7 +151,7 @@ pub async fn put_object(
         duration, size, etag
     );
 
-    Ok((StatusCode::OK, Json(PutObjectResponse { etag })).into_response())
+    Ok((StatusCode::OK, [("etag", format!("\"{}\"", etag).as_str())]).into_response())
 }
 
 #[cfg(test)]

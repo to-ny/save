@@ -129,8 +129,11 @@ async fn test_metrics_track_multipart_upload() {
         .await
         .unwrap()
         .to_bytes();
-    let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
-    let upload_id = json["upload_id"].as_str().unwrap();
+    let body_str = String::from_utf8(body.to_vec()).unwrap();
+
+    let start = body_str.find("<UploadId>").unwrap() + "<UploadId>".len();
+    let end = body_str.find("</UploadId>").unwrap();
+    let upload_id = &body_str[start..end];
 
     let metrics_request = Request::builder()
         .uri("/metrics")

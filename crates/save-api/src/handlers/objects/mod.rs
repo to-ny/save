@@ -7,7 +7,7 @@ mod put;
 pub use delete::delete_object;
 pub use get::get_object;
 pub use head::head_object;
-pub use list::{ListObjectsQuery, ListObjectsResponse, ObjectInfo, list_objects};
+pub use list::{ListObjectsQuery, list_objects};
 pub use put::put_object;
 
 pub fn storage_key(bucket: &str, key: &str) -> String {

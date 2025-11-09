@@ -1,10 +1,11 @@
 use axum::{
-    Json,
     extract::{Path, Query, State},
     http::StatusCode,
     response::{IntoResponse, Response},
 };
-use save_common::{validate_bucket_name, validate_object_key};
+use save_common::{
+    CompleteMultipartUploadResult, S3XmlResponse, validate_bucket_name, validate_object_key,
+};
 use save_metadata::{MetadataError, ObjectMetadata};
 use sha2::{Digest, Sha256};
 use std::path::PathBuf;
@@ -17,7 +18,7 @@ use crate::handlers::ApiError;
 use crate::metrics::{multipart_uploads_in_progress, object_size_bytes};
 use crate::state::AppState;
 
-use super::{CompleteQuery, CompleteResponse, MultipartCleanupGuard, part_path};
+use super::{CompleteQuery, MultipartCleanupGuard, part_path};
 
 #[instrument(skip(state), fields(bucket = %bucket, key = %key, upload_id = %query.upload_id))]
 pub async fn complete_multipart(
@@ -153,5 +154,16 @@ pub async fn complete_multipart(
         duration, total_size, final_etag
     );
 
-    Ok((StatusCode::OK, Json(CompleteResponse { etag: final_etag })).into_response())
+    // TODO Hardcoded protocol
+    let endpoint = format!("http://{}", state.config.server.bind_address);
+    let result = CompleteMultipartUploadResult::new(bucket, key, final_etag, endpoint);
+    let xml = result
+        .to_xml()
+        .map_err(|e| ApiError::internal(format!("Failed to serialize response: {}", e)))?;
+
+    crate::metrics::response_size_bytes()
+        .with_label_values(&["complete_multipart"])
+        .observe(xml.len() as f64);
+
+    Ok((StatusCode::OK, [("content-type", "application/xml")], xml).into_response())
 }

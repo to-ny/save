@@ -1,11 +1,11 @@
 mod common;
 
 use axum::{body::Body, http::StatusCode};
+use common::{get_all_elements, get_element_text, parse_xml};
 use http_body_util::BodyExt;
 use save_common::config::SaveConfig;
 use save_metadata::MetadataStore;
 use save_storage::ObjectStorage;
-use serde_json::Value;
 use sha2::Digest;
 use tempfile::TempDir;
 use tower::ServiceExt;
@@ -416,9 +416,12 @@ mod get {
         let put_response = app.clone().oneshot(put_request).await.unwrap();
         assert_eq!(put_response.status(), StatusCode::OK);
 
-        let put_body = put_response.into_body().collect().await.unwrap().to_bytes();
-        let put_json: serde_json::Value = serde_json::from_slice(&put_body).unwrap();
-        let put_etag = put_json["etag"].as_str().unwrap();
+        let put_etag = put_response
+            .headers()
+            .get("etag")
+            .unwrap()
+            .to_str()
+            .unwrap();
 
         let get_request = Request::builder()
             .method("GET")
@@ -440,7 +443,7 @@ mod get {
             .to_str()
             .unwrap();
 
-        assert_eq!(get_etag, format!("\"{}\"", put_etag));
+        assert_eq!(get_etag, put_etag);
     }
 
     #[tokio::test]
@@ -855,17 +858,35 @@ mod list {
         assert_eq!(response.status(), StatusCode::OK);
 
         let body = response.into_body().collect().await.unwrap().to_bytes();
-        let json: Value = serde_json::from_slice(&body).unwrap();
+        let body_str = String::from_utf8(body.to_vec()).unwrap();
 
-        assert_eq!(json["name"], "test-bucket");
-        assert_eq!(json["contents"].as_array().unwrap().len(), 3);
-        assert_eq!(json["is_truncated"], false);
+        let doc = parse_xml(&body_str);
+        let root = doc.root_element();
 
-        for object in json["contents"].as_array().unwrap() {
-            assert!(object["key"].is_string());
-            assert!(object["size"].is_number());
-            assert!(object["etag"].is_string());
-            assert!(object["last_modified"].is_string());
+        assert_eq!(root.tag_name().name(), "ListBucketResult");
+        assert!(body_str.contains("xmlns=\"http://s3.amazonaws.com/doc/2006-03-01/\""));
+
+        assert_eq!(get_element_text(root, "Name"), Some("test-bucket"));
+        assert_eq!(get_element_text(root, "IsTruncated"), Some("false"));
+
+        let contents = get_all_elements(root, "Contents");
+        assert_eq!(contents.len(), 3);
+
+        let mut keys: Vec<_> = contents
+            .iter()
+            .filter_map(|c| get_element_text(*c, "Key"))
+            .collect();
+        keys.sort();
+
+        let mut expected = vec!["file1.txt", "file2.txt", "dir/file3.txt"];
+        expected.sort();
+        assert_eq!(keys, expected);
+
+        for content in &contents {
+            assert!(get_element_text(*content, "Size").is_some());
+            assert!(get_element_text(*content, "ETag").is_some());
+            assert!(get_element_text(*content, "LastModified").is_some());
+            assert_eq!(get_element_text(*content, "StorageClass"), Some("STANDARD"));
         }
     }
 
@@ -880,10 +901,18 @@ mod list {
         assert_eq!(response.status(), StatusCode::OK);
 
         let body = response.into_body().collect().await.unwrap().to_bytes();
-        let json: Value = serde_json::from_slice(&body).unwrap();
+        let body_str = String::from_utf8(body.to_vec()).unwrap();
 
-        assert_eq!(json["name"], "test-bucket");
-        assert_eq!(json["contents"].as_array().unwrap().len(), 0);
+        let doc = parse_xml(&body_str);
+        let root = doc.root_element();
+
+        assert_eq!(root.tag_name().name(), "ListBucketResult");
+        assert!(body_str.contains("xmlns=\"http://s3.amazonaws.com/doc/2006-03-01/\""));
+
+        assert_eq!(get_element_text(root, "Name"), Some("test-bucket"));
+
+        let contents = get_all_elements(root, "Contents");
+        assert_eq!(contents.len(), 0);
     }
 
     #[tokio::test]
@@ -920,15 +949,24 @@ mod list {
         assert_eq!(response.status(), StatusCode::OK);
 
         let body = response.into_body().collect().await.unwrap().to_bytes();
-        let json: Value = serde_json::from_slice(&body).unwrap();
+        let body_str = String::from_utf8(body.to_vec()).unwrap();
 
-        assert_eq!(json["prefix"], "dir/");
-        assert_eq!(json["contents"].as_array().unwrap().len(), 2);
+        let doc = parse_xml(&body_str);
+        let root = doc.root_element();
 
-        for object in json["contents"].as_array().unwrap() {
-            let key = object["key"].as_str().unwrap();
-            assert!(key.starts_with("dir/"));
-        }
+        assert_eq!(root.tag_name().name(), "ListBucketResult");
+        assert_eq!(get_element_text(root, "Prefix"), Some("dir/"));
+
+        let contents = get_all_elements(root, "Contents");
+        assert_eq!(contents.len(), 2);
+
+        let keys: Vec<_> = contents
+            .iter()
+            .filter_map(|c| get_element_text(*c, "Key"))
+            .collect();
+
+        assert_eq!(keys, vec!["dir/file2.txt", "dir/file3.txt"]);
+        assert!(!keys.contains(&"file1.txt"));
     }
 
     #[tokio::test]
@@ -966,15 +1004,26 @@ mod list {
         assert_eq!(response.status(), StatusCode::OK);
 
         let body = response.into_body().collect().await.unwrap().to_bytes();
-        let json: Value = serde_json::from_slice(&body).unwrap();
+        let body_str = String::from_utf8(body.to_vec()).unwrap();
 
-        assert_eq!(json["marker"], "a-file.txt");
+        let doc = parse_xml(&body_str);
+        let root = doc.root_element();
 
-        let objects = json["contents"].as_array().unwrap();
-        for object in objects {
-            let key = object["key"].as_str().unwrap();
-            assert!(key > "a-file.txt");
-        }
+        assert_eq!(root.tag_name().name(), "ListBucketResult");
+
+        assert_eq!(get_element_text(root, "Marker"), Some("a-file.txt"));
+
+        // Validate only objects after marker are included
+        let contents = get_all_elements(root, "Contents");
+        assert_eq!(contents.len(), 2);
+
+        let keys: Vec<_> = contents
+            .iter()
+            .filter_map(|c| get_element_text(*c, "Key"))
+            .collect();
+
+        assert_eq!(keys, vec!["b-file.txt", "c-file.txt"]);
+        assert!(!keys.contains(&"a-file.txt"));
     }
 
     #[tokio::test]
@@ -999,11 +1048,18 @@ mod list {
         assert_eq!(response.status(), StatusCode::OK);
 
         let body = response.into_body().collect().await.unwrap().to_bytes();
-        let json: Value = serde_json::from_slice(&body).unwrap();
+        let body_str = String::from_utf8(body.to_vec()).unwrap();
 
-        assert_eq!(json["max_keys"], 5);
-        assert_eq!(json["contents"].as_array().unwrap().len(), 5);
-        assert_eq!(json["is_truncated"], true);
+        let doc = parse_xml(&body_str);
+        let root = doc.root_element();
+
+        assert_eq!(root.tag_name().name(), "ListBucketResult");
+
+        assert_eq!(get_element_text(root, "MaxKeys"), Some("5"));
+        assert_eq!(get_element_text(root, "IsTruncated"), Some("true"));
+
+        let contents = get_all_elements(root, "Contents");
+        assert_eq!(contents.len(), 5);
     }
 
     #[tokio::test]
@@ -1085,12 +1141,10 @@ mod put {
 
         assert_eq!(response.status(), StatusCode::OK);
 
-        let body = response.into_body().collect().await.unwrap().to_bytes();
-        let json: Value = serde_json::from_slice(&body).unwrap();
-
-        assert!(json["etag"].is_string());
-        let etag = json["etag"].as_str().unwrap();
+        // S3 PutObject returns ETag in header, not body
+        let etag = response.headers().get("etag").unwrap().to_str().unwrap();
         assert!(!etag.is_empty());
+        assert!(etag.starts_with('"') && etag.ends_with('"'));
     }
 
     #[tokio::test]
@@ -1188,9 +1242,9 @@ mod put {
 
         assert_eq!(response.status(), StatusCode::OK);
 
-        let body = response.into_body().collect().await.unwrap().to_bytes();
-        let json: Value = serde_json::from_slice(&body).unwrap();
-        let etag = json["etag"].as_str().unwrap();
+        // S3 PutObject returns ETag in header, not body
+        let etag_header = response.headers().get("etag").unwrap().to_str().unwrap();
+        let etag = etag_header.trim_matches('"');
 
         assert_eq!(etag, expected_etag);
     }

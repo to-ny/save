@@ -29,6 +29,7 @@ Implement a local, single-node S3-compatible object storage system using RocksDB
   - [x] Return object keys, sizes, ETags, last modified timestamps
 - [x] Implement GET /{bucket}?uploads — list ongoing multipart uploads
 - [x] S3 XML error responses (replace current JSON format for S3 spec compliance)
+- [x] S3 XML responses (replace current JSON format for S3 spec compliance)
 
 ---
 

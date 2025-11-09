@@ -1,30 +1,14 @@
 use axum::{
-    Json,
     extract::{Path, State},
     http::StatusCode,
     response::{IntoResponse, Response},
 };
-use chrono::{DateTime, Utc};
-use save_common::validate_bucket_name;
+use save_common::{ListMultipartUploadsResult, S3XmlResponse, validate_bucket_name};
 use save_metadata::MetadataError;
-use serde::Serialize;
 use tracing::{debug, info, instrument};
 
 use crate::handlers::ApiError;
 use crate::state::AppState;
-
-#[derive(Debug, Clone, Serialize)]
-pub struct UploadInfo {
-    pub upload_id: String,
-    pub key: String,
-    pub initiated: DateTime<Utc>,
-}
-
-#[derive(Debug, Clone, Serialize)]
-pub struct ListUploadsResponse {
-    pub bucket: String,
-    pub uploads: Vec<UploadInfo>,
-}
 
 #[instrument(skip(state), fields(bucket = %bucket))]
 pub async fn list_multipart_uploads(
@@ -53,23 +37,21 @@ pub async fn list_multipart_uploads(
         .await
         .map_err(|e| ApiError::internal(format!("Failed to list multipart uploads: {}", e)))?;
 
-    let upload_infos: Vec<UploadInfo> = uploads
+    let upload_list: Vec<(String, String, _)> = uploads
         .into_iter()
-        .map(|u| UploadInfo {
-            upload_id: u.upload_id,
-            key: u.key,
-            initiated: u.initiated_at,
-        })
+        .map(|u| (u.key, u.upload_id, u.initiated_at))
         .collect();
 
-    info!("Listed {} multipart uploads", upload_infos.len());
+    info!("Listed {} multipart uploads", upload_list.len());
 
-    Ok((
-        StatusCode::OK,
-        Json(ListUploadsResponse {
-            bucket,
-            uploads: upload_infos,
-        }),
-    )
-        .into_response())
+    let result = ListMultipartUploadsResult::new(bucket, upload_list);
+    let xml = result
+        .to_xml()
+        .map_err(|e| ApiError::internal(format!("Failed to serialize response: {}", e)))?;
+
+    crate::metrics::response_size_bytes()
+        .with_label_values(&["list_multipart"])
+        .observe(xml.len() as f64);
+
+    Ok((StatusCode::OK, [("content-type", "application/xml")], xml).into_response())
 }

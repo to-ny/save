@@ -49,3 +49,20 @@ pub fn request_with_auth<B>(method: &str, uri: &str, body: B) -> Request<B> {
         .body(body)
         .unwrap()
 }
+
+pub fn parse_xml(xml: &str) -> roxmltree::Document {
+    roxmltree::Document::parse(xml).expect("Failed to parse XML response")
+}
+
+pub fn get_element_text<'a>(node: roxmltree::Node<'a, 'a>, tag: &str) -> Option<&'a str> {
+    node.descendants()
+        .find(|n| n.has_tag_name(tag))
+        .and_then(|n| n.text())
+}
+
+pub fn get_all_elements<'a, 'input>(
+    node: roxmltree::Node<'a, 'input>,
+    tag: &str,
+) -> Vec<roxmltree::Node<'a, 'input>> {
+    node.descendants().filter(|n| n.has_tag_name(tag)).collect()
+}

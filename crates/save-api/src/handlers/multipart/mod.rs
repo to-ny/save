@@ -7,7 +7,7 @@ mod upload_part;
 pub use abort::abort_multipart;
 pub use complete::complete_multipart;
 pub use initiate::initiate_multipart;
-pub use list::{ListUploadsResponse, UploadInfo, list_multipart_uploads};
+pub use list::list_multipart_uploads;
 pub use upload_part::upload_part;
 
 use serde::{Deserialize, Serialize};
@@ -43,18 +43,8 @@ pub struct MultipartQueryParams {
 }
 
 #[derive(Serialize)]
-pub struct InitiateResponse {
-    pub upload_id: String,
-}
-
-#[derive(Serialize)]
 pub struct UploadPartResponse {
     pub part_number: u32,
-    pub etag: String,
-}
-
-#[derive(Serialize)]
-pub struct CompleteResponse {
     pub etag: String,
 }
 

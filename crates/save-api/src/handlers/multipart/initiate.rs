@@ -1,10 +1,11 @@
 use axum::{
-    Json,
     extract::{Path, Query, State},
     http::StatusCode,
     response::{IntoResponse, Response},
 };
-use save_common::{validate_bucket_name, validate_object_key};
+use save_common::{
+    InitiateMultipartUploadResult, S3XmlResponse, validate_bucket_name, validate_object_key,
+};
 use save_metadata::MetadataError;
 use std::time::Instant;
 use tokio::fs;
@@ -14,7 +15,7 @@ use uuid::Uuid;
 use crate::handlers::ApiError;
 use crate::state::AppState;
 
-use super::{InitiateQuery, InitiateResponse, MultipartGaugeGuard, part_path};
+use super::{InitiateQuery, MultipartGaugeGuard, part_path};
 
 #[instrument(skip(state, headers), fields(bucket = %bucket, key = %key))]
 pub async fn initiate_multipart(
@@ -72,5 +73,14 @@ pub async fn initiate_multipart(
         duration, upload_id
     );
 
-    Ok((StatusCode::OK, Json(InitiateResponse { upload_id })).into_response())
+    let result = InitiateMultipartUploadResult::new(bucket, key, upload_id);
+    let xml = result
+        .to_xml()
+        .map_err(|e| ApiError::internal(format!("Failed to serialize response: {}", e)))?;
+
+    crate::metrics::response_size_bytes()
+        .with_label_values(&["initiate_multipart"])
+        .observe(xml.len() as f64);
+
+    Ok((StatusCode::OK, [("content-type", "application/xml")], xml).into_response())
 }

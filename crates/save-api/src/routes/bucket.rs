@@ -8,7 +8,7 @@ use serde::Deserialize;
 
 use crate::handlers::{
     ApiError,
-    bucket::{create_bucket, delete_bucket, list_buckets},
+    bucket::{create_bucket, delete_bucket, head_bucket, list_buckets},
     multipart::list_multipart_uploads,
     objects::{ListObjectsQuery, list_objects},
 };
@@ -45,6 +45,7 @@ pub fn routes() -> Router<AppState> {
         "/{bucket}",
         put(create_bucket)
             .delete(delete_bucket)
-            .get(get_bucket_handler),
+            .get(get_bucket_handler)
+            .head(head_bucket),
     )
 }

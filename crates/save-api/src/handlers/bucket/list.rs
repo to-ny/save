@@ -1,26 +1,13 @@
 use axum::{
-    Json,
     extract::State,
     http::StatusCode,
     response::{IntoResponse, Response},
 };
-use chrono::{DateTime, Utc};
-use serde::Serialize;
+use save_common::{ListAllMyBucketsResult, S3XmlResponse};
 use tracing::{info, instrument};
 
 use crate::handlers::ApiError;
 use crate::state::AppState;
-
-#[derive(Debug, Clone, Serialize)]
-pub struct BucketInfo {
-    pub name: String,
-    pub created: DateTime<Utc>,
-}
-
-#[derive(Debug, Clone, Serialize)]
-pub struct ListBucketsResponse {
-    pub buckets: Vec<BucketInfo>,
-}
 
 #[instrument(skip(state))]
 pub async fn list_buckets(State(state): State<AppState>) -> Result<Response, ApiError> {
@@ -32,21 +19,23 @@ pub async fn list_buckets(State(state): State<AppState>) -> Result<Response, Api
         .await
         .map_err(|e| ApiError::internal(format!("Failed to list buckets: {}", e)))?;
 
-    let bucket_infos: Vec<BucketInfo> = buckets
+    let bucket_list: Vec<(String, _)> = buckets
         .into_iter()
-        .map(|b| BucketInfo {
-            name: b.name,
-            created: b.created_at,
-        })
+        .map(|b| (b.name, b.created_at))
         .collect();
 
-    info!("Listed {} buckets", bucket_infos.len());
+    info!("Listed {} buckets", bucket_list.len());
 
-    Ok((
-        StatusCode::OK,
-        Json(ListBucketsResponse {
-            buckets: bucket_infos,
-        }),
-    )
-        .into_response())
+    // TODO: Extract owner_id from auth context
+    let owner_id = "saveadmin".to_string();
+    let result = ListAllMyBucketsResult::new(bucket_list, owner_id);
+    let xml = result
+        .to_xml()
+        .map_err(|e| ApiError::internal(format!("Failed to serialize response: {}", e)))?;
+
+    crate::metrics::response_size_bytes()
+        .with_label_values(&["list_buckets"])
+        .observe(xml.len() as f64);
+
+    Ok((StatusCode::OK, [("content-type", "application/xml")], xml).into_response())
 }
