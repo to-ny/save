@@ -1,8 +1,8 @@
 //! AWS S3 SDK client setup for compatibility testing.
 
 use aws_config::BehaviorVersion;
-use aws_sdk_s3::config::{Credentials, Region};
 use aws_sdk_s3::Client;
+use aws_sdk_s3::config::{Credentials, Region};
 use uuid::Uuid;
 
 /// Get the access key for testing
@@ -22,7 +22,11 @@ pub fn endpoint() -> String {
 
 /// Generate a unique bucket name for testing
 pub fn unique_bucket_name(prefix: &str) -> String {
-    format!("{}-{}", prefix, Uuid::new_v4().simple().to_string()[..16].to_string())
+    format!(
+        "{}-{}",
+        prefix,
+        Uuid::new_v4().simple().to_string()[..16].to_string()
+    )
 }
 
 /// Create AWS S3 client configured for local save-api server.
@@ -35,9 +39,7 @@ pub async fn create_client_with_credentials(access_key: String, secret_key: Stri
     let endpoint = endpoint();
 
     let credentials = Credentials::new(
-        access_key,
-        secret_key,
-        None, // No session token
+        access_key, secret_key, None, // No session token
         None, // No expiration
         "static",
     );

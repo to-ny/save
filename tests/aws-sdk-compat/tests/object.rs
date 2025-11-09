@@ -2,8 +2,8 @@
 
 mod common;
 
-use common::{cleanup_bucket, create_client, ensure_bucket, unique_bucket_name};
 use anyhow::{Context, Result};
+use common::{cleanup_bucket, create_client, ensure_bucket, unique_bucket_name};
 use tracing::info;
 
 #[tokio::test]
@@ -47,8 +47,7 @@ async fn test_put_and_get_object() -> Result<()> {
         "Content length should match"
     );
     assert_eq!(
-        get_response.e_tag,
-        put_etag,
+        get_response.e_tag, put_etag,
         "ETag should match between PUT and GET"
     );
 
@@ -342,11 +341,7 @@ async fn test_list_objects_with_pagination() -> Result<()> {
         .filter_map(|obj| obj.key.clone())
         .collect();
 
-    assert_eq!(
-        first_page_keys.len(),
-        5,
-        "First page should have 5 objects"
-    );
+    assert_eq!(first_page_keys.len(), 5, "First page should have 5 objects");
     assert_eq!(
         list_response.is_truncated,
         Some(true),
@@ -372,11 +367,7 @@ async fn test_list_objects_with_pagination() -> Result<()> {
             .filter_map(|obj| obj.key.clone())
             .collect();
 
-        assert_eq!(
-            next_page_keys.len(),
-            5,
-            "Second page should have 5 objects"
-        );
+        assert_eq!(next_page_keys.len(), 5, "Second page should have 5 objects");
     }
 
     // Cleanup

@@ -38,7 +38,7 @@ fn prepare_metadata_write(metadata: &ObjectMetadata) -> Result<(Vec<u8>, Vec<u8>
         .map_err(|e| MetadataError::InvalidOperation(e.to_string()))?;
 
     let key = ObjectMetadata::db_key(&metadata.bucket, &metadata.key);
-    let value = bincode::serialize(metadata)?;
+    let value = bincode::serde::encode_to_vec(metadata, bincode::config::standard())?;
     Ok((key.into_bytes(), value))
 }
 
@@ -73,7 +73,8 @@ pub(crate) fn get_object_metadata(
 
     match db.get(&db_key)? {
         Some(data) => {
-            let metadata = bincode::deserialize(&data)?;
+            let (metadata, _) =
+                bincode::serde::decode_from_slice(&data, bincode::config::standard())?;
             Ok(metadata)
         }
         None => Err(MetadataError::ObjectNotFound {
@@ -109,7 +110,8 @@ pub(crate) fn list_objects(
         if !key.starts_with(key_prefix.as_bytes()) {
             break;
         }
-        let metadata: ObjectMetadata = bincode::deserialize(&value)?;
+        let (metadata, _): (ObjectMetadata, _) =
+            bincode::serde::decode_from_slice(&value, bincode::config::standard())?;
         objects.push(metadata);
     }
 

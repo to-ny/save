@@ -60,10 +60,8 @@ pub async fn list_objects(
         if let Some(ref token) = params.continuation_token {
             objects.retain(|obj| obj.key > *token);
         }
-    } else {
-        if let Some(ref marker) = params.marker {
-            objects.retain(|obj| obj.key > *marker);
-        }
+    } else if let Some(ref marker) = params.marker {
+        objects.retain(|obj| obj.key > *marker);
     }
 
     let max_keys = params.max_keys.unwrap_or(1000).min(1000);
@@ -75,7 +73,11 @@ pub async fn list_objects(
         .map(|obj| (obj.key, obj.modified_at, obj.etag, obj.size))
         .collect();
 
-    info!("Listed {} objects (v{})", object_list.len(), if is_v2 { 2 } else { 1 });
+    info!(
+        "Listed {} objects (v{})",
+        object_list.len(),
+        if is_v2 { 2 } else { 1 }
+    );
 
     let xml = if is_v2 {
         let result = ListBucketResultV2::new(

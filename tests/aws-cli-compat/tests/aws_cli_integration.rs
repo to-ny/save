@@ -1,5 +1,5 @@
-use std::process::Command;
 use serde_json::Value;
+use std::process::Command;
 
 /// Helper to run AWS CLI commands with proper configuration
 struct AwsCli {
@@ -103,20 +103,33 @@ fn test_cli_create_and_list_buckets() {
     }
 
     let cli = AwsCli::new();
-    let bucket_name = format!("cli-test-{}", uuid::Uuid::new_v4().simple().to_string()[..16].to_string());
+    let bucket_name = format!(
+        "cli-test-{}",
+        uuid::Uuid::new_v4().simple().to_string()[..16].to_string()
+    );
 
     // Create bucket
     let result = cli.run(&["create-bucket", "--bucket", &bucket_name]);
-    assert!(result.is_success(), "Failed to create bucket: {}", result.stderr);
+    assert!(
+        result.is_success(),
+        "Failed to create bucket: {}",
+        result.stderr
+    );
 
     // List buckets
     let result = cli.run(&["list-buckets"]);
-    assert!(result.is_success(), "Failed to list buckets: {}", result.stderr);
+    assert!(
+        result.is_success(),
+        "Failed to list buckets: {}",
+        result.stderr
+    );
 
     let json = result.parse_json().expect("Failed to parse JSON");
     let buckets = json["Buckets"].as_array().expect("No Buckets array");
     assert!(
-        buckets.iter().any(|b| b["Name"].as_str() == Some(&bucket_name)),
+        buckets
+            .iter()
+            .any(|b| b["Name"].as_str() == Some(&bucket_name)),
         "Created bucket not found in list"
     );
 
@@ -132,11 +145,18 @@ fn test_cli_bucket_already_exists_error() {
     }
 
     let cli = AwsCli::new();
-    let bucket_name = format!("cli-dup-{}", uuid::Uuid::new_v4().simple().to_string()[..16].to_string());
+    let bucket_name = format!(
+        "cli-dup-{}",
+        uuid::Uuid::new_v4().simple().to_string()[..16].to_string()
+    );
 
     // Create bucket first time
     let result = cli.run(&["create-bucket", "--bucket", &bucket_name]);
-    assert!(result.is_success(), "Failed to create bucket: {}", result.stderr);
+    assert!(
+        result.is_success(),
+        "Failed to create bucket: {}",
+        result.stderr
+    );
 
     // Try to create again - should fail with BucketAlreadyExists
     let result = cli.run(&["create-bucket", "--bucket", &bucket_name]);
@@ -144,9 +164,9 @@ fn test_cli_bucket_already_exists_error() {
 
     // Check error message contains the right error code
     assert!(
-        result.contains_error("BucketAlreadyExists") ||
-        result.contains_error("BucketAlreadyOwnedByYou") ||
-        result.stderr.contains("already exists"),
+        result.contains_error("BucketAlreadyExists")
+            || result.contains_error("BucketAlreadyOwnedByYou")
+            || result.stderr.contains("already exists"),
         "Error should indicate bucket already exists. stderr: {}",
         result.stderr
     );
@@ -167,7 +187,10 @@ fn test_cli_no_such_bucket_error() {
 
     // Try to delete non-existent bucket
     let result = cli.run(&["delete-bucket", "--bucket", &bucket_name]);
-    assert!(!result.is_success(), "Delete of non-existent bucket should fail");
+    assert!(
+        !result.is_success(),
+        "Delete of non-existent bucket should fail"
+    );
 
     // Check error message
     assert!(
@@ -185,11 +208,18 @@ fn test_cli_put_and_get_object() {
     }
 
     let cli = AwsCli::new();
-    let bucket_name = format!("cli-obj-{}", uuid::Uuid::new_v4().simple().to_string()[..16].to_string());
+    let bucket_name = format!(
+        "cli-obj-{}",
+        uuid::Uuid::new_v4().simple().to_string()[..16].to_string()
+    );
 
     // Create bucket
     let result = cli.run(&["create-bucket", "--bucket", &bucket_name]);
-    assert!(result.is_success(), "Failed to create bucket: {}", result.stderr);
+    assert!(
+        result.is_success(),
+        "Failed to create bucket: {}",
+        result.stderr
+    );
 
     // Create a temporary file
     let temp_file = std::env::temp_dir().join("test-upload.txt");
@@ -201,7 +231,11 @@ fn test_cli_put_and_get_object() {
         temp_file.to_str().unwrap(),
         &format!("s3://{}/test.txt", bucket_name),
     ]);
-    assert!(result.is_success(), "Failed to upload object: {}", result.stderr);
+    assert!(
+        result.is_success(),
+        "Failed to upload object: {}",
+        result.stderr
+    );
 
     // Download object
     let download_file = std::env::temp_dir().join("test-download.txt");
@@ -210,7 +244,11 @@ fn test_cli_put_and_get_object() {
         &format!("s3://{}/test.txt", bucket_name),
         download_file.to_str().unwrap(),
     ]);
-    assert!(result.is_success(), "Failed to download object: {}", result.stderr);
+    assert!(
+        result.is_success(),
+        "Failed to download object: {}",
+        result.stderr
+    );
 
     // Verify content
     let content = std::fs::read_to_string(&download_file).unwrap();
@@ -219,7 +257,13 @@ fn test_cli_put_and_get_object() {
     // Cleanup
     std::fs::remove_file(temp_file).ok();
     std::fs::remove_file(download_file).ok();
-    cli.run(&["delete-object", "--bucket", &bucket_name, "--key", "test.txt"]);
+    cli.run(&[
+        "delete-object",
+        "--bucket",
+        &bucket_name,
+        "--key",
+        "test.txt",
+    ]);
     cli.run(&["delete-bucket", "--bucket", &bucket_name]);
 }
 
@@ -231,26 +275,38 @@ fn test_cli_no_such_key_error() {
     }
 
     let cli = AwsCli::new();
-    let bucket_name = format!("cli-nokey-{}", uuid::Uuid::new_v4().simple().to_string()[..16].to_string());
+    let bucket_name = format!(
+        "cli-nokey-{}",
+        uuid::Uuid::new_v4().simple().to_string()[..16].to_string()
+    );
 
     // Create bucket
     let result = cli.run(&["create-bucket", "--bucket", &bucket_name]);
-    assert!(result.is_success(), "Failed to create bucket: {}", result.stderr);
+    assert!(
+        result.is_success(),
+        "Failed to create bucket: {}",
+        result.stderr
+    );
 
     // Try to get non-existent object
     let result = cli.run(&[
         "get-object",
-        "--bucket", &bucket_name,
-        "--key", "nonexistent.txt",
-        "/tmp/output.txt"
+        "--bucket",
+        &bucket_name,
+        "--key",
+        "nonexistent.txt",
+        "/tmp/output.txt",
     ]);
-    assert!(!result.is_success(), "Get of non-existent object should fail");
+    assert!(
+        !result.is_success(),
+        "Get of non-existent object should fail"
+    );
 
     // Check error message
     assert!(
-        result.contains_error("NoSuchKey") ||
-        result.stderr.contains("Not Found") ||
-        result.stderr.contains("does not exist"),
+        result.contains_error("NoSuchKey")
+            || result.stderr.contains("Not Found")
+            || result.stderr.contains("does not exist"),
         "Error should indicate NoSuchKey. stderr: {}",
         result.stderr
     );
@@ -267,11 +323,18 @@ fn test_cli_bucket_not_empty_error() {
     }
 
     let cli = AwsCli::new();
-    let bucket_name = format!("cli-notempty-{}", uuid::Uuid::new_v4().simple().to_string()[..16].to_string());
+    let bucket_name = format!(
+        "cli-notempty-{}",
+        uuid::Uuid::new_v4().simple().to_string()[..16].to_string()
+    );
 
     // Create bucket
     let result = cli.run(&["create-bucket", "--bucket", &bucket_name]);
-    assert!(result.is_success(), "Failed to create bucket: {}", result.stderr);
+    assert!(
+        result.is_success(),
+        "Failed to create bucket: {}",
+        result.stderr
+    );
 
     // Put an object
     let temp_file = std::env::temp_dir().join("test-file.txt");
@@ -279,15 +342,25 @@ fn test_cli_bucket_not_empty_error() {
 
     let result = cli.run(&[
         "put-object",
-        "--bucket", &bucket_name,
-        "--key", "test.txt",
-        "--body", temp_file.to_str().unwrap(),
+        "--bucket",
+        &bucket_name,
+        "--key",
+        "test.txt",
+        "--body",
+        temp_file.to_str().unwrap(),
     ]);
-    assert!(result.is_success(), "Failed to put object: {}", result.stderr);
+    assert!(
+        result.is_success(),
+        "Failed to put object: {}",
+        result.stderr
+    );
 
     // Try to delete bucket (should fail - not empty)
     let result = cli.run(&["delete-bucket", "--bucket", &bucket_name]);
-    assert!(!result.is_success(), "Delete of non-empty bucket should fail");
+    assert!(
+        !result.is_success(),
+        "Delete of non-empty bucket should fail"
+    );
 
     // Check error message
     assert!(
@@ -298,7 +371,13 @@ fn test_cli_bucket_not_empty_error() {
 
     // Cleanup
     std::fs::remove_file(temp_file).ok();
-    cli.run(&["delete-object", "--bucket", &bucket_name, "--key", "test.txt"]);
+    cli.run(&[
+        "delete-object",
+        "--bucket",
+        &bucket_name,
+        "--key",
+        "test.txt",
+    ]);
     cli.run(&["delete-bucket", "--bucket", &bucket_name]);
 }
 
@@ -310,11 +389,18 @@ fn test_cli_list_objects_v2() {
     }
 
     let cli = AwsCli::new();
-    let bucket_name = format!("cli-list-{}", uuid::Uuid::new_v4().simple().to_string()[..16].to_string());
+    let bucket_name = format!(
+        "cli-list-{}",
+        uuid::Uuid::new_v4().simple().to_string()[..16].to_string()
+    );
 
     // Create bucket
     let result = cli.run(&["create-bucket", "--bucket", &bucket_name]);
-    assert!(result.is_success(), "Failed to create bucket: {}", result.stderr);
+    assert!(
+        result.is_success(),
+        "Failed to create bucket: {}",
+        result.stderr
+    );
 
     // Put multiple objects
     let temp_file = std::env::temp_dir().join("test-file.txt");
@@ -323,16 +409,28 @@ fn test_cli_list_objects_v2() {
     for i in 1..=3 {
         let result = cli.run(&[
             "put-object",
-            "--bucket", &bucket_name,
-            "--key", &format!("file-{}.txt", i),
-            "--body", temp_file.to_str().unwrap(),
+            "--bucket",
+            &bucket_name,
+            "--key",
+            &format!("file-{}.txt", i),
+            "--body",
+            temp_file.to_str().unwrap(),
         ]);
-        assert!(result.is_success(), "Failed to put object {}: {}", i, result.stderr);
+        assert!(
+            result.is_success(),
+            "Failed to put object {}: {}",
+            i,
+            result.stderr
+        );
     }
 
     // List objects v2
     let result = cli.run(&["list-objects-v2", "--bucket", &bucket_name]);
-    assert!(result.is_success(), "Failed to list objects: {}", result.stderr);
+    assert!(
+        result.is_success(),
+        "Failed to list objects: {}",
+        result.stderr
+    );
 
     let json = result.parse_json().expect("Failed to parse JSON");
     let contents = json["Contents"].as_array().expect("No Contents array");
@@ -350,7 +448,13 @@ fn test_cli_list_objects_v2() {
     // Cleanup
     std::fs::remove_file(temp_file).ok();
     for i in 1..=3 {
-        cli.run(&["delete-object", "--bucket", &bucket_name, "--key", &format!("file-{}.txt", i)]);
+        cli.run(&[
+            "delete-object",
+            "--bucket",
+            &bucket_name,
+            "--key",
+            &format!("file-{}.txt", i),
+        ]);
     }
     cli.run(&["delete-bucket", "--bucket", &bucket_name]);
 }
@@ -363,11 +467,18 @@ fn test_cli_head_object() {
     }
 
     let cli = AwsCli::new();
-    let bucket_name = format!("cli-head-{}", uuid::Uuid::new_v4().simple().to_string()[..16].to_string());
+    let bucket_name = format!(
+        "cli-head-{}",
+        uuid::Uuid::new_v4().simple().to_string()[..16].to_string()
+    );
 
     // Create bucket
     let result = cli.run(&["create-bucket", "--bucket", &bucket_name]);
-    assert!(result.is_success(), "Failed to create bucket: {}", result.stderr);
+    assert!(
+        result.is_success(),
+        "Failed to create bucket: {}",
+        result.stderr
+    );
 
     // Put object
     let temp_file = std::env::temp_dir().join("test-file.txt");
@@ -376,15 +487,26 @@ fn test_cli_head_object() {
 
     let result = cli.run(&[
         "put-object",
-        "--bucket", &bucket_name,
-        "--key", "test.txt",
-        "--body", temp_file.to_str().unwrap(),
+        "--bucket",
+        &bucket_name,
+        "--key",
+        "test.txt",
+        "--body",
+        temp_file.to_str().unwrap(),
     ]);
-    assert!(result.is_success(), "Failed to put object: {}", result.stderr);
+    assert!(
+        result.is_success(),
+        "Failed to put object: {}",
+        result.stderr
+    );
 
     // Head object
     let result = cli.run(&["head-object", "--bucket", &bucket_name, "--key", "test.txt"]);
-    assert!(result.is_success(), "Failed to head object: {}", result.stderr);
+    assert!(
+        result.is_success(),
+        "Failed to head object: {}",
+        result.stderr
+    );
 
     let json = result.parse_json().expect("Failed to parse JSON");
     assert_eq!(
@@ -396,7 +518,13 @@ fn test_cli_head_object() {
 
     // Cleanup
     std::fs::remove_file(temp_file).ok();
-    cli.run(&["delete-object", "--bucket", &bucket_name, "--key", "test.txt"]);
+    cli.run(&[
+        "delete-object",
+        "--bucket",
+        &bucket_name,
+        "--key",
+        "test.txt",
+    ]);
     cli.run(&["delete-bucket", "--bucket", &bucket_name]);
 }
 
@@ -411,14 +539,17 @@ fn test_cli_invalid_bucket_name() {
 
     // Try to create bucket with invalid name (uppercase letters are not allowed)
     let result = cli.run(&["create-bucket", "--bucket", "INVALID-BUCKET-NAME"]);
-    assert!(!result.is_success(), "Create with invalid bucket name should fail");
+    assert!(
+        !result.is_success(),
+        "Create with invalid bucket name should fail"
+    );
 
     // The error might be client-side validation or server-side
     // Just verify it failed appropriately
     assert!(
-        result.stderr.contains("Invalid") ||
-        result.stderr.contains("invalid") ||
-        result.stderr.contains("validation"),
+        result.stderr.contains("Invalid")
+            || result.stderr.contains("invalid")
+            || result.stderr.contains("validation"),
         "Error should indicate invalid bucket name. stderr: {}",
         result.stderr
     );

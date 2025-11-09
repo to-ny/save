@@ -18,7 +18,7 @@ repository = "https://github.com/yourusername/save"
 
 [workspace.dependencies]
 # Async runtime
-tokio = { version = "1.43", features = ["full"] }
+tokio = { version = "1.48", features = ["full"] }
 
 # Web framework
 axum = "0.8"
@@ -26,8 +26,8 @@ axum = "0.8"
 # Serialization
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-toml = "0.8"
-quick-xml = { version = "0.36", features = ["serialize"] }
+toml = "0.9.8"
+quick-xml = { version = "0.38.3", features = ["serialize"] }
 
 # Error handling
 anyhow = "1.0"
@@ -43,14 +43,14 @@ uuid = { version = "1.0", features = ["v4", "fast-rng"] }
 base64 = "0.22"
 
 # Database
-rocksdb = "0.22"
-bincode = "1.3"
+rocksdb = "0.24.0"
+bincode = { version = "2.0.1", features = ["serde"] }
 
 # Time
-chrono = { version = "0.4", features = ["serde"] }
+chrono = { version = "0.4.42", features = ["serde"] }
 
 # Metrics
-prometheus = { version = "0.13", default-features = false }
+prometheus = { version = "0.14.0", default-features = false }
 
 # Testing
 tower = { version = "0.5", features = ["util"] }

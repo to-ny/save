@@ -5,8 +5,11 @@ pub enum MetadataError {
     #[error("Database error: {0}")]
     Database(#[from] rocksdb::Error),
 
-    #[error("Serialization error: {0}")]
-    Serialization(#[from] bincode::Error),
+    #[error("Serialization encode error: {0}")]
+    Encode(#[from] bincode::error::EncodeError),
+
+    #[error("Serialization decode error: {0}")]
+    Decode(#[from] bincode::error::DecodeError),
 
     #[error("Bucket not found: {0}")]
     BucketNotFound(String),

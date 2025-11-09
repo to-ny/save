@@ -53,7 +53,10 @@ pub async fn get_object(
     let stream = ReaderStream::new(file);
     let body = Body::from_stream(stream);
 
-    let last_modified = metadata.modified_at.format("%a, %d %b %Y %H:%M:%S GMT").to_string();
+    let last_modified = metadata
+        .modified_at
+        .format("%a, %d %b %Y %H:%M:%S GMT")
+        .to_string();
     let content_type = metadata
         .content_type
         .unwrap_or_else(|| "application/octet-stream".to_string());

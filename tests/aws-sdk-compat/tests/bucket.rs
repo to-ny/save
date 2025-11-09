@@ -2,8 +2,8 @@
 
 mod common;
 
-use common::{cleanup_bucket, create_client, unique_bucket_name};
 use anyhow::{Context, Result};
+use common::{cleanup_bucket, create_client, unique_bucket_name};
 use tracing::info;
 
 #[tokio::test]
@@ -97,10 +97,7 @@ async fn test_delete_non_empty_bucket() -> Result<()> {
     info!("Attempting to delete non-empty bucket (should fail)");
     let result = client.delete_bucket().bucket(&bucket).send().await;
 
-    assert!(
-        result.is_err(),
-        "Deleting non-empty bucket should fail"
-    );
+    assert!(result.is_err(), "Deleting non-empty bucket should fail");
 
     let error_message = result.unwrap_err().to_string();
 

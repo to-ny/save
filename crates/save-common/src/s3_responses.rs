@@ -9,13 +9,15 @@ pub const S3_XMLNS: &str = "http://s3.amazonaws.com/doc/2006-03-01/";
 
 #[derive(Debug)]
 pub enum SerializationError {
-    XmlSerialization(quick_xml::DeError),
+    XmlSerialization(quick_xml::SeError),
+    XmlDeserialization(quick_xml::DeError),
 }
 
 impl fmt::Display for SerializationError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::XmlSerialization(e) => write!(f, "XML serialization failed: {}", e),
+            Self::XmlDeserialization(e) => write!(f, "XML deserialization failed: {}", e),
         }
     }
 }
@@ -24,6 +26,12 @@ impl std::error::Error for SerializationError {}
 
 impl From<quick_xml::DeError> for SerializationError {
     fn from(e: quick_xml::DeError) -> Self {
+        Self::XmlDeserialization(e)
+    }
+}
+
+impl From<quick_xml::SeError> for SerializationError {
+    fn from(e: quick_xml::SeError) -> Self {
         Self::XmlSerialization(e)
     }
 }
@@ -232,7 +240,10 @@ pub struct ListBucketResultV2 {
     pub key_count: usize,
     #[serde(rename = "ContinuationToken", skip_serializing_if = "String::is_empty")]
     pub continuation_token: String,
-    #[serde(rename = "NextContinuationToken", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        rename = "NextContinuationToken",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub next_continuation_token: Option<String>,
     #[serde(rename = "Contents")]
     pub contents: Vec<ObjectEntry>,

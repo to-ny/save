@@ -91,7 +91,7 @@ pub(crate) fn initiate_multipart_upload(
         content_type: content_type.clone(),
     };
     let db_key = MultipartUpload::db_key(bucket, key, upload_id);
-    let value = bincode::serialize(&metadata)?;
+    let value = bincode::serde::encode_to_vec(&metadata, bincode::config::standard())?;
     db.put(&db_key, value)?;
 
     Ok(MultipartUpload {
@@ -117,7 +117,8 @@ pub(crate) fn get_multipart_upload(
 
     let metadata = match db.get(&db_key)? {
         Some(data) => {
-            let metadata: MultipartMetadata = bincode::deserialize(&data)?;
+            let (metadata, _): (MultipartMetadata, _) =
+                bincode::serde::decode_from_slice(&data, bincode::config::standard())?;
             metadata
         }
         None => {
@@ -136,7 +137,8 @@ pub(crate) fn get_multipart_upload(
         if !k.starts_with(part_prefix.as_bytes()) {
             break;
         }
-        let part: MultipartPart = bincode::deserialize(&value)?;
+        let (part, _): (MultipartPart, _) =
+            bincode::serde::decode_from_slice(&value, bincode::config::standard())?;
         parts.insert(part.part_number, part);
     }
 
@@ -176,7 +178,7 @@ pub(crate) fn record_part(
     };
 
     let part_key = MultipartUpload::part_key(bucket, key, upload_id, part_number);
-    let value = bincode::serialize(&part)?;
+    let value = bincode::serde::encode_to_vec(&part, bincode::config::standard())?;
     db.put(&part_key, value)?;
 
     Ok(())
@@ -264,7 +266,8 @@ fn list_multipart_uploads_with_prefix(
             continue;
         }
 
-        let metadata: MultipartMetadata = bincode::deserialize(&value)?;
+        let (metadata, _): (MultipartMetadata, _) =
+            bincode::serde::decode_from_slice(&value, bincode::config::standard())?;
 
         let mut parts = BTreeMap::new();
         let part_prefix = format!(
@@ -278,7 +281,8 @@ fn list_multipart_uploads_with_prefix(
             if !k.starts_with(part_prefix.as_bytes()) {
                 break;
             }
-            let part: MultipartPart = bincode::deserialize(&v)?;
+            let (part, _): (MultipartPart, _) =
+                bincode::serde::decode_from_slice(&v, bincode::config::standard())?;
             parts.insert(part.part_number, part);
         }
 

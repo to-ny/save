@@ -15,7 +15,7 @@ pub(crate) fn create_bucket(db: &rocksdb::DB, name: &str) -> Result<Bucket> {
     }
 
     let bucket = Bucket::new(name.to_string());
-    let value = bincode::serialize(&bucket)?;
+    let value = bincode::serde::encode_to_vec(&bucket, bincode::config::standard())?;
     db.put(&key, value)?;
 
     Ok(bucket)
@@ -28,7 +28,8 @@ pub(crate) fn get_bucket(db: &rocksdb::DB, name: &str) -> Result<Bucket> {
 
     match db.get(&key)? {
         Some(data) => {
-            let bucket = bincode::deserialize(&data)?;
+            let (bucket, _) =
+                bincode::serde::decode_from_slice(&data, bincode::config::standard())?;
             Ok(bucket)
         }
         None => Err(MetadataError::BucketNotFound(name.to_string())),
@@ -53,7 +54,8 @@ pub(crate) fn list_buckets(db: &rocksdb::DB) -> Result<Vec<Bucket>> {
         if !key.starts_with(prefix.as_bytes()) {
             break;
         }
-        let bucket: Bucket = bincode::deserialize(&value)?;
+        let (bucket, _): (Bucket, _) =
+            bincode::serde::decode_from_slice(&value, bincode::config::standard())?;
         buckets.push(bucket);
     }
 

@@ -20,8 +20,8 @@
 
 mod common;
 
-use common::{cleanup_bucket, create_client, ensure_bucket, unique_bucket_name};
 use anyhow::Result;
+use common::{cleanup_bucket, create_client, ensure_bucket, unique_bucket_name};
 use tracing::info;
 
 #[tokio::test]
@@ -74,10 +74,7 @@ async fn test_delete_nonexistent_bucket_returns_no_such_bucket() -> Result<()> {
     info!("Attempting to delete non-existent bucket: {}", bucket);
     let result = client.delete_bucket().bucket(&bucket).send().await;
 
-    assert!(
-        result.is_err(),
-        "DELETE nonexistent bucket should fail"
-    );
+    assert!(result.is_err(), "DELETE nonexistent bucket should fail");
 
     let error = result.unwrap_err();
     let error_message = error.to_string();
@@ -115,10 +112,7 @@ async fn test_head_nonexistent_object_returns_not_found() -> Result<()> {
     info!("Attempting to HEAD non-existent object: {}/{}", bucket, key);
     let result = client.head_object().bucket(&bucket).key(key).send().await;
 
-    assert!(
-        result.is_err(),
-        "HEAD nonexistent object should fail"
-    );
+    assert!(result.is_err(), "HEAD nonexistent object should fail");
 
     let error = result.unwrap_err();
     let error_message = error.to_string();
@@ -153,7 +147,10 @@ async fn test_put_object_to_nonexistent_bucket() -> Result<()> {
     let key = "test.txt";
 
     // Attempt to PUT to non-existent bucket
-    info!("Attempting to PUT to non-existent bucket: {}/{}", bucket, key);
+    info!(
+        "Attempting to PUT to non-existent bucket: {}/{}",
+        bucket, key
+    );
     let result = client
         .put_object()
         .bucket(&bucket)
@@ -193,7 +190,10 @@ async fn test_invalid_bucket_name() -> Result<()> {
     let invalid_bucket = "Invalid_Bucket_Name"; // Uppercase and underscores not allowed
 
     // Attempt to create bucket with invalid name
-    info!("Attempting to create bucket with invalid name: {}", invalid_bucket);
+    info!(
+        "Attempting to create bucket with invalid name: {}",
+        invalid_bucket
+    );
     let result = client.create_bucket().bucket(invalid_bucket).send().await;
 
     assert!(
@@ -230,13 +230,13 @@ async fn test_list_objects_from_nonexistent_bucket() -> Result<()> {
     let bucket = unique_bucket_name("sdk-compat-no-list");
 
     // Attempt to list objects from non-existent bucket
-    info!("Attempting to list objects from non-existent bucket: {}", bucket);
+    info!(
+        "Attempting to list objects from non-existent bucket: {}",
+        bucket
+    );
     let result = client.list_objects_v2().bucket(&bucket).send().await;
 
-    assert!(
-        result.is_err(),
-        "LIST from nonexistent bucket should fail"
-    );
+    assert!(result.is_err(), "LIST from nonexistent bucket should fail");
 
     let error = result.unwrap_err();
     let error_message = error.to_string();
