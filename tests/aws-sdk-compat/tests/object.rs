@@ -1,5 +1,7 @@
 //! Object operation compatibility tests.
 
+#![cfg(feature = "compat_tests")]
+
 mod common;
 
 use anyhow::{Context, Result};

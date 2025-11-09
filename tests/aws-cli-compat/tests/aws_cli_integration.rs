@@ -1,3 +1,5 @@
+#![cfg(feature = "compat_tests")]
+
 use serde_json::Value;
 use std::process::Command;
 

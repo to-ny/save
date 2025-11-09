@@ -8,13 +8,18 @@ End-to-end tests using the official AWS SDK for Rust to validate S3 API compatib
 # Start server
 cargo run -p save-api
 
-# Run tests
-cargo test -p aws-sdk-compat
+# Run tests (with feature flag)
+cargo test -p aws-sdk-compat --features compat_tests
 ```
 
 ## Configuration
 
 Environment variables:
-- `SAVE_ENDPOINT` (default: http://localhost:9000)
-- `SAVE_ACCESS_KEY` (default: saveadmin)
-- `SAVE_SECRET_KEY` (default: saveadmin)
+- `S3_ENDPOINT` (default: http://localhost:9000)
+- `AWS_ACCESS_KEY_ID` (default: test-access-key)
+- `AWS_SECRET_ACCESS_KEY` (default: test-secret-key)
+
+## Notes
+
+Tests are gated behind the `compat_tests` feature flag to avoid interference with normal test runs.
+Enable with `--features compat_tests`.

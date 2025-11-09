@@ -18,6 +18,8 @@
 //! When the AWS SDK is fixed, uncomment the "CORRECT ASSERTION" blocks and remove
 //! the "WORKAROUND FOR SDK BUG" blocks to validate proper error parsing.
 
+#![cfg(feature = "compat_tests")]
+
 mod common;
 
 use anyhow::Result;

@@ -7,6 +7,7 @@ members = [
     "crates/save-common",
     "tests/aws-sdk-compat",
     "tests/aws-cli-compat",
+    "tests/concurrency",
 ]
 
 [workspace.package]

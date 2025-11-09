@@ -1,5 +1,5 @@
 [package]
-name = "aws-sdk-compat"
+name = "concurrency-tests"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
@@ -8,7 +8,7 @@ repository.workspace = true
 
 [features]
 default = []
-compat_tests = []
+concurrency_tests = []
 
 [dependencies]
 aws-config = "1.8"
@@ -16,4 +16,6 @@ aws-sdk-s3 = "1.112"
 tokio = { workspace = true }
 anyhow = { workspace = true }
 tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
 uuid = { workspace = true }
+sha2 = { workspace = true }
