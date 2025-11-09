@@ -1,0 +1,11 @@
+[package]
+name = "aws-cli-compat"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+uuid = { workspace = true }
+serde_json = { workspace = true }

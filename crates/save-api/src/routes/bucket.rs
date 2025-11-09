@@ -21,6 +21,10 @@ struct BucketListQuery {
     #[serde(rename = "max-keys")]
     pub max_keys: Option<usize>,
     pub uploads: Option<String>,
+    #[serde(rename = "list-type")]
+    pub list_type: Option<String>,
+    #[serde(rename = "continuation-token")]
+    pub continuation_token: Option<String>,
 }
 
 async fn get_bucket_handler(
@@ -35,17 +39,29 @@ async fn get_bucket_handler(
             prefix: params.prefix,
             marker: params.marker,
             max_keys: params.max_keys,
+            list_type: params.list_type,
+            continuation_token: params.continuation_token,
         };
         list_objects(state, path, Query(objects_query)).await
     }
 }
 
 pub fn routes() -> Router<AppState> {
-    Router::new().route("/", get(list_buckets)).route(
-        "/{bucket}",
-        put(create_bucket)
-            .delete(delete_bucket)
-            .get(get_bucket_handler)
-            .head(head_bucket),
-    )
+    Router::new()
+        .route("/", get(list_buckets))
+        .route(
+            "/{bucket}",
+            put(create_bucket)
+                .delete(delete_bucket)
+                .get(get_bucket_handler)
+                .head(head_bucket),
+        )
+        // AWS SDK sends bucket operations with trailing slashes
+        .route(
+            "/{bucket}/",
+            put(create_bucket)
+                .delete(delete_bucket)
+                .get(get_bucket_handler)
+                .head(head_bucket),
+        )
 }

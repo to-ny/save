@@ -37,7 +37,8 @@ pub async fn head_object(
             _ => ApiError::internal(format!("Metadata error: {}", e)),
         })?;
 
-    let last_modified = metadata.modified_at.to_rfc2822();
+    // S3 uses HTTP-date format (RFC 1123) for Last-Modified header
+    let last_modified = metadata.modified_at.format("%a, %d %b %Y %H:%M:%S GMT").to_string();
     let content_type = metadata
         .content_type
         .unwrap_or_else(|| "application/octet-stream".to_string());

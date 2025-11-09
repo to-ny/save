@@ -9,8 +9,8 @@ pub use error::{Error, Result};
 pub use s3_error::{S3Error, S3ErrorCode};
 pub use s3_responses::{
     CompleteMultipartUploadResult, InitiateMultipartUploadResult, ListAllMyBucketsResult,
-    ListBucketResult, ListMultipartUploadsResult, S3_XMLNS, S3XmlResponse, SerializationError,
-    StorageClass,
+    ListBucketResult, ListBucketResultV2, ListMultipartUploadsResult, S3_XMLNS, S3XmlResponse,
+    SerializationError, StorageClass,
 };
 pub use types::Bucket;
 pub use validation::{validate_bucket_name, validate_object_key};

@@ -1,22 +1,4 @@
-//! S3-compatible error responses.
-//!
-//! This module implements the AWS S3 XML error format as specified in the
-//! [AWS S3 API Error Responses documentation](https://docs.aws.amazon.com/AmazonS3/latest/API/ErrorResponses.html).
-//!
-//! All errors are serialized to XML with the following structure:
-//! ```xml
-//! <?xml version="1.0" encoding="UTF-8"?>
-//! <Error>
-//!   <Code>NoSuchBucket</Code>
-//!   <Message>The specified bucket does not exist</Message>
-//!   <Resource>/my-bucket</Resource>
-//!   <RequestId>4442587FB7D0A2F9</RequestId>
-//! </Error>
-//! ```
-//!
-//! Request IDs are generated per-response using UUID v4 and are guaranteed to be
-//! unique across all requests, enabling proper client-side retry logic and request
-//! correlation in logs and metrics.
+//! S3-compatible XML error responses.
 
 use serde::Serialize;
 
@@ -33,7 +15,7 @@ pub struct S3Error {
     pub request_id: String,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone)]
 pub enum S3ErrorCode {
     AccessDenied,
     BucketAlreadyExists,
@@ -44,6 +26,15 @@ pub enum S3ErrorCode {
     NoSuchKey,
     RequestTimeTooSkewed,
     SignatureDoesNotMatch,
+}
+
+impl Serialize for S3ErrorCode {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        serializer.serialize_str(&self.to_string())
+    }
 }
 
 impl std::fmt::Display for S3ErrorCode {
@@ -64,11 +55,12 @@ impl std::fmt::Display for S3ErrorCode {
 
 impl S3Error {
     pub fn new(code: S3ErrorCode, message: impl Into<String>, resource: impl Into<String>) -> Self {
+        let request_id = generate_request_id();
         Self {
             code,
             message: message.into(),
             resource: resource.into(),
-            request_id: generate_request_id(),
+            request_id,
         }
     }
 

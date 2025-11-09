@@ -1,0 +1,15 @@
+[package]
+name = "aws-sdk-compat"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+aws-config = "1.8"
+aws-sdk-s3 = "1.112"
+tokio = { workspace = true }
+anyhow = { workspace = true }
+tracing = { workspace = true }
+uuid = { workspace = true }

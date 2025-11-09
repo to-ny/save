@@ -103,7 +103,7 @@ Implement a local, single-node S3-compatible object storage system using RocksDB
 - [ ] Concurrent operation tests (simultaneous PUTs, concurrent GET during PUT, parallel multipart uploads)
 - [ ] Crash recovery tests (kill during PUT/multipart, verify metadata consistency)
 - [ ] Edge case tests (filesystem full, RocksDB corruption, partial multipart, timeouts)
-- [ ] AWS SDK compatibility tests (verify SDK can upload/download, multipart via SDK)
+- [x] AWS SDK compatibility tests (verify SDK can upload/download, multipart via SDK)
 - [ ] Performance benchmarks using `criterion` (throughput, latency percentiles)
 - [ ] Load tests using `wrk` or `k6` (1000 req/sec sustained, leak detection)
 

@@ -15,9 +15,9 @@ pub use gc::{GcConfig, run_gc_worker};
 pub use state::AppState;
 
 pub fn app(state: AppState) -> Router {
-    let api_routes = routes::objects::routes()
+    let api_routes = routes::bucket::routes()
         .merge(routes::multipart::routes())
-        .merge(routes::bucket::routes())
+        .merge(routes::objects::routes())
         .layer(axum::middleware::from_fn_with_state(
             state.clone(),
             auth::validate_sigv4,

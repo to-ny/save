@@ -1,20 +1,14 @@
 //! S3-compatible XML response types.
-//!
-//! This module implements the AWS S3 XML response formats for successful operations.
-//! All responses follow the structure specified in the AWS S3 API documentation.
 
 use chrono::{DateTime, Utc};
 use serde::Serialize;
 use std::fmt;
 use tracing::error;
 
-/// S3 XML namespace
 pub const S3_XMLNS: &str = "http://s3.amazonaws.com/doc/2006-03-01/";
 
-/// Errors that can occur during XML response serialization.
 #[derive(Debug)]
 pub enum SerializationError {
-    /// Failed to serialize to XML
     XmlSerialization(quick_xml::DeError),
 }
 
@@ -34,16 +28,13 @@ impl From<quick_xml::DeError> for SerializationError {
     }
 }
 
-/// Storage class for S3 objects
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Default)]
 pub enum StorageClass {
-    /// Standard storage class
     #[default]
     Standard,
 }
 
 impl StorageClass {
-    /// Get the S3 API string representation
     pub fn as_str(&self) -> &'static str {
         match self {
             Self::Standard => "STANDARD",
@@ -57,20 +48,13 @@ impl fmt::Display for StorageClass {
     }
 }
 
-/// Trait for S3 XML response serialization with optimized memory allocation
 pub trait S3XmlResponse: Serialize {
-    /// Get the name of the root XML element for error messages
     fn root_element_name() -> &'static str;
 
-    /// Serialize to XML string with proper error handling and logging
     fn to_xml(&self) -> Result<String, SerializationError> {
-        // Pre-allocate string with reasonable capacity to reduce allocations
         let mut xml = String::with_capacity(2048);
-
-        // Write XML declaration
         xml.push_str("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n");
 
-        // Serialize directly to string
         if let Err(e) = quick_xml::se::to_writer(&mut xml, self) {
             error!(
                 element = Self::root_element_name(),
@@ -84,12 +68,10 @@ pub trait S3XmlResponse: Serialize {
     }
 }
 
-/// Format a DateTime for S3 XML responses (ISO 8601 format).
 fn format_s3_timestamp(dt: &DateTime<Utc>) -> String {
     dt.to_rfc3339_opts(chrono::SecondsFormat::Millis, true)
 }
 
-/// ListAllMyBucketsResult - Response for GET /
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename = "ListAllMyBucketsResult")]
 pub struct ListAllMyBucketsResult {
@@ -138,11 +120,6 @@ where
 }
 
 impl ListAllMyBucketsResult {
-    /// Create a new ListAllMyBucketsResult response
-    ///
-    /// # Arguments
-    /// * `buckets` - List of (bucket_name, creation_date) tuples
-    /// * `owner_id` - Owner identifier (user/account ID)
     pub fn new(buckets: Vec<(String, DateTime<Utc>)>, owner_id: String) -> Self {
         Self {
             xmlns: S3_XMLNS.to_string(),
@@ -169,7 +146,6 @@ impl S3XmlResponse for ListAllMyBucketsResult {
     }
 }
 
-/// ListBucketResult - Response for GET /{bucket}
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename = "ListBucketResult")]
 pub struct ListBucketResult {
@@ -239,7 +215,74 @@ impl S3XmlResponse for ListBucketResult {
     }
 }
 
-/// InitiateMultipartUploadResult - Response for POST /{bucket}/{key}?uploads
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename = "ListBucketResult")]
+pub struct ListBucketResultV2 {
+    #[serde(rename = "@xmlns")]
+    pub xmlns: String,
+    #[serde(rename = "Name")]
+    pub name: String,
+    #[serde(rename = "Prefix")]
+    pub prefix: String,
+    #[serde(rename = "MaxKeys")]
+    pub max_keys: usize,
+    #[serde(rename = "IsTruncated")]
+    pub is_truncated: bool,
+    #[serde(rename = "KeyCount")]
+    pub key_count: usize,
+    #[serde(rename = "ContinuationToken", skip_serializing_if = "String::is_empty")]
+    pub continuation_token: String,
+    #[serde(rename = "NextContinuationToken", skip_serializing_if = "Option::is_none")]
+    pub next_continuation_token: Option<String>,
+    #[serde(rename = "Contents")]
+    pub contents: Vec<ObjectEntry>,
+}
+
+impl ListBucketResultV2 {
+    pub fn new(
+        name: String,
+        prefix: Option<String>,
+        continuation_token: Option<String>,
+        max_keys: usize,
+        is_truncated: bool,
+        contents: Vec<(String, DateTime<Utc>, String, u64)>,
+    ) -> Self {
+        let key_count = contents.len();
+        let next_continuation_token = if is_truncated {
+            contents.last().map(|(key, _, _, _)| key.clone())
+        } else {
+            None
+        };
+
+        Self {
+            xmlns: S3_XMLNS.to_string(),
+            name,
+            prefix: prefix.unwrap_or_default(),
+            max_keys,
+            is_truncated,
+            key_count,
+            continuation_token: continuation_token.unwrap_or_default(),
+            next_continuation_token,
+            contents: contents
+                .into_iter()
+                .map(|(key, last_modified, etag, size)| ObjectEntry {
+                    key,
+                    last_modified,
+                    etag,
+                    size,
+                    storage_class: StorageClass::default(),
+                })
+                .collect(),
+        }
+    }
+}
+
+impl S3XmlResponse for ListBucketResultV2 {
+    fn root_element_name() -> &'static str {
+        "ListBucketResult"
+    }
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename = "InitiateMultipartUploadResult")]
 pub struct InitiateMultipartUploadResult {
@@ -270,7 +313,6 @@ impl S3XmlResponse for InitiateMultipartUploadResult {
     }
 }
 
-/// CompleteMultipartUploadResult - Response for POST /{bucket}/{key}?uploadId=...
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename = "CompleteMultipartUploadResult")]
 pub struct CompleteMultipartUploadResult {
@@ -305,7 +347,6 @@ impl S3XmlResponse for CompleteMultipartUploadResult {
     }
 }
 
-/// ListMultipartUploadsResult - Response for GET /{bucket}?uploads
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename = "ListMultipartUploadsResult")]
 pub struct ListMultipartUploadsResult {

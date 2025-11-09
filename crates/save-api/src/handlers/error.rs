@@ -67,14 +67,20 @@ impl IntoResponse for ApiError {
     fn into_response(self) -> Response {
         let status = self.status_code();
         let s3_error = self.to_s3_error();
+        let request_id = s3_error.request_id.clone();
         let xml_body = s3_error.to_xml();
 
-        (
-            status,
-            [(header::CONTENT_TYPE, "application/xml")],
-            xml_body,
-        )
-            .into_response()
+        let mut response = Response::new(xml_body.into());
+        *response.status_mut() = status;
+        response.headers_mut().insert(
+            header::CONTENT_TYPE,
+            header::HeaderValue::from_static("application/xml"),
+        );
+        response.headers_mut().insert(
+            header::HeaderName::from_static("x-amz-request-id"),
+            header::HeaderValue::from_str(&request_id).unwrap(),
+        );
+        response
     }
 }
 

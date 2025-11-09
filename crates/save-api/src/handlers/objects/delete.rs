@@ -24,36 +24,38 @@ pub async fn delete_object(
     validate_bucket_name(&bucket).map_err(|e| ApiError::InvalidRequest(e.to_string()))?;
     validate_object_key(&key).map_err(|e| ApiError::InvalidRequest(e.to_string()))?;
 
-    state
-        .metadata
-        .get_object_metadata(&bucket, &key)
-        .await
-        .map_err(|e| match e {
-            MetadataError::ObjectNotFound { .. } | MetadataError::BucketNotFound(_) => {
-                debug!("Object not found: {}/{}", bucket, key);
-                ApiError::ObjectNotFound {
-                    bucket: bucket.clone(),
-                    key: key.clone(),
-                }
-            }
-            _ => ApiError::internal(format!("Metadata error: {}", e)),
-        })?;
+    let object_exists = match state.metadata.get_object_metadata(&bucket, &key).await {
+        Ok(_) => true,
+        Err(MetadataError::ObjectNotFound { .. }) => {
+            debug!("Object not found: {}/{} - DELETE is idempotent, returning success", bucket, key);
+            false
+        }
+        Err(MetadataError::BucketNotFound(_)) => {
+            debug!("Bucket not found: {} - DELETE is idempotent, returning success", bucket);
+            false
+        }
+        Err(e) => {
+            return Err(ApiError::internal(format!("Metadata error: {}", e)));
+        }
+    };
 
-    let full_key = storage_key(&bucket, &key);
+    if object_exists {
+        let full_key = storage_key(&bucket, &key);
 
-    debug!("Deleting object from storage: {}", full_key);
-    state
-        .storage
-        .delete_object(&full_key)
-        .await
-        .map_err(|e| ApiError::internal(format!("Storage error: {}", e)))?;
+        debug!("Deleting object from storage: {}", full_key);
+        state
+            .storage
+            .delete_object(&full_key)
+            .await
+            .map_err(|e| ApiError::internal(format!("Storage error: {}", e)))?;
 
-    debug!("Deleting object metadata: {}/{}", bucket, key);
-    state
-        .metadata
-        .delete_object_metadata(&bucket, &key)
-        .await
-        .map_err(|e| ApiError::internal(format!("Metadata error: {}", e)))?;
+        debug!("Deleting object metadata: {}/{}", bucket, key);
+        state
+            .metadata
+            .delete_object_metadata(&bucket, &key)
+            .await
+            .map_err(|e| ApiError::internal(format!("Metadata error: {}", e)))?;
+    }
 
     let duration = start.elapsed();
     info!("DELETE completed in {:?}", duration);

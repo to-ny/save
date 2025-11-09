@@ -13,6 +13,13 @@ pub async fn validate_sigv4(
     request: Request,
     next: Next,
 ) -> Result<Response, ApiError> {
+    debug!(
+        method = %request.method(),
+        uri = %request.uri(),
+        query = ?request.uri().query(),
+        "Incoming S3 request"
+    );
+
     let auth_header = request
         .headers()
         .get("authorization")
