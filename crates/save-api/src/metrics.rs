@@ -28,6 +28,7 @@ static GC_ERRORS_TOTAL: OnceLock<IntCounter> = OnceLock::new();
 static GC_LAST_RUN_SECONDS: OnceLock<IntGauge> = OnceLock::new();
 static GC_CYCLES_TOTAL: OnceLock<IntCounterVec> = OnceLock::new();
 static MULTIPART_CLEANUP_FAILURES_TOTAL: OnceLock<IntCounter> = OnceLock::new();
+static AUTH_EVENTS_TOTAL: OnceLock<IntCounterVec> = OnceLock::new();
 
 /// HTTP request count by endpoint, method, and status code.
 ///
@@ -179,6 +180,22 @@ pub(crate) fn multipart_cleanup_failures_total() -> &'static IntCounter {
     })
 }
 
+/// Authentication events by result and reason.
+///
+/// Labels have bounded cardinality:
+/// - `result`: Fixed set of values ("success", "failure")
+/// - `reason`: Fixed set of failure reasons ("missing_auth", "invalid_format", "key_mismatch", "signature_mismatch", "time_skewed", "missing_date")
+pub fn auth_events_total() -> &'static IntCounterVec {
+    AUTH_EVENTS_TOTAL.get_or_init(|| {
+        register_int_counter_vec!(
+            "save_auth_events_total",
+            "Total authentication events by result and reason",
+            &["result", "reason"]
+        )
+        .expect("Failed to register save_auth_events_total metric")
+    })
+}
+
 pub fn init_metrics() {
     let _ = http_requests_total();
     let _ = http_request_duration_seconds();
@@ -190,6 +207,7 @@ pub fn init_metrics() {
     let _ = gc_last_run_seconds();
     let _ = gc_cycles_total();
     let _ = multipart_cleanup_failures_total();
+    let _ = auth_events_total();
 }
 
 pub fn encode_metrics() -> Result<String, MetricsError> {

@@ -10,6 +10,7 @@ use std::collections::BTreeMap;
 use tracing::{debug, warn};
 
 use crate::handlers::ApiError;
+use crate::metrics::auth_events_total;
 use crate::state::AppState;
 
 type HmacSha256 = Hmac<Sha256>;
@@ -34,12 +35,30 @@ pub async fn validate_sigv4(
         .get("authorization")
         .and_then(|h| h.to_str().ok())
         .ok_or_else(|| {
-            warn!("Missing authorization header");
+            warn!(
+                event = "auth_failure",
+                reason = "missing_authorization_header",
+                method = %request.method(),
+                uri = %request.uri().path(),
+                "Authentication failed: missing authorization header"
+            );
+            auth_events_total()
+                .with_label_values(&["failure", "missing_auth"])
+                .inc();
             ApiError::Unauthorized
         })?;
 
     if !auth_header.starts_with("AWS4-HMAC-SHA256") {
-        warn!("Invalid authorization header format");
+        warn!(
+            event = "auth_failure",
+            reason = "invalid_auth_format",
+            method = %request.method(),
+            uri = %request.uri().path(),
+            "Authentication failed: invalid authorization format"
+        );
+        auth_events_total()
+            .with_label_values(&["failure", "invalid_format"])
+            .inc();
         return Err(ApiError::InvalidSignatureException(
             "Authorization header format is invalid".to_string(),
         ));
@@ -49,9 +68,13 @@ pub async fn validate_sigv4(
 
     if auth_info.access_key != state.config.credentials.access_key {
         warn!(
-            "Access key mismatch: expected={}, got={}",
-            state.config.credentials.access_key, auth_info.access_key
+            event = "auth_failure",
+            reason = "access_key_mismatch",
+            "Authentication failed: access key mismatch"
         );
+        auth_events_total()
+            .with_label_values(&["failure", "key_mismatch"])
+            .inc();
         return Err(ApiError::Unauthorized);
     }
 
@@ -59,7 +82,16 @@ pub async fn validate_sigv4(
         .get("x-amz-date")
         .and_then(|h| h.to_str().ok())
         .ok_or_else(|| {
-            warn!("Missing x-amz-date header");
+            warn!(
+                event = "auth_failure",
+                reason = "missing_amz_date_header",
+                method = %request.method(),
+                uri = %request.uri().path(),
+                "Authentication failed: missing x-amz-date header"
+            );
+            auth_events_total()
+                .with_label_values(&["failure", "missing_date"])
+                .inc();
             ApiError::InvalidSignatureException("Missing x-amz-date header".to_string())
         })?;
 
@@ -79,15 +111,11 @@ pub async fn validate_sigv4(
         content_sha256,
     )?;
 
-    debug!("Canonical request: {}", canonical_request);
-
     let string_to_sign = build_string_to_sign(
         amz_date,
         &auth_info.scope,
         &canonical_request,
     );
-
-    debug!("String to sign: {}", string_to_sign);
 
     let calculated_signature = calculate_signature(
         &state.config.credentials.secret_key,
@@ -97,20 +125,27 @@ pub async fn validate_sigv4(
         &string_to_sign,
     );
 
-    debug!(
-        "Signature comparison: provided={}, calculated={}",
-        auth_info.signature, calculated_signature
-    );
-
     if !constant_time_compare(&auth_info.signature, &calculated_signature) {
-        warn!("Signature mismatch");
+        warn!(
+            event = "auth_failure",
+            reason = "signature_mismatch",
+            "Authentication failed: signature does not match"
+        );
+        auth_events_total()
+            .with_label_values(&["failure", "signature_mismatch"])
+            .inc();
         return Err(ApiError::SignatureDoesNotMatch);
     }
 
     debug!(
-        "SigV4 validation passed for access key: {}",
-        auth_info.access_key
+        event = "auth_success",
+        method = %request.method(),
+        uri = %request.uri().path(),
+        "SigV4 authentication successful"
     );
+    auth_events_total()
+        .with_label_values(&["success", "ok"])
+        .inc();
 
     Ok(next.run(request).await)
 }
@@ -306,9 +341,15 @@ fn validate_timestamp(amz_date: &str) -> Result<(), ApiError> {
 
     if diff > MAX_TIME_SKEW_SECS {
         warn!(
-            "Request time too skewed: diff={}s, max={}s",
-            diff, MAX_TIME_SKEW_SECS
+            event = "auth_failure",
+            reason = "request_time_too_skewed",
+            time_diff_seconds = diff,
+            max_skew_seconds = MAX_TIME_SKEW_SECS,
+            "Authentication failed: request timestamp outside acceptable window"
         );
+        auth_events_total()
+            .with_label_values(&["failure", "time_skewed"])
+            .inc();
         return Err(ApiError::RequestTimeTooSkewed);
     }
 

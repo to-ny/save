@@ -56,8 +56,8 @@ Implement a local, single-node S3-compatible object storage system using RocksDB
 - [x] Compares access key to config
 - [x] Full SigV4 signature validation (Location: `save-api/src/auth.rs`)
 - [x] Request expiration checking via `X-Amz-Date` header (±15 min window)
-- [ ] Secure credential storage (no logging of secret keys)
-- [ ] Audit logging for security events
+- [x] Secure credential storage (no logging of secret keys)
+- [x] Audit logging for security events
 
 ---
 

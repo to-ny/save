@@ -41,10 +41,19 @@ fn default_gc_temp_file_max_age_secs() -> u64 {
     60 * 60 // 1 hour
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Clone, Serialize, Deserialize, PartialEq)]
 pub struct CredentialsConfig {
     pub access_key: String,
     pub secret_key: String,
+}
+
+impl std::fmt::Debug for CredentialsConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("CredentialsConfig")
+            .field("access_key", &"[REDACTED]")
+            .field("secret_key", &"[REDACTED]")
+            .finish()
+    }
 }
 
 impl SaveConfig {
