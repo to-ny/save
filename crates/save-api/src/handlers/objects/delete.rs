@@ -27,18 +27,15 @@ pub async fn delete_object(
     let object_exists = match state.metadata.get_object_metadata(&bucket, &key).await {
         Ok(_) => true,
         Err(MetadataError::ObjectNotFound { .. }) => {
-            debug!(
-                "Object not found: {}/{} - DELETE is idempotent, returning success",
-                bucket, key
-            );
-            false
+            debug!("Object not found: {}/{}", bucket, key);
+            return Err(ApiError::ObjectNotFound {
+                bucket: bucket.clone(),
+                key: key.clone(),
+            });
         }
         Err(MetadataError::BucketNotFound(_)) => {
-            debug!(
-                "Bucket not found: {} - DELETE is idempotent, returning success",
-                bucket
-            );
-            false
+            debug!("Bucket not found: {}", bucket);
+            return Err(ApiError::BucketNotFound(bucket.clone()));
         }
         Err(e) => {
             return Err(ApiError::internal(format!("Metadata error: {}", e)));

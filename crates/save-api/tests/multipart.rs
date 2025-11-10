@@ -14,15 +14,7 @@ mod complete_flow {
         let (state, _temp_dir) = common::test_setup().await;
         let app = save_api::app(state);
 
-        let init_request = Request::builder()
-            .method("POST")
-            .uri("/test-bucket/multipart-file.txt?uploads")
-            .header(
-                "Authorization",
-                "AWS4-HMAC-SHA256 Credential=saveadmin/20231201/us-east-1/s3/aws4_request, SignedHeaders=host;x-amz-date, Signature=fake"
-            )
-            .body(Body::empty())
-            .unwrap();
+        let init_request = common::request_with_auth("POST", "/test-bucket/multipart-file.txt?uploads", Body::empty());
 
         let init_response = app.clone().oneshot(init_request).await.unwrap();
         assert_eq!(init_response.status(), StatusCode::OK);
@@ -40,51 +32,21 @@ mod complete_flow {
         let upload_id = &init_body_str[start..end];
 
         let part1_content = b"First part of the file.";
-        let part1_request = Request::builder()
-            .method("PUT")
-            .uri(format!(
-                "/test-bucket/multipart-file.txt?partNumber=1&uploadId={}",
-                upload_id
-            ))
-            .header(
-                "Authorization",
-                "AWS4-HMAC-SHA256 Credential=saveadmin/20231201/us-east-1/s3/aws4_request, SignedHeaders=host;x-amz-date, Signature=fake"
-            )
-            .body(Body::from(part1_content.to_vec()))
-            .unwrap();
+        let uri1 = format!("/test-bucket/multipart-file.txt?partNumber=1&uploadId={}", upload_id);
+        let part1_request = common::request_with_auth_and_body("PUT", &uri1, part1_content.to_vec());
 
         let part1_response = app.clone().oneshot(part1_request).await.unwrap();
         assert_eq!(part1_response.status(), StatusCode::OK);
 
         let part2_content = b" Second part of the file.";
-        let part2_request = Request::builder()
-            .method("PUT")
-            .uri(format!(
-                "/test-bucket/multipart-file.txt?partNumber=2&uploadId={}",
-                upload_id
-            ))
-            .header(
-                "Authorization",
-                "AWS4-HMAC-SHA256 Credential=saveadmin/20231201/us-east-1/s3/aws4_request, SignedHeaders=host;x-amz-date, Signature=fake"
-            )
-            .body(Body::from(part2_content.to_vec()))
-            .unwrap();
+        let uri2 = format!("/test-bucket/multipart-file.txt?partNumber=2&uploadId={}", upload_id);
+        let part2_request = common::request_with_auth_and_body("PUT", &uri2, part2_content.to_vec());
 
         let part2_response = app.clone().oneshot(part2_request).await.unwrap();
         assert_eq!(part2_response.status(), StatusCode::OK);
 
-        let complete_request = Request::builder()
-            .method("POST")
-            .uri(format!(
-                "/test-bucket/multipart-file.txt?uploadId={}",
-                upload_id
-            ))
-            .header(
-                "Authorization",
-                "AWS4-HMAC-SHA256 Credential=saveadmin/20231201/us-east-1/s3/aws4_request, SignedHeaders=host;x-amz-date, Signature=fake"
-            )
-            .body(Body::empty())
-            .unwrap();
+        let complete_uri = format!("/test-bucket/multipart-file.txt?uploadId={}", upload_id);
+        let complete_request = common::request_with_auth("POST", &complete_uri, Body::empty());
 
         let complete_response = app.clone().oneshot(complete_request).await.unwrap();
         assert_eq!(complete_response.status(), StatusCode::OK);
@@ -100,15 +62,7 @@ mod complete_flow {
         assert!(complete_body_str.contains("<ETag>"));
         assert!(complete_body_str.contains("</ETag>"));
 
-        let get_request = Request::builder()
-            .method("GET")
-            .uri("/test-bucket/multipart-file.txt")
-            .header(
-                "Authorization",
-                "AWS4-HMAC-SHA256 Credential=saveadmin/20231201/us-east-1/s3/aws4_request, SignedHeaders=host;x-amz-date, Signature=fake"
-            )
-            .body(Body::empty())
-            .unwrap();
+        let get_request = common::request_with_auth("GET", "/test-bucket/multipart-file.txt", Body::empty());
 
         let get_response = app.oneshot(get_request).await.unwrap();
         assert_eq!(get_response.status(), StatusCode::OK);
@@ -123,15 +77,7 @@ mod complete_flow {
         let (state, _temp_dir) = common::test_setup().await;
         let app = save_api::app(state);
 
-        let init_request = Request::builder()
-            .method("POST")
-            .uri("/test-bucket/abort-file.txt?uploads")
-            .header(
-                "Authorization",
-                "AWS4-HMAC-SHA256 Credential=saveadmin/20231201/us-east-1/s3/aws4_request, SignedHeaders=host;x-amz-date, Signature=fake"
-            )
-            .body(Body::empty())
-            .unwrap();
+        let init_request = common::request_with_auth("POST", "/test-bucket/abort-file.txt?uploads", Body::empty());
 
         let init_response = app.clone().oneshot(init_request).await.unwrap();
         assert_eq!(init_response.status(), StatusCode::OK);
@@ -148,47 +94,19 @@ mod complete_flow {
         let end = init_body_str.find("</UploadId>").unwrap();
         let upload_id = &init_body_str[start..end];
 
-        let part_request = Request::builder()
-            .method("PUT")
-            .uri(format!(
-                "/test-bucket/abort-file.txt?partNumber=1&uploadId={}",
-                upload_id
-            ))
-            .header(
-                "Authorization",
-                "AWS4-HMAC-SHA256 Credential=saveadmin/20231201/us-east-1/s3/aws4_request, SignedHeaders=host;x-amz-date, Signature=fake"
-            )
-            .body(Body::from("Some content"))
-            .unwrap();
+        let part_uri = format!("/test-bucket/abort-file.txt?partNumber=1&uploadId={}", upload_id);
+        let part_request = common::request_with_auth_and_body("PUT", &part_uri, b"Some content".to_vec());
 
         let part_response = app.clone().oneshot(part_request).await.unwrap();
         assert_eq!(part_response.status(), StatusCode::OK);
 
-        let abort_request = Request::builder()
-            .method("DELETE")
-            .uri(format!(
-                "/test-bucket/abort-file.txt?uploadId={}",
-                upload_id
-            ))
-            .header(
-                "Authorization",
-                "AWS4-HMAC-SHA256 Credential=saveadmin/20231201/us-east-1/s3/aws4_request, SignedHeaders=host;x-amz-date, Signature=fake"
-            )
-            .body(Body::empty())
-            .unwrap();
+        let abort_uri = format!("/test-bucket/abort-file.txt?uploadId={}", upload_id);
+        let abort_request = common::request_with_auth("DELETE", &abort_uri, Body::empty());
 
         let abort_response = app.clone().oneshot(abort_request).await.unwrap();
         assert_eq!(abort_response.status(), StatusCode::NO_CONTENT);
 
-        let get_request = Request::builder()
-            .method("GET")
-            .uri("/test-bucket/abort-file.txt")
-            .header(
-                "Authorization",
-                "AWS4-HMAC-SHA256 Credential=saveadmin/20231201/us-east-1/s3/aws4_request, SignedHeaders=host;x-amz-date, Signature=fake"
-            )
-            .body(Body::empty())
-            .unwrap();
+        let get_request = common::request_with_auth("GET", "/test-bucket/abort-file.txt", Body::empty());
 
         let get_response = app.oneshot(get_request).await.unwrap();
         assert_eq!(get_response.status(), StatusCode::NOT_FOUND);
@@ -199,15 +117,7 @@ mod complete_flow {
         let (state, _temp_dir) = common::test_setup().await;
         let app = save_api::app(state);
 
-        let request = Request::builder()
-            .method("PUT")
-            .uri("/test-bucket/file.txt?partNumber=1&uploadId=invalid-id")
-            .header(
-                "Authorization",
-                "AWS4-HMAC-SHA256 Credential=saveadmin/20231201/us-east-1/s3/aws4_request, SignedHeaders=host;x-amz-date, Signature=fake"
-            )
-            .body(Body::from("Content"))
-            .unwrap();
+        let request = common::request_with_auth_and_body("PUT", "/test-bucket/file.txt?partNumber=1&uploadId=invalid-id", b"Content".to_vec());
 
         let response = app.oneshot(request).await.unwrap();
         assert_eq!(response.status(), StatusCode::BAD_REQUEST);
@@ -218,15 +128,7 @@ mod complete_flow {
         let (state, _temp_dir) = common::test_setup().await;
         let app = save_api::app(state);
 
-        let request = Request::builder()
-            .method("POST")
-            .uri("/nonexistent-bucket/file.txt?uploads")
-            .header(
-                "Authorization",
-                "AWS4-HMAC-SHA256 Credential=saveadmin/20231201/us-east-1/s3/aws4_request, SignedHeaders=host;x-amz-date, Signature=fake"
-            )
-            .body(Body::empty())
-            .unwrap();
+        let request = common::request_with_auth("POST", "/nonexistent-bucket/file.txt?uploads", Body::empty());
 
         let response = app.oneshot(request).await.unwrap();
         assert_eq!(response.status(), StatusCode::NOT_FOUND);
@@ -237,15 +139,7 @@ mod complete_flow {
         let (state, _temp_dir) = common::test_setup().await;
         let app = save_api::app(state);
 
-        let init_request = Request::builder()
-            .method("POST")
-            .uri("/test-bucket/file.txt?uploads")
-            .header(
-                "Authorization",
-                "AWS4-HMAC-SHA256 Credential=saveadmin/20231201/us-east-1/s3/aws4_request, SignedHeaders=host;x-amz-date, Signature=fake"
-            )
-            .body(Body::empty())
-            .unwrap();
+        let init_request = common::request_with_auth("POST", "/test-bucket/file.txt?uploads", Body::empty());
 
         let init_response = app.clone().oneshot(init_request).await.unwrap();
         let init_body = init_response
@@ -260,18 +154,8 @@ mod complete_flow {
         let end = init_body_str.find("</UploadId>").unwrap();
         let upload_id = &init_body_str[start..end];
 
-        let request = Request::builder()
-            .method("PUT")
-            .uri(format!(
-                "/test-bucket/file.txt?partNumber=0&uploadId={}",
-                upload_id
-            ))
-            .header(
-                "Authorization",
-                "AWS4-HMAC-SHA256 Credential=saveadmin/20231201/us-east-1/s3/aws4_request, SignedHeaders=host;x-amz-date, Signature=fake"
-            )
-            .body(Body::from("Content"))
-            .unwrap();
+        let uri = format!("/test-bucket/file.txt?partNumber=0&uploadId={}", upload_id);
+        let request = common::request_with_auth_and_body("PUT", &uri, b"Content".to_vec());
 
         let response = app.oneshot(request).await.unwrap();
         assert_eq!(response.status(), StatusCode::BAD_REQUEST);
@@ -282,15 +166,7 @@ mod complete_flow {
         let (state, _temp_dir) = common::test_setup().await;
         let app = save_api::app(state);
 
-        let init_request = Request::builder()
-            .method("POST")
-            .uri("/test-bucket/file.txt?uploads")
-            .header(
-                "Authorization",
-                "AWS4-HMAC-SHA256 Credential=saveadmin/20231201/us-east-1/s3/aws4_request, SignedHeaders=host;x-amz-date, Signature=fake"
-            )
-            .body(Body::empty())
-            .unwrap();
+        let init_request = common::request_with_auth("POST", "/test-bucket/file.txt?uploads", Body::empty());
 
         let init_response = app.clone().oneshot(init_request).await.unwrap();
         let init_body = init_response
@@ -305,18 +181,8 @@ mod complete_flow {
         let end = init_body_str.find("</UploadId>").unwrap();
         let upload_id = &init_body_str[start..end];
 
-        let complete_request = Request::builder()
-            .method("POST")
-            .uri(format!(
-                "/test-bucket/file.txt?uploadId={}",
-                upload_id
-            ))
-            .header(
-                "Authorization",
-                "AWS4-HMAC-SHA256 Credential=saveadmin/20231201/us-east-1/s3/aws4_request, SignedHeaders=host;x-amz-date, Signature=fake"
-            )
-            .body(Body::empty())
-            .unwrap();
+        let complete_uri = format!("/test-bucket/file.txt?uploadId={}", upload_id);
+        let complete_request = common::request_with_auth("POST", &complete_uri, Body::empty());
 
         let response = app.oneshot(complete_request).await.unwrap();
         assert_eq!(response.status(), StatusCode::BAD_REQUEST);
@@ -342,15 +208,7 @@ mod complete_flow {
         let (state, _temp_dir) = common::test_setup().await;
         let app = save_api::app(state);
 
-        let init_request = Request::builder()
-            .method("POST")
-            .uri("/test-bucket/large-file.bin?uploads")
-            .header(
-                "Authorization",
-                "AWS4-HMAC-SHA256 Credential=saveadmin/20231201/us-east-1/s3/aws4_request, SignedHeaders=host;x-amz-date, Signature=fake"
-            )
-            .body(Body::empty())
-            .unwrap();
+        let init_request = common::request_with_auth("POST", "/test-bucket/large-file.bin?uploads", Body::empty());
 
         let init_response = app.clone().oneshot(init_request).await.unwrap();
         let init_body = init_response
@@ -366,62 +224,24 @@ mod complete_flow {
         let upload_id = &init_body_str[start..end];
 
         let part1_content = vec![0xAA; 50_000];
-        let part1_request = Request::builder()
-            .method("PUT")
-            .uri(format!(
-                "/test-bucket/large-file.bin?partNumber=1&uploadId={}",
-                upload_id
-            ))
-            .header(
-                "Authorization",
-                "AWS4-HMAC-SHA256 Credential=saveadmin/20231201/us-east-1/s3/aws4_request, SignedHeaders=host;x-amz-date, Signature=fake"
-            )
-            .body(Body::from(part1_content.clone()))
-            .unwrap();
+        let part1_uri = format!("/test-bucket/large-file.bin?partNumber=1&uploadId={}", upload_id);
+        let part1_request = common::request_with_auth_and_body("PUT", &part1_uri, part1_content.clone());
 
         app.clone().oneshot(part1_request).await.unwrap();
 
         let part2_content = vec![0xBB; 50_000];
-        let part2_request = Request::builder()
-            .method("PUT")
-            .uri(format!(
-                "/test-bucket/large-file.bin?partNumber=2&uploadId={}",
-                upload_id
-            ))
-            .header(
-                "Authorization",
-                "AWS4-HMAC-SHA256 Credential=saveadmin/20231201/us-east-1/s3/aws4_request, SignedHeaders=host;x-amz-date, Signature=fake"
-            )
-            .body(Body::from(part2_content.clone()))
-            .unwrap();
+        let part2_uri = format!("/test-bucket/large-file.bin?partNumber=2&uploadId={}", upload_id);
+        let part2_request = common::request_with_auth_and_body("PUT", &part2_uri, part2_content.clone());
 
         app.clone().oneshot(part2_request).await.unwrap();
 
-        let complete_request = Request::builder()
-            .method("POST")
-            .uri(format!(
-                "/test-bucket/large-file.bin?uploadId={}",
-                upload_id
-            ))
-            .header(
-                "Authorization",
-                "AWS4-HMAC-SHA256 Credential=saveadmin/20231201/us-east-1/s3/aws4_request, SignedHeaders=host;x-amz-date, Signature=fake"
-            )
-            .body(Body::empty())
-            .unwrap();
+        let complete_uri = format!("/test-bucket/large-file.bin?uploadId={}", upload_id);
+        let complete_request = common::request_with_auth("POST", &complete_uri, Body::empty());
 
         let complete_response = app.clone().oneshot(complete_request).await.unwrap();
         assert_eq!(complete_response.status(), StatusCode::OK);
 
-        let get_request = Request::builder()
-            .method("GET")
-            .uri("/test-bucket/large-file.bin")
-            .header(
-                "Authorization",
-                "AWS4-HMAC-SHA256 Credential=saveadmin/20231201/us-east-1/s3/aws4_request, SignedHeaders=host;x-amz-date, Signature=fake"
-            )
-            .body(Body::empty())
-            .unwrap();
+        let get_request = common::request_with_auth("GET", "/test-bucket/large-file.bin", Body::empty());
 
         let get_response = app.oneshot(get_request).await.unwrap();
         let get_body = get_response.into_body().collect().await.unwrap().to_bytes();

@@ -10,5 +10,5 @@ gc_interval_secs = 600
 gc_temp_file_max_age_secs = 3600
 
 [credentials]
-access_key = "saveadmin"
-secret_key = "saveadmin"
+access_key = "test-access-key"
+secret_key = "test-secret-key"

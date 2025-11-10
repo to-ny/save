@@ -25,6 +25,15 @@ pub enum ApiError {
     #[error("Unauthorized")]
     Unauthorized,
 
+    #[error("Request time too skewed")]
+    RequestTimeTooSkewed,
+
+    #[error("Signature does not match")]
+    SignatureDoesNotMatch,
+
+    #[error("Invalid signature exception: {0}")]
+    InvalidSignatureException(String),
+
     #[error("Internal error: {0}")]
     Internal(String),
 }
@@ -44,6 +53,9 @@ impl ApiError {
             ApiError::ObjectNotFound { bucket, key } => S3Error::no_such_key(bucket, key),
             ApiError::InvalidRequest(msg) => S3Error::invalid_request(msg),
             ApiError::Unauthorized => S3Error::access_denied("/"),
+            ApiError::RequestTimeTooSkewed => S3Error::request_time_too_skewed(),
+            ApiError::SignatureDoesNotMatch => S3Error::signature_does_not_match(),
+            ApiError::InvalidSignatureException(msg) => S3Error::invalid_request(msg),
             ApiError::Internal(_) => {
                 S3Error::internal_error("We encountered an internal error. Please try again.")
             }
@@ -58,6 +70,9 @@ impl ApiError {
             ApiError::ObjectNotFound { .. } => StatusCode::NOT_FOUND,
             ApiError::InvalidRequest(_) => StatusCode::BAD_REQUEST,
             ApiError::Unauthorized => StatusCode::FORBIDDEN,
+            ApiError::RequestTimeTooSkewed => StatusCode::FORBIDDEN,
+            ApiError::SignatureDoesNotMatch => StatusCode::FORBIDDEN,
+            ApiError::InvalidSignatureException(_) => StatusCode::FORBIDDEN,
             ApiError::Internal(_) => StatusCode::INTERNAL_SERVER_ERROR,
         }
     }

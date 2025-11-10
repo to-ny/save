@@ -2208,6 +2208,8 @@ dependencies = [
  "chrono",
  "filetime",
  "futures",
+ "hex",
+ "hmac",
  "http-body-util",
  "prometheus",
  "roxmltree",

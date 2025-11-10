@@ -37,54 +37,22 @@ mod delete {
         let (state, _temp_dir) = setup().await;
         let app = save_api::app(state);
 
-        let put_request = Request::builder()
-            .method("PUT")
-            .uri("/test-bucket/test-file.txt")
-            .header(
-                "Authorization",
-                "AWS4-HMAC-SHA256 Credential=saveadmin/20231201/us-east-1/s3/aws4_request, SignedHeaders=host;x-amz-date, Signature=fake"
-            )
-            .body(Body::from("Hello, World!"))
-            .unwrap();
+        let put_request = common::request_with_auth_and_body("PUT", "/test-bucket/test-file.txt", b"Hello, World!".to_vec());
 
         let put_response = app.clone().oneshot(put_request).await.unwrap();
         assert_eq!(put_response.status(), StatusCode::OK);
 
-        let get_request = Request::builder()
-            .method("GET")
-            .uri("/test-bucket/test-file.txt")
-            .header(
-                "Authorization",
-                "AWS4-HMAC-SHA256 Credential=saveadmin/20231201/us-east-1/s3/aws4_request, SignedHeaders=host;x-amz-date, Signature=fake"
-            )
-            .body(Body::empty())
-            .unwrap();
+        let get_request = common::request_with_auth("GET", "/test-bucket/test-file.txt", Body::empty());
 
         let get_response = app.clone().oneshot(get_request).await.unwrap();
         assert_eq!(get_response.status(), StatusCode::OK);
 
-        let delete_request = Request::builder()
-            .method("DELETE")
-            .uri("/test-bucket/test-file.txt")
-            .header(
-                "Authorization",
-                "AWS4-HMAC-SHA256 Credential=saveadmin/20231201/us-east-1/s3/aws4_request, SignedHeaders=host;x-amz-date, Signature=fake"
-            )
-            .body(Body::empty())
-            .unwrap();
+        let delete_request = common::request_with_auth("DELETE", "/test-bucket/test-file.txt", Body::empty());
 
         let delete_response = app.clone().oneshot(delete_request).await.unwrap();
         assert_eq!(delete_response.status(), StatusCode::NO_CONTENT);
 
-        let get_after_delete = Request::builder()
-            .method("GET")
-            .uri("/test-bucket/test-file.txt")
-            .header(
-                "Authorization",
-                "AWS4-HMAC-SHA256 Credential=saveadmin/20231201/us-east-1/s3/aws4_request, SignedHeaders=host;x-amz-date, Signature=fake"
-            )
-            .body(Body::empty())
-            .unwrap();
+        let get_after_delete = common::request_with_auth("GET", "/test-bucket/test-file.txt", Body::empty());
 
         let get_response_after = app.oneshot(get_after_delete).await.unwrap();
         assert_eq!(get_response_after.status(), StatusCode::NOT_FOUND);
@@ -95,15 +63,7 @@ mod delete {
         let (state, _temp_dir) = setup().await;
         let app = save_api::app(state);
 
-        let request = Request::builder()
-            .method("DELETE")
-            .uri("/test-bucket/nonexistent.txt")
-            .header(
-                "Authorization",
-                "AWS4-HMAC-SHA256 Credential=saveadmin/20231201/us-east-1/s3/aws4_request, SignedHeaders=host;x-amz-date, Signature=fake"
-            )
-            .body(Body::empty())
-            .unwrap();
+        let request = common::request_with_auth("DELETE", "/test-bucket/nonexistent.txt", Body::empty());
 
         let response = app.oneshot(request).await.unwrap();
 
@@ -115,15 +75,7 @@ mod delete {
         let (state, _temp_dir) = setup().await;
         let app = save_api::app(state);
 
-        let request = Request::builder()
-            .method("DELETE")
-            .uri("/nonexistent-bucket/test-file.txt")
-            .header(
-                "Authorization",
-                "AWS4-HMAC-SHA256 Credential=saveadmin/20231201/us-east-1/s3/aws4_request, SignedHeaders=host;x-amz-date, Signature=fake"
-            )
-            .body(Body::empty())
-            .unwrap();
+        let request = common::request_with_auth("DELETE", "/nonexistent-bucket/test-file.txt", Body::empty());
 
         let response = app.oneshot(request).await.unwrap();
 
@@ -151,28 +103,12 @@ mod delete {
         let (state, _temp_dir) = setup().await;
         let app = save_api::app(state);
 
-        let delete_request_1 = Request::builder()
-            .method("DELETE")
-            .uri("/test-bucket/nonexistent.txt")
-            .header(
-                "Authorization",
-                "AWS4-HMAC-SHA256 Credential=saveadmin/20231201/us-east-1/s3/aws4_request, SignedHeaders=host;x-amz-date, Signature=fake"
-            )
-            .body(Body::empty())
-            .unwrap();
+        let delete_request_1 = common::request_with_auth("DELETE", "/test-bucket/nonexistent.txt", Body::empty());
 
         let response_1 = app.clone().oneshot(delete_request_1).await.unwrap();
         assert_eq!(response_1.status(), StatusCode::NOT_FOUND);
 
-        let delete_request_2 = Request::builder()
-            .method("DELETE")
-            .uri("/test-bucket/nonexistent.txt")
-            .header(
-                "Authorization",
-                "AWS4-HMAC-SHA256 Credential=saveadmin/20231201/us-east-1/s3/aws4_request, SignedHeaders=host;x-amz-date, Signature=fake"
-            )
-            .body(Body::empty())
-            .unwrap();
+        let delete_request_2 = common::request_with_auth("DELETE", "/test-bucket/nonexistent.txt", Body::empty());
 
         let response_2 = app.oneshot(delete_request_2).await.unwrap();
         assert_eq!(response_2.status(), StatusCode::NOT_FOUND);
@@ -183,15 +119,7 @@ mod delete {
         let (state, _temp_dir) = setup().await;
         let app = save_api::app(state);
 
-        let request = Request::builder()
-            .method("DELETE")
-            .uri("/../../etc/passwd/test-file.txt")
-            .header(
-                "Authorization",
-                "AWS4-HMAC-SHA256 Credential=saveadmin/20231201/us-east-1/s3/aws4_request, SignedHeaders=host;x-amz-date, Signature=fake"
-            )
-            .body(Body::empty())
-            .unwrap();
+        let request = common::request_with_auth("DELETE", "/../../etc/passwd/test-file.txt", Body::empty());
 
         let response = app.oneshot(request).await.unwrap();
 
@@ -203,15 +131,7 @@ mod delete {
         let (state, _temp_dir) = setup().await;
         let app = save_api::app(state);
 
-        let request = Request::builder()
-            .method("DELETE")
-            .uri("/test-bucket/path/../../../etc/passwd")
-            .header(
-                "Authorization",
-                "AWS4-HMAC-SHA256 Credential=saveadmin/20231201/us-east-1/s3/aws4_request, SignedHeaders=host;x-amz-date, Signature=fake"
-            )
-            .body(Body::empty())
-            .unwrap();
+        let request = common::request_with_auth("DELETE", "/test-bucket/path/../../../etc/passwd", Body::empty());
 
         let response = app.oneshot(request).await.unwrap();
 
@@ -224,45 +144,25 @@ mod delete {
         let app = save_api::app(state);
 
         for i in 1..=3 {
-            let put_request = Request::builder()
-                .method("PUT")
-                .uri(format!("/test-bucket/file-{}.txt", i))
-                .header(
-                    "Authorization",
-                    "AWS4-HMAC-SHA256 Credential=saveadmin/20231201/us-east-1/s3/aws4_request, SignedHeaders=host;x-amz-date, Signature=fake"
-                )
-                .body(Body::from(format!("Content {}", i)))
-                .unwrap();
+            let uri = format!("/test-bucket/file-{}.txt", i);
+            let body = format!("Content {}", i).into_bytes();
+            let put_request = common::request_with_auth_and_body("PUT", &uri, body);
 
             let response = app.clone().oneshot(put_request).await.unwrap();
             assert_eq!(response.status(), StatusCode::OK);
         }
 
         for i in 1..=3 {
-            let delete_request = Request::builder()
-                .method("DELETE")
-                .uri(format!("/test-bucket/file-{}.txt", i))
-                .header(
-                    "Authorization",
-                    "AWS4-HMAC-SHA256 Credential=saveadmin/20231201/us-east-1/s3/aws4_request, SignedHeaders=host;x-amz-date, Signature=fake"
-                )
-                .body(Body::empty())
-                .unwrap();
+            let uri = format!("/test-bucket/file-{}.txt", i);
+            let delete_request = common::request_with_auth("DELETE", &uri, Body::empty());
 
             let response = app.clone().oneshot(delete_request).await.unwrap();
             assert_eq!(response.status(), StatusCode::NO_CONTENT);
         }
 
         for i in 1..=3 {
-            let get_request = Request::builder()
-                .method("GET")
-                .uri(format!("/test-bucket/file-{}.txt", i))
-                .header(
-                    "Authorization",
-                    "AWS4-HMAC-SHA256 Credential=saveadmin/20231201/us-east-1/s3/aws4_request, SignedHeaders=host;x-amz-date, Signature=fake"
-                )
-                .body(Body::empty())
-                .unwrap();
+            let uri = format!("/test-bucket/file-{}.txt", i);
+            let get_request = common::request_with_auth("GET", &uri, Body::empty());
 
             let response = app.clone().oneshot(get_request).await.unwrap();
             assert_eq!(response.status(), StatusCode::NOT_FOUND);
@@ -299,28 +199,12 @@ mod get {
 
         let content = b"Hello, World!";
 
-        let put_request = Request::builder()
-            .method("PUT")
-            .uri("/test-bucket/test-file.txt")
-            .header(
-                "Authorization",
-                "AWS4-HMAC-SHA256 Credential=saveadmin/20231201/us-east-1/s3/aws4_request, SignedHeaders=host;x-amz-date, Signature=fake"
-            )
-            .body(Body::from(content.to_vec()))
-            .unwrap();
+        let put_request = common::request_with_auth_and_body("PUT", "/test-bucket/test-file.txt", content.to_vec());
 
         let put_response = app.clone().oneshot(put_request).await.unwrap();
         assert_eq!(put_response.status(), StatusCode::OK);
 
-        let get_request = Request::builder()
-            .method("GET")
-            .uri("/test-bucket/test-file.txt")
-            .header(
-                "Authorization",
-                "AWS4-HMAC-SHA256 Credential=saveadmin/20231201/us-east-1/s3/aws4_request, SignedHeaders=host;x-amz-date, Signature=fake"
-            )
-            .body(Body::empty())
-            .unwrap();
+        let get_request = common::request_with_auth("GET", "/test-bucket/test-file.txt", Body::empty());
 
         let get_response = app.oneshot(get_request).await.unwrap();
 
@@ -345,15 +229,7 @@ mod get {
         let (state, _temp_dir) = setup().await;
         let app = save_api::app(state);
 
-        let request = Request::builder()
-            .method("GET")
-            .uri("/test-bucket/nonexistent.txt")
-            .header(
-                "Authorization",
-                "AWS4-HMAC-SHA256 Credential=saveadmin/20231201/us-east-1/s3/aws4_request, SignedHeaders=host;x-amz-date, Signature=fake"
-            )
-            .body(Body::empty())
-            .unwrap();
+        let request = common::request_with_auth("GET", "/test-bucket/nonexistent.txt", Body::empty());
 
         let response = app.oneshot(request).await.unwrap();
 
@@ -365,15 +241,7 @@ mod get {
         let (state, _temp_dir) = setup().await;
         let app = save_api::app(state);
 
-        let request = Request::builder()
-            .method("GET")
-            .uri("/nonexistent-bucket/test-file.txt")
-            .header(
-                "Authorization",
-                "AWS4-HMAC-SHA256 Credential=saveadmin/20231201/us-east-1/s3/aws4_request, SignedHeaders=host;x-amz-date, Signature=fake"
-            )
-            .body(Body::empty())
-            .unwrap();
+        let request = common::request_with_auth("GET", "/nonexistent-bucket/test-file.txt", Body::empty());
 
         let response = app.oneshot(request).await.unwrap();
 
@@ -403,15 +271,7 @@ mod get {
 
         let content = b"Test content for ETag verification";
 
-        let put_request = Request::builder()
-            .method("PUT")
-            .uri("/test-bucket/etag-test.txt")
-            .header(
-                "Authorization",
-                "AWS4-HMAC-SHA256 Credential=saveadmin/20231201/us-east-1/s3/aws4_request, SignedHeaders=host;x-amz-date, Signature=fake"
-            )
-            .body(Body::from(content.to_vec()))
-            .unwrap();
+        let put_request = common::request_with_auth_and_body("PUT", "/test-bucket/etag-test.txt", content.to_vec());
 
         let put_response = app.clone().oneshot(put_request).await.unwrap();
         assert_eq!(put_response.status(), StatusCode::OK);
@@ -423,15 +283,7 @@ mod get {
             .to_str()
             .unwrap();
 
-        let get_request = Request::builder()
-            .method("GET")
-            .uri("/test-bucket/etag-test.txt")
-            .header(
-                "Authorization",
-                "AWS4-HMAC-SHA256 Credential=saveadmin/20231201/us-east-1/s3/aws4_request, SignedHeaders=host;x-amz-date, Signature=fake"
-            )
-            .body(Body::empty())
-            .unwrap();
+        let get_request = common::request_with_auth("GET", "/test-bucket/etag-test.txt", Body::empty());
 
         let get_response = app.oneshot(get_request).await.unwrap();
         assert_eq!(get_response.status(), StatusCode::OK);
@@ -453,28 +305,12 @@ mod get {
 
         let content = vec![0xAB; 100_000];
 
-        let put_request = Request::builder()
-            .method("PUT")
-            .uri("/test-bucket/large-file.bin")
-            .header(
-                "Authorization",
-                "AWS4-HMAC-SHA256 Credential=saveadmin/20231201/us-east-1/s3/aws4_request, SignedHeaders=host;x-amz-date, Signature=fake"
-            )
-            .body(Body::from(content.clone()))
-            .unwrap();
+        let put_request = common::request_with_auth_and_body("PUT", "/test-bucket/large-file.bin", content.clone());
 
         let put_response = app.clone().oneshot(put_request).await.unwrap();
         assert_eq!(put_response.status(), StatusCode::OK);
 
-        let get_request = Request::builder()
-            .method("GET")
-            .uri("/test-bucket/large-file.bin")
-            .header(
-                "Authorization",
-                "AWS4-HMAC-SHA256 Credential=saveadmin/20231201/us-east-1/s3/aws4_request, SignedHeaders=host;x-amz-date, Signature=fake"
-            )
-            .body(Body::empty())
-            .unwrap();
+        let get_request = common::request_with_auth("GET", "/test-bucket/large-file.bin", Body::empty());
 
         let get_response = app.oneshot(get_request).await.unwrap();
         assert_eq!(get_response.status(), StatusCode::OK);
@@ -492,15 +328,7 @@ mod get {
         let (state, _temp_dir) = setup().await;
         let app = save_api::app(state);
 
-        let request = Request::builder()
-            .method("GET")
-            .uri("/../../etc/passwd/test-file.txt")
-            .header(
-                "Authorization",
-                "AWS4-HMAC-SHA256 Credential=saveadmin/20231201/us-east-1/s3/aws4_request, SignedHeaders=host;x-amz-date, Signature=fake"
-            )
-            .body(Body::empty())
-            .unwrap();
+        let request = common::request_with_auth("GET", "/../../etc/passwd/test-file.txt", Body::empty());
 
         let response = app.oneshot(request).await.unwrap();
 
@@ -512,15 +340,7 @@ mod get {
         let (state, _temp_dir) = setup().await;
         let app = save_api::app(state);
 
-        let request = Request::builder()
-            .method("GET")
-            .uri("/test-bucket/path/../../../etc/passwd")
-            .header(
-                "Authorization",
-                "AWS4-HMAC-SHA256 Credential=saveadmin/20231201/us-east-1/s3/aws4_request, SignedHeaders=host;x-amz-date, Signature=fake"
-            )
-            .body(Body::empty())
-            .unwrap();
+        let request = common::request_with_auth("GET", "/test-bucket/path/../../../etc/passwd", Body::empty());
 
         let response = app.oneshot(request).await.unwrap();
 
@@ -558,28 +378,12 @@ mod head {
         let content = b"Hello, World!";
 
         // Create an object
-        let put_request = Request::builder()
-            .method("PUT")
-            .uri("/test-bucket/test-file.txt")
-            .header(
-                "Authorization",
-                "AWS4-HMAC-SHA256 Credential=saveadmin/20231201/us-east-1/s3/aws4_request, SignedHeaders=host;x-amz-date, Signature=fake"
-            )
-            .body(Body::from(content.to_vec()))
-            .unwrap();
+        let put_request = common::request_with_auth_and_body("PUT", "/test-bucket/test-file.txt", content.to_vec());
 
         let put_response = app.clone().oneshot(put_request).await.unwrap();
         assert_eq!(put_response.status(), StatusCode::OK);
 
-        let head_request = Request::builder()
-            .method("HEAD")
-            .uri("/test-bucket/test-file.txt")
-            .header(
-                "Authorization",
-                "AWS4-HMAC-SHA256 Credential=saveadmin/20231201/us-east-1/s3/aws4_request, SignedHeaders=host;x-amz-date, Signature=fake"
-            )
-            .body(Body::empty())
-            .unwrap();
+        let head_request = common::request_with_auth("HEAD", "/test-bucket/test-file.txt", Body::empty());
 
         let head_response = app.oneshot(head_request).await.unwrap();
 
@@ -609,15 +413,7 @@ mod head {
         let (state, _temp_dir) = setup().await;
         let app = save_api::app(state);
 
-        let request = Request::builder()
-            .method("HEAD")
-            .uri("/test-bucket/nonexistent.txt")
-            .header(
-                "Authorization",
-                "AWS4-HMAC-SHA256 Credential=saveadmin/20231201/us-east-1/s3/aws4_request, SignedHeaders=host;x-amz-date, Signature=fake"
-            )
-            .body(Body::empty())
-            .unwrap();
+        let request = common::request_with_auth("HEAD", "/test-bucket/nonexistent.txt", Body::empty());
 
         let response = app.oneshot(request).await.unwrap();
 
@@ -629,15 +425,7 @@ mod head {
         let (state, _temp_dir) = setup().await;
         let app = save_api::app(state);
 
-        let request = Request::builder()
-            .method("HEAD")
-            .uri("/nonexistent-bucket/test-file.txt")
-            .header(
-                "Authorization",
-                "AWS4-HMAC-SHA256 Credential=saveadmin/20231201/us-east-1/s3/aws4_request, SignedHeaders=host;x-amz-date, Signature=fake"
-            )
-            .body(Body::empty())
-            .unwrap();
+        let request = common::request_with_auth("HEAD", "/nonexistent-bucket/test-file.txt", Body::empty());
 
         let response = app.oneshot(request).await.unwrap();
 
@@ -668,39 +456,15 @@ mod head {
         let content = b"Test content for header comparison";
 
         // Create an object
-        let put_request = Request::builder()
-            .method("PUT")
-            .uri("/test-bucket/header-test.txt")
-            .header(
-                "Authorization",
-                "AWS4-HMAC-SHA256 Credential=saveadmin/20231201/us-east-1/s3/aws4_request, SignedHeaders=host;x-amz-date, Signature=fake"
-            )
-            .body(Body::from(content.to_vec()))
-            .unwrap();
+        let put_request = common::request_with_auth_and_body("PUT", "/test-bucket/header-test.txt", content.to_vec());
 
         app.clone().oneshot(put_request).await.unwrap();
 
-        let head_request = Request::builder()
-            .method("HEAD")
-            .uri("/test-bucket/header-test.txt")
-            .header(
-                "Authorization",
-                "AWS4-HMAC-SHA256 Credential=saveadmin/20231201/us-east-1/s3/aws4_request, SignedHeaders=host;x-amz-date, Signature=fake"
-            )
-            .body(Body::empty())
-            .unwrap();
+        let head_request = common::request_with_auth("HEAD", "/test-bucket/header-test.txt", Body::empty());
 
         let head_response = app.clone().oneshot(head_request).await.unwrap();
 
-        let get_request = Request::builder()
-            .method("GET")
-            .uri("/test-bucket/header-test.txt")
-            .header(
-                "Authorization",
-                "AWS4-HMAC-SHA256 Credential=saveadmin/20231201/us-east-1/s3/aws4_request, SignedHeaders=host;x-amz-date, Signature=fake"
-            )
-            .body(Body::empty())
-            .unwrap();
+        let get_request = common::request_with_auth("GET", "/test-bucket/header-test.txt", Body::empty());
 
         let get_response = app.oneshot(get_request).await.unwrap();
 
@@ -738,15 +502,7 @@ mod head {
         let (state, _temp_dir) = setup().await;
         let app = save_api::app(state);
 
-        let request = Request::builder()
-            .method("HEAD")
-            .uri("/../../etc/passwd/test-file.txt")
-            .header(
-                "Authorization",
-                "AWS4-HMAC-SHA256 Credential=saveadmin/20231201/us-east-1/s3/aws4_request, SignedHeaders=host;x-amz-date, Signature=fake"
-            )
-            .body(Body::empty())
-            .unwrap();
+        let request = common::request_with_auth("HEAD", "/../../etc/passwd/test-file.txt", Body::empty());
 
         let response = app.oneshot(request).await.unwrap();
 
@@ -758,15 +514,7 @@ mod head {
         let (state, _temp_dir) = setup().await;
         let app = save_api::app(state);
 
-        let request = Request::builder()
-            .method("HEAD")
-            .uri("/test-bucket/path/../../../etc/passwd")
-            .header(
-                "Authorization",
-                "AWS4-HMAC-SHA256 Credential=saveadmin/20231201/us-east-1/s3/aws4_request, SignedHeaders=host;x-amz-date, Signature=fake"
-            )
-            .body(Body::empty())
-            .unwrap();
+        let request = common::request_with_auth("HEAD", "/test-bucket/path/../../../etc/passwd", Body::empty());
 
         let response = app.oneshot(request).await.unwrap();
 
@@ -781,27 +529,11 @@ mod head {
         let content = vec![0xAB; 100_000];
 
         // Create a large object
-        let put_request = Request::builder()
-            .method("PUT")
-            .uri("/test-bucket/large-file.bin")
-            .header(
-                "Authorization",
-                "AWS4-HMAC-SHA256 Credential=saveadmin/20231201/us-east-1/s3/aws4_request, SignedHeaders=host;x-amz-date, Signature=fake"
-            )
-            .body(Body::from(content))
-            .unwrap();
+        let put_request = common::request_with_auth_and_body("PUT", "/test-bucket/large-file.bin", content.to_vec());
 
         app.clone().oneshot(put_request).await.unwrap();
 
-        let head_request = Request::builder()
-            .method("HEAD")
-            .uri("/test-bucket/large-file.bin")
-            .header(
-                "Authorization",
-                "AWS4-HMAC-SHA256 Credential=saveadmin/20231201/us-east-1/s3/aws4_request, SignedHeaders=host;x-amz-date, Signature=fake"
-            )
-            .body(Body::empty())
-            .unwrap();
+        let head_request = common::request_with_auth("HEAD", "/test-bucket/large-file.bin", Body::empty());
 
         let head_response = app.oneshot(head_request).await.unwrap();
 
@@ -1127,15 +859,7 @@ mod put {
         let (state, _temp_dir) = setup().await;
         let app = save_api::app(state);
 
-        let request = Request::builder()
-            .method("PUT")
-            .uri("/test-bucket/test-file.txt")
-            .header(
-                "Authorization",
-                "AWS4-HMAC-SHA256 Credential=saveadmin/20231201/us-east-1/s3/aws4_request, SignedHeaders=host;x-amz-date, Signature=fake"
-            )
-            .body(Body::from("Hello, World!"))
-            .unwrap();
+        let request = common::request_with_auth_and_body("PUT", "/test-bucket/test-file.txt", b"Hello, World!".to_vec());
 
         let response = app.oneshot(request).await.unwrap();
 
@@ -1152,15 +876,7 @@ mod put {
         let (state, _temp_dir) = setup().await;
         let app = save_api::app(state);
 
-        let request = Request::builder()
-            .method("PUT")
-            .uri("/nonexistent-bucket/test-file.txt")
-            .header(
-                "Authorization",
-                "AWS4-HMAC-SHA256 Credential=saveadmin/20231201/us-east-1/s3/aws4_request, SignedHeaders=host;x-amz-date, Signature=fake"
-            )
-            .body(Body::from("Hello, World!"))
-            .unwrap();
+        let request = common::request_with_auth_and_body("PUT", "/nonexistent-bucket/test-file.txt", b"Hello, World!".to_vec());
 
         let response = app.oneshot(request).await.unwrap();
 
@@ -1188,11 +904,14 @@ mod put {
         let (state, _temp_dir) = setup().await;
         let app = save_api::app(state);
 
+        // Test with invalid auth format (not AWS4-HMAC-SHA256)
         let request = Request::builder()
             .method("PUT")
             .uri("/test-bucket/test-file.txt")
-            .header("Authorization", "Bearer some-token")
-            .body(Body::from("Hello, World!"))
+            .header("Authorization", "Basic invalid-auth-format")
+            .header("x-amz-date", "20240101T000000Z")
+            .header("x-amz-content-sha256", "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855")
+            .body(Body::from(b"Hello, World!".to_vec()))
             .unwrap();
 
         let response = app.oneshot(request).await.unwrap();
@@ -1205,13 +924,17 @@ mod put {
         let (state, _temp_dir) = setup().await;
         let app = save_api::app(state);
 
+        // Use valid signature but wrong access key
+        let (authorization, amz_date, payload_hash) =
+            common::sign_request("PUT", "/test-bucket/test-file.txt", b"Hello, World!", "wrong-key", "savepass");
+
         let request = Request::builder()
             .method("PUT")
             .uri("/test-bucket/test-file.txt")
-            .header(
-                "Authorization",
-                "AWS4-HMAC-SHA256 Credential=wrongkey/20231201/us-east-1/s3/aws4_request, SignedHeaders=host;x-amz-date, Signature=fake"
-            )
+            .header("Authorization", authorization)
+            .header("x-amz-date", amz_date)
+            .header("x-amz-content-sha256", payload_hash)
+            .header("host", "localhost:9000")
             .body(Body::from("Hello, World!"))
             .unwrap();
 
@@ -1228,15 +951,7 @@ mod put {
         let content = b"Test content for SHA256";
         let expected_etag = format!("{:x}", sha2::Sha256::digest(content));
 
-        let request = Request::builder()
-            .method("PUT")
-            .uri("/test-bucket/etag-test.txt")
-            .header(
-                "Authorization",
-                "AWS4-HMAC-SHA256 Credential=saveadmin/20231201/us-east-1/s3/aws4_request, SignedHeaders=host;x-amz-date, Signature=fake"
-            )
-            .body(Body::from(content.to_vec()))
-            .unwrap();
+        let request = common::request_with_auth_and_body("PUT", "/test-bucket/etag-test.txt", content.to_vec());
 
         let response = app.oneshot(request).await.unwrap();
 
@@ -1254,15 +969,7 @@ mod put {
         let (state, _temp_dir) = setup().await;
         let app = save_api::app(state);
 
-        let request = Request::builder()
-            .method("PUT")
-            .uri("/../../etc/passwd/test-file.txt")
-            .header(
-                "Authorization",
-                "AWS4-HMAC-SHA256 Credential=saveadmin/20231201/us-east-1/s3/aws4_request, SignedHeaders=host;x-amz-date, Signature=fake"
-            )
-            .body(Body::from("Hello, World!"))
-            .unwrap();
+        let request = common::request_with_auth_and_body("PUT", "/../../etc/passwd/test-file.txt", b"Hello, World!".to_vec());
 
         let response = app.oneshot(request).await.unwrap();
 
@@ -1274,15 +981,7 @@ mod put {
         let (state, _temp_dir) = setup().await;
         let app = save_api::app(state);
 
-        let request = Request::builder()
-            .method("PUT")
-            .uri("/test-bucket/path/../../../etc/passwd")
-            .header(
-                "Authorization",
-                "AWS4-HMAC-SHA256 Credential=saveadmin/20231201/us-east-1/s3/aws4_request, SignedHeaders=host;x-amz-date, Signature=fake"
-            )
-            .body(Body::from("Hello, World!"))
-            .unwrap();
+        let request = common::request_with_auth_and_body("PUT", "/test-bucket/path/../../../etc/passwd", b"Hello, World!".to_vec());
 
         let response = app.oneshot(request).await.unwrap();
 

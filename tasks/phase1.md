@@ -54,8 +54,8 @@ Implement a local, single-node S3-compatible object storage system using RocksDB
 ## Security & Authentication
 - [x] Basic auth middleware extracts access key from Authorization header
 - [x] Compares access key to config
-- [ ] Full SigV4 signature validation (Location: `save-api/src/auth.rs`)
-- [ ] Request expiration checking via `X-Amz-Date` header (±15 min window)
+- [x] Full SigV4 signature validation (Location: `save-api/src/auth.rs`)
+- [x] Request expiration checking via `X-Amz-Date` header (±15 min window)
 - [ ] Secure credential storage (no logging of secret keys)
 - [ ] Audit logging for security events
 
