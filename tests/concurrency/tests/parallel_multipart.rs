@@ -53,11 +53,12 @@ async fn test_parallel_multipart_uploads() -> Result<()> {
                 .await
                 .context("Failed to initiate multipart upload")?;
 
-            let upload_id = initiate_response
-                .upload_id
-                .context("Missing upload ID")?;
+            let upload_id = initiate_response.upload_id.context("Missing upload ID")?;
 
-            info!("Upload #{} initiated - upload_id: {}", upload_idx, upload_id);
+            info!(
+                "Upload #{} initiated - upload_id: {}",
+                upload_idx, upload_id
+            );
 
             // Upload 3 parts (5MB each = 15MB total)
             let part_size = 5 * 1024 * 1024; // 5MB
@@ -147,10 +148,7 @@ async fn test_parallel_multipart_uploads() -> Result<()> {
                 upload_idx
             );
 
-            info!(
-                "Upload #{} verified - {} bytes",
-                upload_idx, actual_size
-            );
+            info!("Upload #{} verified - {} bytes", upload_idx, actual_size);
 
             Ok::<_, anyhow::Error>((upload_idx, key.clone(), actual_size))
         });
@@ -161,7 +159,10 @@ async fn test_parallel_multipart_uploads() -> Result<()> {
     while let Some(result) = tasks.join_next().await {
         match result {
             Ok(Ok((idx, key, size))) => {
-                info!("Upload #{} completed successfully: {} -> {} bytes", idx, key, size);
+                info!(
+                    "Upload #{} completed successfully: {} -> {} bytes",
+                    idx, key, size
+                );
                 completed.push((idx, key, size));
             }
             Ok(Err(e)) => {
@@ -370,7 +371,10 @@ async fn test_abort_multipart_during_upload() -> Result<()> {
 
     // Setup
     ensure_bucket(&client, &bucket).await?;
-    info!("Testing abort during multipart upload to {}/{}", bucket, key);
+    info!(
+        "Testing abort during multipart upload to {}/{}",
+        bucket, key
+    );
 
     // Initiate multipart upload
     let initiate_response = client
@@ -415,10 +419,7 @@ async fn test_abort_multipart_during_upload() -> Result<()> {
     // Verify the object doesn't exist
     let get_result = client.get_object().bucket(&bucket).key(key).send().await;
 
-    assert!(
-        get_result.is_err(),
-        "Object should not exist after abort"
-    );
+    assert!(get_result.is_err(), "Object should not exist after abort");
 
     info!("Verified object doesn't exist after abort");
 

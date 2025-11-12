@@ -70,6 +70,51 @@ Each crate is self-contained and tested independently.
 - **Structured error types**: Internal errors (`ApiError`) use `thiserror` for rich error context, then convert to S3-compliant responses at the HTTP boundary.
 - **HTTP status code mapping**: Error codes map to appropriate HTTP statuses (404 for NoSuchBucket/NoSuchKey, 403 for AccessDenied, 409 for conflicts, 400 for invalid requests, 500 for internal errors).
 
+### Concurrency control
+**Objective**: Prevent data corruption when multiple concurrent operations target the same object.
+
+#### Per-Object Locking
+- **Implementation**: `ObjectLockManager` in `save-common` provides per-key locks using `tokio::sync::Mutex`.
+- **Scope**: Locks are scoped to (bucket, key) tuple — concurrent writes to different objects proceed in parallel without contention.
+- **RAII Guards**: Locks automatically released when guard drops, ensuring cleanup even on errors or panics.
+- **Timeout**: 30-second default timeout prevents deadlocks.
+- **Memory Management**: Unused locks are automatically cleaned up to prevent memory leaks.
+
+#### Operations Protected by Locks
+1. **PUT Object** (`save-api/src/handlers/objects/put.rs`):
+   - Acquires lock at start of request
+   - Serializes concurrent PUTs to same key
+   - Lock held until storage + metadata commit completes
+
+2. **Complete Multipart Upload** (`save-api/src/handlers/multipart/complete.rs`):
+   - Acquires lock before assembly
+   - Prevents concurrent completions of different uploads to same key
+   - Lock held until final object committed
+
+#### Commit Ordering Strategy
+**Critical**: Storage commits BEFORE metadata to prevent phantom objects.
+
+**Ordering Rationale**:
+1. Write object data to temp file (fsynced)
+2. **Commit storage** (atomic rename to final path + fsync directory)
+3. **Commit metadata** (WriteBatch with sync=true to RocksDB)
+
+**Why This Order**:
+- If storage commit fails → metadata never written (consistent state, no phantom object)
+- If metadata commit fails → orphaned storage file (acceptable, garbage-collectable)
+- **Previous ordering** (metadata first) could create phantom objects: metadata pointing to non-existent storage if storage commit failed
+
+**Edge Cases**:
+- Concurrent GET during PUT: Always returns complete old or new version (never partial data)
+- Crash during commit: Either fully written or not present (no torn writes)
+- Orphaned objects: Cleaned up by GC worker based on temp file age
+
+#### Phase 2 Migration Path
+For distributed operation:
+- **Local locks** (current) → **Distributed locks** (etcd/Redis)
+- API unchanged: `lock_manager.acquire_lock(bucket, key)` abstraction remains
+- Swap implementation in `ObjectLockManager` without touching handler code
+
 ---
 
 ## 4. Phase 2–4 preview (planned evolution)

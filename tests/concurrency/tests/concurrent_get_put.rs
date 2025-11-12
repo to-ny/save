@@ -13,6 +13,7 @@ mod common;
 use anyhow::{Context, Result};
 use aws_sdk_s3::primitives::ByteStream;
 use common::{cleanup_bucket, create_client, ensure_bucket, unique_bucket_name};
+use sha2::{Digest, Sha256};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::task::JoinSet;
@@ -66,29 +67,38 @@ async fn test_concurrent_gets_during_put() -> Result<()> {
             sleep(Duration::from_millis(i * 10)).await; // Stagger slightly
 
             info!("GET #{} starting", i);
-            let result = client
-                .get_object()
-                .bucket(&bucket)
-                .key(&key)
-                .send()
-                .await;
+            let result = client.get_object().bucket(&bucket).key(&key).send().await;
 
             match result {
                 Ok(response) => {
+                    let etag = response.e_tag().unwrap_or("none").to_string();
                     let content_length = response.content_length.unwrap_or(0);
-                    info!("GET #{} succeeded - {} bytes", i, content_length);
+                    info!(
+                        "GET #{} succeeded - {} bytes, ETag: {}",
+                        i, content_length, etag
+                    );
 
                     // Read the body to ensure it's not corrupted
                     let body = response.body.collect().await.ok()?;
                     let bytes = body.into_bytes();
 
-                    // Verify the body size matches content-length
+                    // Verify size matches content-length
                     if bytes.len() != content_length as usize {
                         info!(
                             "GET #{} - SIZE MISMATCH: got {} bytes, expected {}",
                             i,
                             bytes.len(),
                             content_length
+                        );
+                        return Some((false, bytes.len(), content_length as usize));
+                    }
+
+                    // Verify ETag matches actual content hash
+                    let actual_hash = format!("\"{:x}\"", Sha256::digest(&bytes));
+                    if etag != actual_hash {
+                        info!(
+                            "GET #{} - ETAG MISMATCH: got {}, actual {}",
+                            i, etag, actual_hash
                         );
                         return Some((false, bytes.len(), content_length as usize));
                     }
@@ -162,6 +172,7 @@ async fn test_concurrent_gets_during_put() -> Result<()> {
         .await
         .context("Failed to GET final object")?;
 
+    let final_etag = final_response.e_tag().unwrap_or("none").to_string();
     let final_body = final_response
         .body
         .collect()
@@ -178,6 +189,12 @@ async fn test_concurrent_gets_during_put() -> Result<()> {
         final_body.as_ref(),
         new_content.as_ref(),
         "Final object content should match new version"
+    );
+
+    let final_actual_hash = format!("\"{:x}\"", Sha256::digest(&final_body));
+    assert_eq!(
+        final_etag, final_actual_hash,
+        "Final ETag must match actual content hash"
     );
 
     // Cleanup

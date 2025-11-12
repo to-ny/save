@@ -73,6 +73,13 @@ pub async fn put_object(
     validate_bucket_name(&bucket).map_err(|e| ApiError::InvalidRequest(e.to_string()))?;
     validate_object_key(&key).map_err(|e| ApiError::InvalidRequest(e.to_string()))?;
 
+    // Serialize concurrent writes to the same object
+    let _guard = state
+        .lock_manager
+        .acquire_lock(&bucket, &key)
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to acquire object lock: {}", e)))?;
+
     state
         .metadata
         .get_bucket(&bucket)
@@ -116,29 +123,31 @@ pub async fn put_object(
 
     let metadata = ObjectMetadata::new(bucket.clone(), key.clone(), size, etag.clone());
 
-    if let Err(e) = state.metadata.commit_object_metadata(metadata).await {
-        atomic_put_operations_total()
-            .with_label_values(&["metadata_commit", "error"])
-            .inc();
-        return Err(ApiError::internal(format!("Metadata error: {}", e)));
-    }
-
-    atomic_put_operations_total()
-        .with_label_values(&["metadata_commit", "success"])
-        .inc();
-
+    // Commit storage first, then metadata. This ensures metadata never points to
+    // non-existent storage. Orphaned files (if metadata commit fails) are GC'd.
     if let Err(e) = state.storage.commit_object(temp_object).await {
         atomic_put_operations_total()
             .with_label_values(&["storage_commit", "error"])
             .inc();
+        return Err(ApiError::internal(format!("Storage commit failed: {}", e)));
+    }
+
+    atomic_put_operations_total()
+        .with_label_values(&["storage_commit", "success"])
+        .inc();
+
+    if let Err(e) = state.metadata.commit_object_metadata(metadata).await {
+        atomic_put_operations_total()
+            .with_label_values(&["metadata_commit", "error"])
+            .inc();
         return Err(ApiError::internal(format!(
-            "Storage commit failed after metadata commit - manual recovery may be required: {}",
+            "Metadata commit failed after storage commit - orphaned object may require GC: {}",
             e
         )));
     }
 
     atomic_put_operations_total()
-        .with_label_values(&["storage_commit", "success"])
+        .with_label_values(&["metadata_commit", "success"])
         .inc();
 
     object_size_bytes()
@@ -324,6 +333,8 @@ mod tests {
         let result1 = handle1.await.unwrap();
         let result2 = handle2.await.unwrap();
 
+        // With locking, exactly one should succeed (they're serialized)
+        // Both succeed is also acceptable if one overwrites the other
         assert!(
             result1.is_ok() || result2.is_ok(),
             "At least one PUT should succeed"
@@ -339,6 +350,25 @@ mod tests {
             metadata.size == data1.len() as u64 || metadata.size == data2.len() as u64,
             "Object should have one of the written sizes"
         );
+
+        // Verify content integrity
+        let mut file = state
+            .storage
+            .get_object(&storage_key("test-bucket", "concurrent.txt"))
+            .await
+            .unwrap();
+
+        let mut contents = Vec::new();
+        file.read_to_end(&mut contents).await.unwrap();
+
+        assert!(
+            contents == data1 || contents == data2,
+            "Content must match one of the written payloads"
+        );
+
+        let actual_hash = format!("{:x}", Sha256::digest(&contents));
+        assert_eq!(metadata.etag, actual_hash, "ETag must match content hash");
+        assert_eq!(metadata.size, contents.len() as u64, "Size must match");
     }
 
     #[tokio::test]

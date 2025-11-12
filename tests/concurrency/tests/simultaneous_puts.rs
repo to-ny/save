@@ -4,6 +4,8 @@
 //! - Complete without panics or crashes
 //! - Result in a valid, complete object
 //! - Return proper HTTP status codes and ETags
+//! - ETag matches actual file content hash (metadata-storage consistency)
+//! - Content matches one of the written payloads (data integrity)
 //! - Do not cause metadata corruption
 
 #![cfg(feature = "concurrency_tests")]
@@ -12,6 +14,7 @@ mod common;
 
 use anyhow::{Context, Result};
 use common::{cleanup_bucket, create_client, ensure_bucket, unique_bucket_name};
+use sha2::{Digest, Sha256};
 use std::sync::Arc;
 use tokio::task::JoinSet;
 use tracing::info;
@@ -59,11 +62,7 @@ async fn test_simultaneous_puts_same_key() -> Result<()> {
 
             match &result {
                 Ok(response) => {
-                    info!(
-                        "PUT #{} succeeded - ETag: {:?}",
-                        idx,
-                        response.e_tag
-                    );
+                    info!("PUT #{} succeeded - ETag: {:?}", idx, response.e_tag);
                     assert!(response.e_tag.is_some(), "PUT should return an ETag");
                 }
                 Err(e) => {
@@ -105,6 +104,14 @@ async fn test_simultaneous_puts_same_key() -> Result<()> {
     // All operations should have completed without panics
     assert!(success_count > 0, "At least one PUT should succeed");
 
+    // Store original payloads for integrity verification
+    let original_payloads: Vec<Vec<u8>> = (0..10)
+        .map(|i| {
+            let size = 1024 * (i + 1);
+            (0..size).map(|j| ((i + j) % 256) as u8).collect()
+        })
+        .collect();
+
     // Verify the final object exists and is valid
     info!("Verifying final object state");
     let get_response = client
@@ -116,8 +123,14 @@ async fn test_simultaneous_puts_same_key() -> Result<()> {
         .context("Failed to GET final object")?;
 
     // Verify we got a valid response
-    assert!(get_response.e_tag.is_some(), "Final object should have an ETag");
-    assert!(get_response.content_length.is_some(), "Final object should have a content length");
+    let final_etag = get_response
+        .e_tag
+        .as_ref()
+        .expect("Final object should have an ETag");
+    assert!(
+        get_response.content_length.is_some(),
+        "Final object should have a content length"
+    );
 
     let content_length = get_response.content_length.unwrap();
     assert!(content_length > 0, "Final object should have non-zero size");
@@ -136,10 +149,21 @@ async fn test_simultaneous_puts_same_key() -> Result<()> {
         "Body size should match content-length header"
     );
 
+    let actual_hash = format!("\"{:x}\"", Sha256::digest(&body_bytes));
+    assert_eq!(final_etag, &actual_hash, "ETag must match content hash");
+
+    let matches_known_payload = original_payloads
+        .iter()
+        .any(|payload| payload.as_slice() == body_bytes.as_ref());
+    assert!(
+        matches_known_payload,
+        "Content must match one of the written payloads"
+    );
+
     info!(
-        "Final object verified: {} bytes, ETag: {:?}",
+        "✓ Final object verified: {} bytes, ETag: {}, integrity confirmed",
         body_bytes.len(),
-        get_response.e_tag
+        final_etag
     );
 
     // Cleanup
@@ -198,7 +222,10 @@ async fn test_rapid_overwrites() -> Result<()> {
 
         // ETags should change between overwrites (unless content is identical)
         if let Some(prev) = &last_etag {
-            info!("Iteration {}: ETag changed from {:?} to {:?}", i, prev, current_etag);
+            info!(
+                "Iteration {}: ETag changed from {:?} to {:?}",
+                i, prev, current_etag
+            );
         }
 
         last_etag = current_etag;

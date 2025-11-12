@@ -32,6 +32,13 @@ pub async fn complete_multipart(
     validate_bucket_name(&bucket).map_err(|e| ApiError::InvalidRequest(e.to_string()))?;
     validate_object_key(&key).map_err(|e| ApiError::InvalidRequest(e.to_string()))?;
 
+    // Serialize concurrent completions to the same object
+    let _guard = state
+        .lock_manager
+        .acquire_lock(&bucket, &key)
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to acquire object lock: {}", e)))?;
+
     let upload = state
         .metadata
         .get_multipart_upload(&bucket, &key, &query.upload_id)
@@ -110,11 +117,18 @@ pub async fn complete_multipart(
         .await
         .map_err(|e| ApiError::internal(format!("Storage error: {}", e)))?;
 
-    state
+    let temp_object = state
         .storage
-        .put_object(&full_key, &mut file_reader)
+        .write_temp_object(&full_key, &mut file_reader)
         .await
         .map_err(|e| ApiError::internal(format!("Storage error: {}", e)))?;
+
+    // Commit storage first, then metadata (same ordering as PUT)
+    state
+        .storage
+        .commit_object(temp_object)
+        .await
+        .map_err(|e| ApiError::internal(format!("Storage commit failed: {}", e)))?;
 
     let mut metadata =
         ObjectMetadata::new(bucket.clone(), key.clone(), total_size, final_etag.clone());
@@ -122,9 +136,9 @@ pub async fn complete_multipart(
 
     state
         .metadata
-        .put_object_metadata(metadata)
+        .commit_object_metadata(metadata)
         .await
-        .map_err(|e| ApiError::internal(format!("Metadata error: {}", e)))?;
+        .map_err(|e| ApiError::internal(format!("Metadata commit failed: {}", e)))?;
 
     state
         .metadata

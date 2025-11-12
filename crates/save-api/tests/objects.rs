@@ -37,22 +37,29 @@ mod delete {
         let (state, _temp_dir) = setup().await;
         let app = save_api::app(state);
 
-        let put_request = common::request_with_auth_and_body("PUT", "/test-bucket/test-file.txt", b"Hello, World!".to_vec());
+        let put_request = common::request_with_auth_and_body(
+            "PUT",
+            "/test-bucket/test-file.txt",
+            b"Hello, World!".to_vec(),
+        );
 
         let put_response = app.clone().oneshot(put_request).await.unwrap();
         assert_eq!(put_response.status(), StatusCode::OK);
 
-        let get_request = common::request_with_auth("GET", "/test-bucket/test-file.txt", Body::empty());
+        let get_request =
+            common::request_with_auth("GET", "/test-bucket/test-file.txt", Body::empty());
 
         let get_response = app.clone().oneshot(get_request).await.unwrap();
         assert_eq!(get_response.status(), StatusCode::OK);
 
-        let delete_request = common::request_with_auth("DELETE", "/test-bucket/test-file.txt", Body::empty());
+        let delete_request =
+            common::request_with_auth("DELETE", "/test-bucket/test-file.txt", Body::empty());
 
         let delete_response = app.clone().oneshot(delete_request).await.unwrap();
         assert_eq!(delete_response.status(), StatusCode::NO_CONTENT);
 
-        let get_after_delete = common::request_with_auth("GET", "/test-bucket/test-file.txt", Body::empty());
+        let get_after_delete =
+            common::request_with_auth("GET", "/test-bucket/test-file.txt", Body::empty());
 
         let get_response_after = app.oneshot(get_after_delete).await.unwrap();
         assert_eq!(get_response_after.status(), StatusCode::NOT_FOUND);
@@ -63,7 +70,8 @@ mod delete {
         let (state, _temp_dir) = setup().await;
         let app = save_api::app(state);
 
-        let request = common::request_with_auth("DELETE", "/test-bucket/nonexistent.txt", Body::empty());
+        let request =
+            common::request_with_auth("DELETE", "/test-bucket/nonexistent.txt", Body::empty());
 
         let response = app.oneshot(request).await.unwrap();
 
@@ -75,7 +83,8 @@ mod delete {
         let (state, _temp_dir) = setup().await;
         let app = save_api::app(state);
 
-        let request = common::request_with_auth("DELETE", "/nonexistent-bucket/test-file.txt", Body::empty());
+        let request =
+            common::request_with_auth("DELETE", "/nonexistent-bucket/test-file.txt", Body::empty());
 
         let response = app.oneshot(request).await.unwrap();
 
@@ -103,12 +112,14 @@ mod delete {
         let (state, _temp_dir) = setup().await;
         let app = save_api::app(state);
 
-        let delete_request_1 = common::request_with_auth("DELETE", "/test-bucket/nonexistent.txt", Body::empty());
+        let delete_request_1 =
+            common::request_with_auth("DELETE", "/test-bucket/nonexistent.txt", Body::empty());
 
         let response_1 = app.clone().oneshot(delete_request_1).await.unwrap();
         assert_eq!(response_1.status(), StatusCode::NOT_FOUND);
 
-        let delete_request_2 = common::request_with_auth("DELETE", "/test-bucket/nonexistent.txt", Body::empty());
+        let delete_request_2 =
+            common::request_with_auth("DELETE", "/test-bucket/nonexistent.txt", Body::empty());
 
         let response_2 = app.oneshot(delete_request_2).await.unwrap();
         assert_eq!(response_2.status(), StatusCode::NOT_FOUND);
@@ -119,7 +130,8 @@ mod delete {
         let (state, _temp_dir) = setup().await;
         let app = save_api::app(state);
 
-        let request = common::request_with_auth("DELETE", "/../../etc/passwd/test-file.txt", Body::empty());
+        let request =
+            common::request_with_auth("DELETE", "/../../etc/passwd/test-file.txt", Body::empty());
 
         let response = app.oneshot(request).await.unwrap();
 
@@ -131,7 +143,11 @@ mod delete {
         let (state, _temp_dir) = setup().await;
         let app = save_api::app(state);
 
-        let request = common::request_with_auth("DELETE", "/test-bucket/path/../../../etc/passwd", Body::empty());
+        let request = common::request_with_auth(
+            "DELETE",
+            "/test-bucket/path/../../../etc/passwd",
+            Body::empty(),
+        );
 
         let response = app.oneshot(request).await.unwrap();
 
@@ -199,12 +215,17 @@ mod get {
 
         let content = b"Hello, World!";
 
-        let put_request = common::request_with_auth_and_body("PUT", "/test-bucket/test-file.txt", content.to_vec());
+        let put_request = common::request_with_auth_and_body(
+            "PUT",
+            "/test-bucket/test-file.txt",
+            content.to_vec(),
+        );
 
         let put_response = app.clone().oneshot(put_request).await.unwrap();
         assert_eq!(put_response.status(), StatusCode::OK);
 
-        let get_request = common::request_with_auth("GET", "/test-bucket/test-file.txt", Body::empty());
+        let get_request =
+            common::request_with_auth("GET", "/test-bucket/test-file.txt", Body::empty());
 
         let get_response = app.oneshot(get_request).await.unwrap();
 
@@ -229,7 +250,8 @@ mod get {
         let (state, _temp_dir) = setup().await;
         let app = save_api::app(state);
 
-        let request = common::request_with_auth("GET", "/test-bucket/nonexistent.txt", Body::empty());
+        let request =
+            common::request_with_auth("GET", "/test-bucket/nonexistent.txt", Body::empty());
 
         let response = app.oneshot(request).await.unwrap();
 
@@ -241,7 +263,8 @@ mod get {
         let (state, _temp_dir) = setup().await;
         let app = save_api::app(state);
 
-        let request = common::request_with_auth("GET", "/nonexistent-bucket/test-file.txt", Body::empty());
+        let request =
+            common::request_with_auth("GET", "/nonexistent-bucket/test-file.txt", Body::empty());
 
         let response = app.oneshot(request).await.unwrap();
 
@@ -271,7 +294,11 @@ mod get {
 
         let content = b"Test content for ETag verification";
 
-        let put_request = common::request_with_auth_and_body("PUT", "/test-bucket/etag-test.txt", content.to_vec());
+        let put_request = common::request_with_auth_and_body(
+            "PUT",
+            "/test-bucket/etag-test.txt",
+            content.to_vec(),
+        );
 
         let put_response = app.clone().oneshot(put_request).await.unwrap();
         assert_eq!(put_response.status(), StatusCode::OK);
@@ -283,7 +310,8 @@ mod get {
             .to_str()
             .unwrap();
 
-        let get_request = common::request_with_auth("GET", "/test-bucket/etag-test.txt", Body::empty());
+        let get_request =
+            common::request_with_auth("GET", "/test-bucket/etag-test.txt", Body::empty());
 
         let get_response = app.oneshot(get_request).await.unwrap();
         assert_eq!(get_response.status(), StatusCode::OK);
@@ -305,12 +333,17 @@ mod get {
 
         let content = vec![0xAB; 100_000];
 
-        let put_request = common::request_with_auth_and_body("PUT", "/test-bucket/large-file.bin", content.clone());
+        let put_request = common::request_with_auth_and_body(
+            "PUT",
+            "/test-bucket/large-file.bin",
+            content.clone(),
+        );
 
         let put_response = app.clone().oneshot(put_request).await.unwrap();
         assert_eq!(put_response.status(), StatusCode::OK);
 
-        let get_request = common::request_with_auth("GET", "/test-bucket/large-file.bin", Body::empty());
+        let get_request =
+            common::request_with_auth("GET", "/test-bucket/large-file.bin", Body::empty());
 
         let get_response = app.oneshot(get_request).await.unwrap();
         assert_eq!(get_response.status(), StatusCode::OK);
@@ -328,7 +361,8 @@ mod get {
         let (state, _temp_dir) = setup().await;
         let app = save_api::app(state);
 
-        let request = common::request_with_auth("GET", "/../../etc/passwd/test-file.txt", Body::empty());
+        let request =
+            common::request_with_auth("GET", "/../../etc/passwd/test-file.txt", Body::empty());
 
         let response = app.oneshot(request).await.unwrap();
 
@@ -340,7 +374,11 @@ mod get {
         let (state, _temp_dir) = setup().await;
         let app = save_api::app(state);
 
-        let request = common::request_with_auth("GET", "/test-bucket/path/../../../etc/passwd", Body::empty());
+        let request = common::request_with_auth(
+            "GET",
+            "/test-bucket/path/../../../etc/passwd",
+            Body::empty(),
+        );
 
         let response = app.oneshot(request).await.unwrap();
 
@@ -378,12 +416,17 @@ mod head {
         let content = b"Hello, World!";
 
         // Create an object
-        let put_request = common::request_with_auth_and_body("PUT", "/test-bucket/test-file.txt", content.to_vec());
+        let put_request = common::request_with_auth_and_body(
+            "PUT",
+            "/test-bucket/test-file.txt",
+            content.to_vec(),
+        );
 
         let put_response = app.clone().oneshot(put_request).await.unwrap();
         assert_eq!(put_response.status(), StatusCode::OK);
 
-        let head_request = common::request_with_auth("HEAD", "/test-bucket/test-file.txt", Body::empty());
+        let head_request =
+            common::request_with_auth("HEAD", "/test-bucket/test-file.txt", Body::empty());
 
         let head_response = app.oneshot(head_request).await.unwrap();
 
@@ -413,7 +456,8 @@ mod head {
         let (state, _temp_dir) = setup().await;
         let app = save_api::app(state);
 
-        let request = common::request_with_auth("HEAD", "/test-bucket/nonexistent.txt", Body::empty());
+        let request =
+            common::request_with_auth("HEAD", "/test-bucket/nonexistent.txt", Body::empty());
 
         let response = app.oneshot(request).await.unwrap();
 
@@ -425,7 +469,8 @@ mod head {
         let (state, _temp_dir) = setup().await;
         let app = save_api::app(state);
 
-        let request = common::request_with_auth("HEAD", "/nonexistent-bucket/test-file.txt", Body::empty());
+        let request =
+            common::request_with_auth("HEAD", "/nonexistent-bucket/test-file.txt", Body::empty());
 
         let response = app.oneshot(request).await.unwrap();
 
@@ -456,15 +501,21 @@ mod head {
         let content = b"Test content for header comparison";
 
         // Create an object
-        let put_request = common::request_with_auth_and_body("PUT", "/test-bucket/header-test.txt", content.to_vec());
+        let put_request = common::request_with_auth_and_body(
+            "PUT",
+            "/test-bucket/header-test.txt",
+            content.to_vec(),
+        );
 
         app.clone().oneshot(put_request).await.unwrap();
 
-        let head_request = common::request_with_auth("HEAD", "/test-bucket/header-test.txt", Body::empty());
+        let head_request =
+            common::request_with_auth("HEAD", "/test-bucket/header-test.txt", Body::empty());
 
         let head_response = app.clone().oneshot(head_request).await.unwrap();
 
-        let get_request = common::request_with_auth("GET", "/test-bucket/header-test.txt", Body::empty());
+        let get_request =
+            common::request_with_auth("GET", "/test-bucket/header-test.txt", Body::empty());
 
         let get_response = app.oneshot(get_request).await.unwrap();
 
@@ -502,7 +553,8 @@ mod head {
         let (state, _temp_dir) = setup().await;
         let app = save_api::app(state);
 
-        let request = common::request_with_auth("HEAD", "/../../etc/passwd/test-file.txt", Body::empty());
+        let request =
+            common::request_with_auth("HEAD", "/../../etc/passwd/test-file.txt", Body::empty());
 
         let response = app.oneshot(request).await.unwrap();
 
@@ -514,7 +566,11 @@ mod head {
         let (state, _temp_dir) = setup().await;
         let app = save_api::app(state);
 
-        let request = common::request_with_auth("HEAD", "/test-bucket/path/../../../etc/passwd", Body::empty());
+        let request = common::request_with_auth(
+            "HEAD",
+            "/test-bucket/path/../../../etc/passwd",
+            Body::empty(),
+        );
 
         let response = app.oneshot(request).await.unwrap();
 
@@ -529,11 +585,16 @@ mod head {
         let content = vec![0xAB; 100_000];
 
         // Create a large object
-        let put_request = common::request_with_auth_and_body("PUT", "/test-bucket/large-file.bin", content.to_vec());
+        let put_request = common::request_with_auth_and_body(
+            "PUT",
+            "/test-bucket/large-file.bin",
+            content.to_vec(),
+        );
 
         app.clone().oneshot(put_request).await.unwrap();
 
-        let head_request = common::request_with_auth("HEAD", "/test-bucket/large-file.bin", Body::empty());
+        let head_request =
+            common::request_with_auth("HEAD", "/test-bucket/large-file.bin", Body::empty());
 
         let head_response = app.oneshot(head_request).await.unwrap();
 
@@ -859,7 +920,11 @@ mod put {
         let (state, _temp_dir) = setup().await;
         let app = save_api::app(state);
 
-        let request = common::request_with_auth_and_body("PUT", "/test-bucket/test-file.txt", b"Hello, World!".to_vec());
+        let request = common::request_with_auth_and_body(
+            "PUT",
+            "/test-bucket/test-file.txt",
+            b"Hello, World!".to_vec(),
+        );
 
         let response = app.oneshot(request).await.unwrap();
 
@@ -876,7 +941,11 @@ mod put {
         let (state, _temp_dir) = setup().await;
         let app = save_api::app(state);
 
-        let request = common::request_with_auth_and_body("PUT", "/nonexistent-bucket/test-file.txt", b"Hello, World!".to_vec());
+        let request = common::request_with_auth_and_body(
+            "PUT",
+            "/nonexistent-bucket/test-file.txt",
+            b"Hello, World!".to_vec(),
+        );
 
         let response = app.oneshot(request).await.unwrap();
 
@@ -910,7 +979,10 @@ mod put {
             .uri("/test-bucket/test-file.txt")
             .header("Authorization", "Basic invalid-auth-format")
             .header("x-amz-date", "20240101T000000Z")
-            .header("x-amz-content-sha256", "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855")
+            .header(
+                "x-amz-content-sha256",
+                "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            )
             .body(Body::from(b"Hello, World!".to_vec()))
             .unwrap();
 
@@ -925,8 +997,13 @@ mod put {
         let app = save_api::app(state);
 
         // Use valid signature but wrong access key
-        let (authorization, amz_date, payload_hash) =
-            common::sign_request("PUT", "/test-bucket/test-file.txt", b"Hello, World!", "wrong-key", "savepass");
+        let (authorization, amz_date, payload_hash) = common::sign_request(
+            "PUT",
+            "/test-bucket/test-file.txt",
+            b"Hello, World!",
+            "wrong-key",
+            "savepass",
+        );
 
         let request = Request::builder()
             .method("PUT")
@@ -951,7 +1028,11 @@ mod put {
         let content = b"Test content for SHA256";
         let expected_etag = format!("{:x}", sha2::Sha256::digest(content));
 
-        let request = common::request_with_auth_and_body("PUT", "/test-bucket/etag-test.txt", content.to_vec());
+        let request = common::request_with_auth_and_body(
+            "PUT",
+            "/test-bucket/etag-test.txt",
+            content.to_vec(),
+        );
 
         let response = app.oneshot(request).await.unwrap();
 
@@ -969,7 +1050,11 @@ mod put {
         let (state, _temp_dir) = setup().await;
         let app = save_api::app(state);
 
-        let request = common::request_with_auth_and_body("PUT", "/../../etc/passwd/test-file.txt", b"Hello, World!".to_vec());
+        let request = common::request_with_auth_and_body(
+            "PUT",
+            "/../../etc/passwd/test-file.txt",
+            b"Hello, World!".to_vec(),
+        );
 
         let response = app.oneshot(request).await.unwrap();
 
@@ -981,7 +1066,11 @@ mod put {
         let (state, _temp_dir) = setup().await;
         let app = save_api::app(state);
 
-        let request = common::request_with_auth_and_body("PUT", "/test-bucket/path/../../../etc/passwd", b"Hello, World!".to_vec());
+        let request = common::request_with_auth_and_body(
+            "PUT",
+            "/test-bucket/path/../../../etc/passwd",
+            b"Hello, World!".to_vec(),
+        );
 
         let response = app.oneshot(request).await.unwrap();
 

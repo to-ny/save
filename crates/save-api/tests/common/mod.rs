@@ -189,7 +189,7 @@ pub fn request_with_auth_and_body(
         .unwrap()
 }
 
-pub fn parse_xml(xml: &str) -> roxmltree::Document {
+pub fn parse_xml(xml: &str) -> roxmltree::Document<'_> {
     roxmltree::Document::parse(xml).expect("Failed to parse XML response")
 }
 

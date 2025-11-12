@@ -111,11 +111,7 @@ pub async fn validate_sigv4(
         content_sha256,
     )?;
 
-    let string_to_sign = build_string_to_sign(
-        amz_date,
-        &auth_info.scope,
-        &canonical_request,
-    );
+    let string_to_sign = build_string_to_sign(amz_date, &auth_info.scope, &canonical_request);
 
     let calculated_signature = calculate_signature(
         &state.config.credentials.secret_key,
@@ -190,13 +186,9 @@ fn parse_authorization_header(auth_header: &str) -> Result<AuthInfo, ApiError> {
     let service = credential_components[3].to_string();
     let scope = format!("{}/{}/{}/aws4_request", date, region, service);
 
-    let signed_headers_part = parts[1]
-        .strip_prefix("SignedHeaders=")
-        .ok_or_else(|| {
-            ApiError::InvalidSignatureException(
-                "Missing SignedHeaders in authorization".to_string(),
-            )
-        })?;
+    let signed_headers_part = parts[1].strip_prefix("SignedHeaders=").ok_or_else(|| {
+        ApiError::InvalidSignatureException("Missing SignedHeaders in authorization".to_string())
+    })?;
     let signed_headers: Vec<String> = signed_headers_part
         .split(';')
         .map(|s| s.to_string())
@@ -331,9 +323,7 @@ fn hmac_sha256(key: &[u8], data: &[u8]) -> Vec<u8> {
 fn validate_timestamp(amz_date: &str) -> Result<(), ApiError> {
     // Parse X-Amz-Date (format: YYYYMMDDTHHMMSSZ)
     let request_time = DateTime::parse_from_str(&format!("{}+00:00", amz_date), "%Y%m%dT%H%M%SZ%z")
-        .map_err(|_| {
-            ApiError::InvalidSignatureException("Invalid X-Amz-Date format".to_string())
-        })?
+        .map_err(|_| ApiError::InvalidSignatureException("Invalid X-Amz-Date format".to_string()))?
         .with_timezone(&Utc);
 
     let now = Utc::now();
@@ -452,7 +442,10 @@ mod tests {
         let amz_date = old_time.format("%Y%m%dT%H%M%SZ").to_string();
         let result = validate_timestamp(&amz_date);
         assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), ApiError::RequestTimeTooSkewed));
+        assert!(matches!(
+            result.unwrap_err(),
+            ApiError::RequestTimeTooSkewed
+        ));
     }
 
     #[test]
@@ -461,7 +454,10 @@ mod tests {
         let amz_date = future_time.format("%Y%m%dT%H%M%SZ").to_string();
         let result = validate_timestamp(&amz_date);
         assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), ApiError::RequestTimeTooSkewed));
+        assert!(matches!(
+            result.unwrap_err(),
+            ApiError::RequestTimeTooSkewed
+        ));
     }
 
     #[test]

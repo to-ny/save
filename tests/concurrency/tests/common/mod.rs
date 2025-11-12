@@ -46,9 +46,7 @@ pub async fn create_client_with_credentials(access_key: String, secret_key: Stri
     let endpoint = endpoint();
 
     let credentials = Credentials::new(
-        access_key,
-        secret_key,
-        None, // No session token
+        access_key, secret_key, None, // No session token
         None, // No expiration
         "static",
     );

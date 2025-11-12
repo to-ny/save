@@ -21,7 +21,13 @@ async fn test_expired_timestamp_rejected() {
     hasher.update(body);
     let payload_hash = hex::encode(hasher.finalize());
 
-    let (authorization, _, _) = sign_request("PUT", "/test-bucket/test-file.txt", body, "saveadmin", "savepass");
+    let (authorization, _, _) = sign_request(
+        "PUT",
+        "/test-bucket/test-file.txt",
+        body,
+        "saveadmin",
+        "savepass",
+    );
 
     let request = axum::http::Request::builder()
         .method("PUT")
@@ -58,7 +64,13 @@ async fn test_future_timestamp_rejected() {
     hasher.update(body);
     let payload_hash = hex::encode(hasher.finalize());
 
-    let (authorization, _, _) = sign_request("PUT", "/test-bucket/test-file.txt", body, "saveadmin", "savepass");
+    let (authorization, _, _) = sign_request(
+        "PUT",
+        "/test-bucket/test-file.txt",
+        body,
+        "saveadmin",
+        "savepass",
+    );
 
     let request = axum::http::Request::builder()
         .method("PUT")
@@ -106,7 +118,10 @@ async fn test_invalid_authorization_format() {
         .method("PUT")
         .uri("/test-bucket/test-file.txt")
         .header("Authorization", "Basic dXNlcjpwYXNz")
-        .header("x-amz-date", Utc::now().format("%Y%m%dT%H%M%SZ").to_string())
+        .header(
+            "x-amz-date",
+            Utc::now().format("%Y%m%dT%H%M%SZ").to_string(),
+        )
         .body(Body::from("test"))
         .unwrap();
 

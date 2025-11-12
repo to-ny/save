@@ -65,7 +65,7 @@ Implement a local, single-node S3-compatible object storage system using RocksDB
 - [x] Async I/O with tokio for concurrent request handling
 - [x] Request-level isolation (each request is independent)
 - [x] Proper error propagation with `anyhow` and `thiserror`
-- [ ] Concurrent PUT protection (Location: `save-api/src/handlers/objects/put.rs`)
+- [x] Concurrent PUT protection with per-object locking
 - [ ] Request rate limiting via `tower` middleware
 - [ ] Connection limits to avoid file descriptor exhaustion
 - [ ] Graceful shutdown with request draining

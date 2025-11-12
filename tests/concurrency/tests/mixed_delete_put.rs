@@ -146,10 +146,7 @@ async fn test_concurrent_delete_and_put() -> Result<()> {
                 .await
                 .context("Failed to read body")?
                 .into_bytes();
-            info!(
-                "Final state: Object EXISTS ({} bytes)",
-                body.len()
-            );
+            info!("Final state: Object EXISTS ({} bytes)", body.len());
             // If object exists, it should be a complete, valid object
             assert!(!body.is_empty(), "Object should not be empty");
         }
@@ -196,12 +193,7 @@ async fn test_rapid_create_delete_cycles() -> Result<()> {
         }
 
         // DELETE
-        let delete_result = client
-            .delete_object()
-            .bucket(&bucket)
-            .key(key)
-            .send()
-            .await;
+        let delete_result = client.delete_object().bucket(&bucket).key(key).send().await;
 
         if let Err(e) = delete_result {
             info!("Cycle {} DELETE failed: {}", i, e);
@@ -238,7 +230,10 @@ async fn test_delete_during_multipart() -> Result<()> {
 
     // Setup
     ensure_bucket(&client, &bucket).await?;
-    info!("Testing DELETE during multipart upload to {}/{}", bucket, key);
+    info!(
+        "Testing DELETE during multipart upload to {}/{}",
+        bucket, key
+    );
 
     // Start a multipart upload
     let initiate_response = client
@@ -249,9 +244,7 @@ async fn test_delete_during_multipart() -> Result<()> {
         .await
         .context("Failed to initiate multipart upload")?;
 
-    let upload_id = initiate_response
-        .upload_id
-        .context("Missing upload ID")?;
+    let upload_id = initiate_response.upload_id.context("Missing upload ID")?;
 
     info!("Multipart upload initiated: {}", upload_id);
 
@@ -275,12 +268,7 @@ async fn test_delete_during_multipart() -> Result<()> {
     // This should either:
     // 1. Fail (object doesn't exist yet)
     // 2. Succeed (delete the in-progress upload)
-    let delete_result = client
-        .delete_object()
-        .bucket(&bucket)
-        .key(key)
-        .send()
-        .await;
+    let delete_result = client.delete_object().bucket(&bucket).key(key).send().await;
 
     match &delete_result {
         Ok(_) => info!("DELETE succeeded"),
@@ -438,22 +426,12 @@ async fn test_mixed_operations_stress() -> Result<()> {
                 }
                 2 => {
                     // GET
-                    let _ = client
-                        .get_object()
-                        .bucket(&bucket)
-                        .key(&key)
-                        .send()
-                        .await;
+                    let _ = client.get_object().bucket(&bucket).key(&key).send().await;
                     "GET"
                 }
                 _ => {
                     // HEAD
-                    let _ = client
-                        .head_object()
-                        .bucket(&bucket)
-                        .key(&key)
-                        .send()
-                        .await;
+                    let _ = client.head_object().bucket(&bucket).key(&key).send().await;
                     "HEAD"
                 }
             }
