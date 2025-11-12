@@ -12,6 +12,7 @@ pub mod state;
 pub mod test_helpers;
 
 pub use gc::{GcConfig, run_gc_worker};
+pub use middleware::RequestTracker;
 pub use state::AppState;
 
 pub fn app(state: AppState) -> Router {
@@ -25,7 +26,11 @@ pub fn app(state: AppState) -> Router {
         .with_state(state.clone());
 
     Router::new()
-        .merge(routes::health::routes().with_state(state))
+        .merge(routes::health::routes().with_state(state.clone()))
         .merge(api_routes)
+        .layer(axum::middleware::from_fn_with_state(
+            state,
+            middleware::track_requests,
+        ))
         .layer(axum::middleware::from_fn(middleware::track_metrics))
 }

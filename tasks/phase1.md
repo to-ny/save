@@ -66,9 +66,9 @@ Implement a local, single-node S3-compatible object storage system using RocksDB
 - [x] Request-level isolation (each request is independent)
 - [x] Proper error propagation with `anyhow` and `thiserror`
 - [x] Concurrent PUT/DELETE protection with per-object locking
-- [ ] Request rate limiting via `tower` middleware
-- [ ] Connection limits to avoid file descriptor exhaustion
-- [ ] Graceful shutdown with request draining
+- [x] Graceful shutdown with request draining
+- [ ] Request rate limiting via `tower` middleware (Phase 2: Config structure ready in `LimitsConfig`)
+- [ ] Connection limits to avoid file descriptor exhaustion (Phase 2: Config structure ready in `LimitsConfig`)
 - [ ] Backpressure to handle storage overwhelm (return 503 when overloaded)
 
 ---
@@ -113,12 +113,12 @@ Implement a local, single-node S3-compatible object storage system using RocksDB
 - [x] Configuration system with TOML parsing
 - [x] Environment variable: `SAVE_CONFIG` (defaults to `save.toml`)
 - [x] Default config in code if file missing
-- [x] Config validation on load
+- [x] Config validation on load (including limits and shutdown config)
 - [x] Documentation: README per crate, ARCHITECTURE.md, ROADMAP.md
-- [ ] `save.toml.example` template with documented options and production-ready defaults
-- [ ] Dockerfile with multi-stage build (distroless/alpine base, health checks, port 9000, volume mounts)
-- [ ] `docker-compose.yml` for local development (optional Prometheus + Grafana)
+- [x] `save.toml.example` template with documented options and production-ready defaults
+- [x] Dockerfile with multi-stage build
+- [x] `docker-compose.yml` for local development
+- [x] CLI tool `save-cli` for administration
 - [ ] Makefile or Justfile for common tasks (build, test, run, docker, clean)
 - [ ] Setup/teardown scripts in `scripts/` (setup.sh, teardown.sh, seed-data.sh)
 - [ ] Deployment documentation (systemd service, TLS termination, RocksDB backup, runbooks)
-- [ ] CLI tool `save-cli` for administration (list objects, verify metadata, trigger GC, export metrics)

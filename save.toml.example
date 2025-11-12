@@ -1,0 +1,45 @@
+# save Object Storage Configuration Example
+# Copy to save.toml and customize for your environment
+
+[server]
+# Address and port to bind the server
+bind_address = "0.0.0.0:9000"
+
+# Maximum request body size in bytes (100 MB default)
+max_body_size = 104857600
+
+[storage]
+# Path to object data storage
+data_path = "/var/lib/save/data"
+
+# Path to metadata storage (RocksDB)
+metadata_path = "/var/lib/save/metadata"
+
+# Maximum object size in bytes (5 GB default, optional)
+max_object_size = 5368709120
+
+# Garbage collection interval in seconds (10 minutes)
+gc_interval_secs = 600
+
+# Maximum age for temp files before GC in seconds (1 hour)
+gc_temp_file_max_age_secs = 3600
+
+[credentials]
+# S3 API access credentials
+# IMPORTANT: Change these in production!
+access_key = "your-access-key-here"
+secret_key = "your-secret-key-here"
+
+[limits]
+# Maximum concurrent requests
+max_concurrent_requests = 1000
+
+# Rate limit: requests per second per client
+requests_per_second = 100
+
+# Request timeout in seconds (5 minutes)
+request_timeout_secs = 300
+
+[shutdown]
+# Graceful shutdown: time to wait for in-flight requests to complete (30 seconds)
+drain_timeout_secs = 30

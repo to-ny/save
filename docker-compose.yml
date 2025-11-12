@@ -1,0 +1,25 @@
+services:
+  save-api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "9000:9000"
+    volumes:
+      - ./save.toml:/app/save.toml:ro
+      - save-data:/var/lib/save/data
+      - save-metadata:/var/lib/save/metadata
+    environment:
+      - SAVE_CONFIG=/app/save.toml
+      - RUST_LOG=info
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
+    restart: unless-stopped
+
+volumes:
+  save-data:
+  save-metadata:

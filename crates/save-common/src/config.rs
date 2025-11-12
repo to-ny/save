@@ -8,6 +8,10 @@ pub struct SaveConfig {
     pub server: ServerConfig,
     pub storage: StorageConfig,
     pub credentials: CredentialsConfig,
+    #[serde(default)]
+    pub limits: LimitsConfig,
+    #[serde(default)]
+    pub shutdown: ShutdownConfig,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -56,6 +60,58 @@ impl std::fmt::Debug for CredentialsConfig {
     }
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct LimitsConfig {
+    #[serde(default = "default_max_concurrent_requests")]
+    pub max_concurrent_requests: usize,
+    #[serde(default = "default_requests_per_second")]
+    pub requests_per_second: u64,
+    #[serde(default = "default_request_timeout_secs")]
+    pub request_timeout_secs: u64,
+    // NOTE: Phase 1 validates but doesn't enforce these limits
+    // Phase 2 will wire up Tower middleware for actual enforcement
+}
+
+fn default_max_concurrent_requests() -> usize {
+    1000
+}
+
+fn default_requests_per_second() -> u64 {
+    100
+}
+
+fn default_request_timeout_secs() -> u64 {
+    300
+}
+
+impl Default for LimitsConfig {
+    fn default() -> Self {
+        Self {
+            max_concurrent_requests: default_max_concurrent_requests(),
+            requests_per_second: default_requests_per_second(),
+            request_timeout_secs: default_request_timeout_secs(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct ShutdownConfig {
+    #[serde(default = "default_drain_timeout_secs")]
+    pub drain_timeout_secs: u64,
+}
+
+fn default_drain_timeout_secs() -> u64 {
+    30
+}
+
+impl Default for ShutdownConfig {
+    fn default() -> Self {
+        Self {
+            drain_timeout_secs: default_drain_timeout_secs(),
+        }
+    }
+}
+
 impl SaveConfig {
     pub fn load(path: &Path) -> Result<Self> {
         let contents = fs::read_to_string(path).map_err(|e| {
@@ -92,6 +148,22 @@ impl SaveConfig {
             return Err(Error::validation("secret_key cannot be empty"));
         }
 
+        if self.limits.max_concurrent_requests == 0 {
+            return Err(Error::validation("max_concurrent_requests must be > 0"));
+        }
+
+        if self.limits.requests_per_second == 0 {
+            return Err(Error::validation("requests_per_second must be > 0"));
+        }
+
+        if self.limits.request_timeout_secs == 0 {
+            return Err(Error::validation("request_timeout_secs must be > 0"));
+        }
+
+        if self.shutdown.drain_timeout_secs == 0 {
+            return Err(Error::validation("drain_timeout_secs must be > 0"));
+        }
+
         Ok(())
     }
 
@@ -111,7 +183,7 @@ impl Default for SaveConfig {
             storage: StorageConfig {
                 data_path: "/tmp/save/data".to_string(),
                 metadata_path: "/tmp/save/metadata".to_string(),
-                max_object_size: Some(5 * 1024 * 1024 * 1024), // 5 GB
+                max_object_size: Some(5 * 1024 * 1024 * 1024),
                 gc_interval_secs: default_gc_interval_secs(),
                 gc_temp_file_max_age_secs: default_gc_temp_file_max_age_secs(),
             },
@@ -119,6 +191,8 @@ impl Default for SaveConfig {
                 access_key: "saveadmin".to_string(),
                 secret_key: "savepass".to_string(),
             },
+            limits: LimitsConfig::default(),
+            shutdown: ShutdownConfig::default(),
         }
     }
 }
@@ -183,5 +257,41 @@ secret_key = "secret123"
         let toml_str = toml::to_string(&config).unwrap();
         let deserialized: SaveConfig = toml::from_str(&toml_str).unwrap();
         assert_eq!(config, deserialized);
+    }
+
+    #[test]
+    fn test_config_validation_zero_max_concurrent_requests() {
+        let mut config = SaveConfig::test_default();
+        config.limits.max_concurrent_requests = 0;
+        let result = config.validate();
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("max_concurrent_requests"));
+    }
+
+    #[test]
+    fn test_config_validation_zero_requests_per_second() {
+        let mut config = SaveConfig::test_default();
+        config.limits.requests_per_second = 0;
+        let result = config.validate();
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("requests_per_second"));
+    }
+
+    #[test]
+    fn test_config_validation_zero_request_timeout() {
+        let mut config = SaveConfig::test_default();
+        config.limits.request_timeout_secs = 0;
+        let result = config.validate();
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("request_timeout_secs"));
+    }
+
+    #[test]
+    fn test_config_validation_zero_drain_timeout() {
+        let mut config = SaveConfig::test_default();
+        config.shutdown.drain_timeout_secs = 0;
+        let result = config.validate();
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("drain_timeout_secs"));
     }
 }

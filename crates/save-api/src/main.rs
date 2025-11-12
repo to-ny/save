@@ -63,6 +63,9 @@ async fn main() -> anyhow::Result<()> {
         }
     });
 
+    let request_tracker = Arc::clone(&state.request_tracker);
+    let drain_timeout = Duration::from_secs(config.shutdown.drain_timeout_secs);
+
     let app = save_api::app(state);
     let addr: SocketAddr = bind_addr.parse()?;
 
@@ -74,8 +77,33 @@ async fn main() -> anyhow::Result<()> {
 
     let graceful = axum::serve(listener, app).with_graceful_shutdown(async move {
         let _ = signal::ctrl_c().await;
-        info!("Shutdown signal received");
+        info!("Shutdown signal received, initiating graceful shutdown");
+
         let _ = shutdown_tx.send(());
+
+        info!(
+            "Draining in-flight requests (timeout: {}s)",
+            drain_timeout.as_secs()
+        );
+
+        let start = tokio::time::Instant::now();
+        loop {
+            let in_flight = request_tracker.in_flight_count();
+            if in_flight == 0 {
+                info!("All requests drained");
+                break;
+            }
+
+            if start.elapsed() >= drain_timeout {
+                info!(
+                    in_flight_requests = in_flight,
+                    "Drain timeout reached, forcing shutdown"
+                );
+                break;
+            }
+
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
     });
 
     match graceful.await {

@@ -1,8 +1,52 @@
 use axum::{extract::Request, middleware::Next, response::Response};
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Arc;
 use std::time::Instant;
 use tracing::debug;
 
 use crate::metrics::{http_request_duration_seconds, http_requests_total};
+
+#[derive(Clone)]
+pub struct RequestTracker {
+    in_flight: Arc<AtomicUsize>,
+}
+
+impl RequestTracker {
+    pub fn new() -> Self {
+        Self {
+            in_flight: Arc::new(AtomicUsize::new(0)),
+        }
+    }
+
+    pub fn in_flight_count(&self) -> usize {
+        self.in_flight.load(Ordering::Acquire)
+    }
+
+    fn increment(&self) {
+        self.in_flight.fetch_add(1, Ordering::AcqRel);
+    }
+
+    fn decrement(&self) {
+        self.in_flight.fetch_sub(1, Ordering::AcqRel);
+    }
+}
+
+impl Default for RequestTracker {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+pub async fn track_requests(
+    axum::extract::State(state): axum::extract::State<crate::AppState>,
+    request: Request,
+    next: Next,
+) -> Response {
+    state.request_tracker.increment();
+    let response = next.run(request).await;
+    state.request_tracker.decrement();
+    response
+}
 
 pub async fn track_metrics(request: Request, next: Next) -> Response {
     let start = Instant::now();
