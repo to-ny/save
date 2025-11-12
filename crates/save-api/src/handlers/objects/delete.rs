@@ -24,6 +24,13 @@ pub async fn delete_object(
     validate_bucket_name(&bucket).map_err(|e| ApiError::InvalidRequest(e.to_string()))?;
     validate_object_key(&key).map_err(|e| ApiError::InvalidRequest(e.to_string()))?;
 
+    // Serialize concurrent operations to the same object
+    let _guard = state
+        .lock_manager
+        .acquire_lock(&bucket, &key)
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to acquire object lock: {}", e)))?;
+
     let object_exists = match state.metadata.get_object_metadata(&bucket, &key).await {
         Ok(_) => true,
         Err(MetadataError::ObjectNotFound { .. }) => {
@@ -45,19 +52,27 @@ pub async fn delete_object(
     if object_exists {
         let full_key = storage_key(&bucket, &key);
 
-        debug!("Deleting object from storage: {}", full_key);
-        state
-            .storage
-            .delete_object(&full_key)
-            .await
-            .map_err(|e| ApiError::internal(format!("Storage error: {}", e)))?;
-
+        // Delete metadata first, then storage. This ensures no phantom objects
+        // (metadata pointing to non-existent storage). Orphaned files (if storage
+        // deletion fails) are GC'd.
         debug!("Deleting object metadata: {}/{}", bucket, key);
         state
             .metadata
             .delete_object_metadata(&bucket, &key)
             .await
             .map_err(|e| ApiError::internal(format!("Metadata error: {}", e)))?;
+
+        debug!("Deleting object from storage: {}", full_key);
+        state
+            .storage
+            .delete_object(&full_key)
+            .await
+            .map_err(|e| {
+                ApiError::internal(format!(
+                    "Storage deletion failed after metadata deletion - orphaned object may require GC: {}",
+                    e
+                ))
+            })?;
     }
 
     let duration = start.elapsed();

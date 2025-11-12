@@ -184,6 +184,98 @@ mod delete {
             assert_eq!(response.status(), StatusCode::NOT_FOUND);
         }
     }
+
+    #[tokio::test]
+    async fn test_delete_ordering_ensures_no_phantom_objects() {
+        let (state, _temp_dir) = setup().await;
+        let app = save_api::app(state.clone());
+
+        let content = b"Test content for ordering verification";
+        let put_request = common::request_with_auth_and_body(
+            "PUT",
+            "/test-bucket/ordering-test.txt",
+            content.to_vec(),
+        );
+
+        let put_response = app.clone().oneshot(put_request).await.unwrap();
+        assert_eq!(put_response.status(), StatusCode::OK);
+
+        let delete_request =
+            common::request_with_auth("DELETE", "/test-bucket/ordering-test.txt", Body::empty());
+
+        let delete_response = app.clone().oneshot(delete_request).await.unwrap();
+        assert_eq!(delete_response.status(), StatusCode::NO_CONTENT);
+
+        let metadata_result = state
+            .metadata
+            .get_object_metadata("test-bucket", "ordering-test.txt")
+            .await;
+        assert!(
+            metadata_result.is_err(),
+            "Metadata should be deleted (no phantom object)"
+        );
+
+        let get_request =
+            common::request_with_auth("GET", "/test-bucket/ordering-test.txt", Body::empty());
+        let get_response = app.oneshot(get_request).await.unwrap();
+        assert_eq!(
+            get_response.status(),
+            StatusCode::NOT_FOUND,
+            "Object should not be retrievable after deletion"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_concurrent_delete_same_object() {
+        let (state, _temp_dir) = setup().await;
+        let app = save_api::app(state);
+
+        let content = b"Concurrent delete test content";
+        let put_request = common::request_with_auth_and_body(
+            "PUT",
+            "/test-bucket/concurrent-delete.txt",
+            content.to_vec(),
+        );
+
+        let put_response = app.clone().oneshot(put_request).await.unwrap();
+        assert_eq!(put_response.status(), StatusCode::OK);
+
+        let delete_request1 = common::request_with_auth(
+            "DELETE",
+            "/test-bucket/concurrent-delete.txt",
+            Body::empty(),
+        );
+        let delete_request2 = common::request_with_auth(
+            "DELETE",
+            "/test-bucket/concurrent-delete.txt",
+            Body::empty(),
+        );
+
+        let (result1, result2) = tokio::join!(
+            app.clone().oneshot(delete_request1),
+            app.clone().oneshot(delete_request2)
+        );
+
+        let response1 = result1.unwrap();
+        let response2 = result2.unwrap();
+
+        assert!(
+            (response1.status() == StatusCode::NO_CONTENT
+                && response2.status() == StatusCode::NOT_FOUND)
+                || (response1.status() == StatusCode::NOT_FOUND
+                    && response2.status() == StatusCode::NO_CONTENT),
+            "One DELETE should succeed (204), one should fail (404)"
+        );
+
+        let get_request =
+            common::request_with_auth("GET", "/test-bucket/concurrent-delete.txt", Body::empty());
+        let get_response = app.oneshot(get_request).await.unwrap();
+        assert_eq!(
+            get_response.status(),
+            StatusCode::NOT_FOUND,
+            "Object should be fully deleted"
+        );
+    }
 }
 
 mod get {

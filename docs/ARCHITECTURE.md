@@ -91,10 +91,15 @@ Each crate is self-contained and tested independently.
    - Prevents concurrent completions of different uploads to same key
    - Lock held until final object committed
 
-#### Commit Ordering Strategy
-**Critical**: Storage commits BEFORE metadata to prevent phantom objects.
+3. **DELETE Object** (`save-api/src/handlers/objects/delete.rs`):
+   - Acquires lock before existence check
+   - Serializes concurrent DELETEs to same key
+   - Lock held until metadata + storage deletion completes
 
-**Ordering Rationale**:
+#### Commit Ordering Strategy
+**Write Operations (PUT/Multipart Complete)**: Storage commits BEFORE metadata to prevent phantom objects.
+
+**Ordering for Writes**:
 1. Write object data to temp file (fsynced)
 2. **Commit storage** (atomic rename to final path + fsync directory)
 3. **Commit metadata** (WriteBatch with sync=true to RocksDB)
@@ -103,6 +108,17 @@ Each crate is self-contained and tested independently.
 - If storage commit fails → metadata never written (consistent state, no phantom object)
 - If metadata commit fails → orphaned storage file (acceptable, garbage-collectable)
 - **Previous ordering** (metadata first) could create phantom objects: metadata pointing to non-existent storage if storage commit failed
+
+**Delete Operations (DELETE)**: Metadata deleted BEFORE storage (opposite of writes).
+
+**Ordering for Deletes**:
+1. **Delete metadata** (atomic RocksDB operation)
+2. **Delete storage** (filesystem unlink)
+
+**Why This Order**:
+- If metadata deletion fails → object still exists (consistent state, retry possible)
+- If storage deletion fails → orphaned storage file (acceptable, garbage-collectable)
+- **Wrong ordering** (storage first) could create phantom objects: metadata pointing to deleted storage if storage deletion succeeded but metadata deletion failed
 
 **Edge Cases**:
 - Concurrent GET during PUT: Always returns complete old or new version (never partial data)
