@@ -143,6 +143,10 @@ impl ObjectStorage {
         fs::create_dir_all(temp_parent).await?;
 
         let mut temp_file = fs::File::create(&temp_path).await?;
+
+        #[cfg(feature = "failpoints")]
+        fail::fail_point!("storage_write_during_copy");
+
         tokio::io::copy(&mut reader, &mut temp_file).await?;
         temp_file.flush().await?;
         temp_file.sync_all().await?;
@@ -161,13 +165,23 @@ impl ObjectStorage {
 
         debug!("Committing object");
 
+        #[cfg(feature = "failpoints")]
+        fail::fail_point!("storage_commit_before_rename");
+
         let final_parent = final_path
             .parent()
             .ok_or_else(|| StorageError::InvalidPath("Final path has no parent".to_string()))?;
         fs::create_dir_all(final_parent).await?;
 
         fs::rename(temp_path, final_path).await?;
+
+        #[cfg(feature = "failpoints")]
+        fail::fail_point!("storage_commit_after_rename");
+
         fsync_dir(final_parent).await?;
+
+        #[cfg(feature = "failpoints")]
+        fail::fail_point!("storage_commit_after_fsync");
 
         temp_object.mark_committed();
 

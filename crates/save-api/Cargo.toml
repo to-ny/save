@@ -33,3 +33,7 @@ http-body-util = { workspace = true }
 tempfile = { workspace = true }
 filetime = "0.2"
 roxmltree = "0.21.1"
+
+[features]
+default = []
+failpoints = ["save-storage/failpoints", "save-metadata/failpoints"]

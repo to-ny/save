@@ -59,6 +59,7 @@ pub(crate) fn commit_object_metadata(db: &rocksdb::DB, metadata: &ObjectMetadata
     write_opts.set_sync(true);
 
     db.write_opt(batch, &write_opts)?;
+
     Ok(())
 }
 
@@ -88,7 +89,12 @@ pub(crate) fn delete_object_metadata(db: &rocksdb::DB, bucket: &str, key: &str) 
     validate_object_key(key).map_err(|e| MetadataError::InvalidOperation(e.to_string()))?;
 
     let db_key = ObjectMetadata::db_key(bucket, key);
+
     db.delete(&db_key)?;
+
+    #[cfg(feature = "failpoints")]
+    fail::fail_point!("metadata_delete_after_write");
+
     Ok(())
 }
 

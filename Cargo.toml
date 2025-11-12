@@ -8,6 +8,7 @@ members = [
     "tests/aws-sdk-compat",
     "tests/aws-cli-compat",
     "tests/concurrency",
+    "tests/crash-recovery",
 ]
 
 [workspace.package]
@@ -57,3 +58,6 @@ prometheus = { version = "0.14.0", default-features = false }
 tower = { version = "0.5", features = ["util"] }
 http-body-util = "0.1"
 tempfile = "3.14"
+fail = "0.5"
+nix = { version = "0.30.1", features = ["signal", "process"] }
+async-trait = "0.1"

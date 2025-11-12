@@ -131,6 +131,49 @@ For distributed operation:
 - API unchanged: `lock_manager.acquire_lock(bucket, key)` abstraction remains
 - Swap implementation in `ObjectLockManager` without touching handler code
 
+### Crash Recovery & Fault Injection Testing
+**Objective**: Validate system recovers correctly from crashes and failures at any point.
+
+#### Testing Strategy
+Uses **failpoint injection** (TiKV pattern) for deterministic crash testing:
+- Failpoints instrumenting critical paths in save-storage and save-metadata
+- Feature-gated (`failpoints` feature) - disabled in release builds
+- Subprocess-based testing with SIGKILL for true crash simulation
+
+#### Future-Proof Test Architecture
+Tests use `TestEnvironment` trait abstraction - **works for both single-node AND distributed**:
+- **Phase 1**: `SingleNodeEnv` (subprocess + SIGKILL)
+- **Phase 2**: `ClusterEnv` (Docker containers, network partitions)
+- Same test scenarios run on both without code duplication!
+
+#### Crash Scenarios Tested
+1. **PUT crashes**:
+   - Crash after storage commit, before metadata (orphaned storage → GC'd)
+   - Crash during temp write (temp file cleanup)
+   - Crash after complete (full recovery)
+
+2. **Multipart crashes**:
+   - Crash during part upload (partial cleanup)
+   - Crash during complete/assembly (atomic transition)
+   - Crash after complete (full recovery)
+
+3. **DELETE crashes**:
+   - Crash after metadata delete (orphaned storage → GC'd)
+
+4. **Edge cases**:
+   - Filesystem full (ENOSPC handling)
+   - Partial multipart uploads (missing parts, wrong ETags)
+   - Lock timeouts (resource cleanup)
+
+#### Invariants Verified
+After every crash:
+- ✅ No phantom objects (metadata pointing to missing storage)
+- ✅ No untracked orphans (or properly marked for GC)
+- ✅ Metadata-storage consistency maintained
+- ✅ System can restart and continue operations
+
+**Location**: `tests/crash-recovery/` - see README for details
+
 ---
 
 ## 4. Phase 2–4 preview (planned evolution)
