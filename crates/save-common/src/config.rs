@@ -265,7 +265,12 @@ secret_key = "secret123"
         config.limits.max_concurrent_requests = 0;
         let result = config.validate();
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("max_concurrent_requests"));
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("max_concurrent_requests")
+        );
     }
 
     #[test]
@@ -274,7 +279,12 @@ secret_key = "secret123"
         config.limits.requests_per_second = 0;
         let result = config.validate();
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("requests_per_second"));
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("requests_per_second")
+        );
     }
 
     #[test]
@@ -283,7 +293,12 @@ secret_key = "secret123"
         config.limits.request_timeout_secs = 0;
         let result = config.validate();
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("request_timeout_secs"));
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("request_timeout_secs")
+        );
     }
 
     #[test]
@@ -292,6 +307,11 @@ secret_key = "secret123"
         config.shutdown.drain_timeout_secs = 0;
         let result = config.validate();
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("drain_timeout_secs"));
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("drain_timeout_secs")
+        );
     }
 }

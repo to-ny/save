@@ -58,3 +58,9 @@ Metadata is stored in RocksDB with key prefixes:
 ```bash
 cargo test -p save-metadata
 ```
+
+## Benchmarks
+
+```bash
+cargo bench -p save-metadata
+```

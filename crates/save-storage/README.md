@@ -31,3 +31,9 @@ Objects are stored using content-addressable paths:
 ```bash
 cargo test -p save-storage
 ```
+
+## Benchmarks
+
+```bash
+cargo bench -p save-storage
+```

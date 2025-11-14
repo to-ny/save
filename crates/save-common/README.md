@@ -43,3 +43,14 @@ secret_key = "savepass"
 ```bash
 cargo test -p save-common
 ```
+
+## Benchmarks
+
+```bash
+# Run all benchmarks
+cargo bench -p save-common
+
+# Run specific benchmark suites
+cargo bench -p save-common --bench crypto
+cargo bench -p save-common --bench validation
+```

@@ -19,3 +19,17 @@ tokio = { workspace = true }
 [dev-dependencies]
 tempfile = { workspace = true }
 serde_json = { workspace = true }
+criterion = { version = "0.5", features = ["html_reports", "async_tokio"] }
+sha2 = "0.10"
+hmac = "0.12"
+rand = "0.9"
+hex = "0.4"
+uuid = { version = "1.0", features = ["v4"] }
+
+[[bench]]
+name = "crypto"
+harness = false
+
+[[bench]]
+name = "validation"
+harness = false

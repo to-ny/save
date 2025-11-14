@@ -30,6 +30,7 @@ Distributed object storage system inspired by MinIO and S3. Currently Phase 1 (s
 | `save-storage` | Object persistence, streaming I/O, filesystem layout |
 | `save-metadata` | RocksDB operations for buckets, objects, versions |
 | `save-common` | Shared types: errors, config, checksums, locks |
+| `save-cli` | CLI tool for administration and testing |
 
 ## Phase 1: Single-Node Architecture
 
@@ -86,8 +87,13 @@ data/
   - AWS CLI compatibility (`tests/aws-cli-compat/`)
   - Concurrency (`tests/concurrency/`)
   - Crash recovery (`tests/crash-recovery/`)
+  - Load and soak tests (`tests/loadtest/`)
+- **Benchmarks**: In each crate's `benches/` directory
+  - `save-storage/benches/` - Storage layer (PUT/GET/DELETE operations)
+  - `save-metadata/benches/` - RocksDB operations (buckets, objects, listing)
+  - `save-common/benches/` - Crypto (SHA256, HMAC) and validation (locking)
 
-See individual test READMEs for details.
+See individual test READMEs and [PERFORMANCE_TESTING.md](PERFORMANCE_TESTING.md) for details.
 
 ## Future Evolution
 

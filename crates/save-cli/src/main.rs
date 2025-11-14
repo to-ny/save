@@ -1,7 +1,7 @@
 use anyhow::Result;
 use aws_config::BehaviorVersion;
-use aws_sdk_s3::config::{Credentials, Region};
 use aws_sdk_s3::Client;
+use aws_sdk_s3::config::{Credentials, Region};
 use clap::{Parser, Subcommand};
 use tokio::io::{self, AsyncWriteExt};
 

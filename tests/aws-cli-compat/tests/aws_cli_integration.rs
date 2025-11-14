@@ -107,7 +107,7 @@ fn test_cli_create_and_list_buckets() {
     let cli = AwsCli::new();
     let bucket_name = format!(
         "cli-test-{}",
-        uuid::Uuid::new_v4().simple().to_string()[..16].to_string()
+        &uuid::Uuid::new_v4().simple().to_string()[..16]
     );
 
     // Create bucket
@@ -149,7 +149,7 @@ fn test_cli_bucket_already_exists_error() {
     let cli = AwsCli::new();
     let bucket_name = format!(
         "cli-dup-{}",
-        uuid::Uuid::new_v4().simple().to_string()[..16].to_string()
+        &uuid::Uuid::new_v4().simple().to_string()[..16]
     );
 
     // Create bucket first time
@@ -212,7 +212,7 @@ fn test_cli_put_and_get_object() {
     let cli = AwsCli::new();
     let bucket_name = format!(
         "cli-obj-{}",
-        uuid::Uuid::new_v4().simple().to_string()[..16].to_string()
+        &uuid::Uuid::new_v4().simple().to_string()[..16]
     );
 
     // Create bucket
@@ -279,7 +279,7 @@ fn test_cli_no_such_key_error() {
     let cli = AwsCli::new();
     let bucket_name = format!(
         "cli-nokey-{}",
-        uuid::Uuid::new_v4().simple().to_string()[..16].to_string()
+        &uuid::Uuid::new_v4().simple().to_string()[..16]
     );
 
     // Create bucket
@@ -327,7 +327,7 @@ fn test_cli_bucket_not_empty_error() {
     let cli = AwsCli::new();
     let bucket_name = format!(
         "cli-notempty-{}",
-        uuid::Uuid::new_v4().simple().to_string()[..16].to_string()
+        &uuid::Uuid::new_v4().simple().to_string()[..16]
     );
 
     // Create bucket
@@ -393,7 +393,7 @@ fn test_cli_list_objects_v2() {
     let cli = AwsCli::new();
     let bucket_name = format!(
         "cli-list-{}",
-        uuid::Uuid::new_v4().simple().to_string()[..16].to_string()
+        &uuid::Uuid::new_v4().simple().to_string()[..16]
     );
 
     // Create bucket
@@ -471,7 +471,7 @@ fn test_cli_head_object() {
     let cli = AwsCli::new();
     let bucket_name = format!(
         "cli-head-{}",
-        uuid::Uuid::new_v4().simple().to_string()[..16].to_string()
+        &uuid::Uuid::new_v4().simple().to_string()[..16]
     );
 
     // Create bucket

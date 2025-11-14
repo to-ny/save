@@ -82,7 +82,7 @@ async fn test_parallel_multipart_uploads() -> Result<()> {
                     .bucket(&bucket)
                     .key(&key)
                     .upload_id(&upload_id)
-                    .part_number(part_number as i32)
+                    .part_number(part_number)
                     .body(part_data.into())
                     .send()
                     .await
@@ -102,7 +102,7 @@ async fn test_parallel_multipart_uploads() -> Result<()> {
 
                 completed_parts.push(
                     CompletedPart::builder()
-                        .part_number(part_number as i32)
+                        .part_number(part_number)
                         .e_tag(etag)
                         .build(),
                 );
@@ -177,7 +177,7 @@ async fn test_parallel_multipart_uploads() -> Result<()> {
     // Verify all uploads completed
     assert_eq!(
         completed.len(),
-        num_uploads,
+        num_uploads as usize,
         "All multipart uploads should complete"
     );
 
@@ -271,7 +271,7 @@ async fn test_concurrent_multipart_to_same_key() -> Result<()> {
                     .bucket(&bucket)
                     .key(&key)
                     .upload_id(&upload_id)
-                    .part_number(part_number as i32)
+                    .part_number(part_number)
                     .body(part_data.into())
                     .send()
                     .await
@@ -281,7 +281,7 @@ async fn test_concurrent_multipart_to_same_key() -> Result<()> {
 
                 completed_parts.push(
                     CompletedPart::builder()
-                        .part_number(part_number as i32)
+                        .part_number(part_number)
                         .e_tag(etag)
                         .build(),
                 );

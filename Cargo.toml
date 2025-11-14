@@ -10,6 +10,7 @@ members = [
     "tests/aws-cli-compat",
     "tests/concurrency",
     "tests/crash-recovery",
+    "tests/loadtest",
 ]
 
 [workspace.package]

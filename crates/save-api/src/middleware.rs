@@ -1,6 +1,6 @@
 use axum::{extract::Request, middleware::Next, response::Response};
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Instant;
 use tracing::debug;
 

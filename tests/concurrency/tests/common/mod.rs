@@ -24,11 +24,7 @@ pub fn endpoint() -> String {
 
 /// Generate a unique bucket name for testing
 pub fn unique_bucket_name(prefix: &str) -> String {
-    format!(
-        "{}-{}",
-        prefix,
-        Uuid::new_v4().simple().to_string()[..16].to_string()
-    )
+    format!("{}-{}", prefix, &Uuid::new_v4().simple().to_string()[..16])
 }
 
 /// Generate a unique object key for testing
@@ -115,6 +111,7 @@ pub async fn cleanup_bucket(client: &Client, bucket: &str) -> anyhow::Result<()>
 /// Create a bucket if it doesn't exist.
 ///
 /// Returns Ok(()) whether the bucket was created or already existed.
+#[allow(dead_code)]
 pub async fn ensure_bucket(client: &Client, bucket: &str) -> anyhow::Result<()> {
     match client.create_bucket().bucket(bucket).send().await {
         Ok(_) => Ok(()),
