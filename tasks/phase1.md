@@ -84,10 +84,12 @@ Implement a local, single-node S3-compatible object storage system using RocksDB
 - [x] Metrics: `save_multipart_uploads_in_progress` (gauge)
 - [x] Health check endpoint at `/health`
 - [x] Middleware for automatic request tracking
-- [ ] Request tracing with correlation IDs
-- [ ] Enhanced metrics (disk usage, RocksDB stats, error rates, temp files, connections)
-- [ ] Readiness probe at `/health/ready` with deep health checks
-- [ ] Grafana dashboard template in `docs/grafana/`
+- [x] Request tracing with correlation IDs
+- [x] Enhanced metrics (disk usage, RocksDB stats, error rates, temp files, connections)
+- [x] Readiness probe at `/health/ready` with deep health checks
+- [x] Grafana dashboard template in `docker/grafana/`
+- [x] Prometheus config in `docker/prometheus/`
+- [x] Docker Compose setup with Grafana, Prometheus, and Alertmanager
 
 ---
 

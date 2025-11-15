@@ -120,8 +120,8 @@ impl Default for LoadTestConfig {
         Self {
             target: TargetConfig {
                 endpoint: "http://localhost:8080".to_string(),
-                access_key: "minioadmin".to_string(),
-                secret_key: "minioadmin".to_string(),
+                access_key: "test-access-key".to_string(),
+                secret_key: "test-access-key".to_string(),
                 bucket: "loadtest".to_string(),
             },
             workload: WorkloadConfig {

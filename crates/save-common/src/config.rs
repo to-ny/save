@@ -188,8 +188,8 @@ impl Default for SaveConfig {
                 gc_temp_file_max_age_secs: default_gc_temp_file_max_age_secs(),
             },
             credentials: CredentialsConfig {
-                access_key: "saveadmin".to_string(),
-                secret_key: "savepass".to_string(),
+                access_key: "test-access-key".to_string(),
+                secret_key: "test-access-key".to_string(),
             },
             limits: LimitsConfig::default(),
             shutdown: ShutdownConfig::default(),

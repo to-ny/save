@@ -1,0 +1,251 @@
+groups:
+  - name: save_alerts
+    interval: 30s
+    rules:
+      # Request/Response Alerts
+      - alert: HighErrorRate
+        expr: |
+          (
+            sum(rate(save_http_requests_total{status=~"5.."}[5m]))
+            /
+            sum(rate(save_http_requests_total[5m]))
+          ) > 0.05
+        for: 5m
+        labels:
+          severity: critical
+          component: api
+        annotations:
+          summary: "High error rate detected"
+          description: "Error rate is {{ $value | humanizePercentage }} (threshold: 5%)"
+          runbook: "Check application logs for errors, verify RocksDB and filesystem health"
+
+      - alert: SlowResponseTime
+        expr: |
+          histogram_quantile(0.99,
+            rate(save_http_request_duration_seconds_bucket[5m])
+          ) > 5
+        for: 10m
+        labels:
+          severity: warning
+          component: api
+        annotations:
+          summary: "Slow p99 response time"
+          description: "p99 latency is {{ $value | humanizeDuration }} (threshold: 5s)"
+          runbook: "Check RocksDB compaction status, disk I/O, and request queue depth"
+
+      - alert: VerySlowResponseTime
+        expr: |
+          histogram_quantile(0.99,
+            rate(save_http_request_duration_seconds_bucket[5m])
+          ) > 10
+        for: 5m
+        labels:
+          severity: critical
+          component: api
+        annotations:
+          summary: "Very slow p99 response time"
+          description: "p99 latency is {{ $value | humanizeDuration }} (threshold: 10s)"
+          runbook: "Immediate investigation required - check disk, RocksDB, and system resources"
+
+      # Storage Alerts
+      - alert: DiskSpaceLow
+        expr: |
+          (
+            save_disk_usage_bytes{type="available"}
+            /
+            save_disk_usage_bytes{type="total"}
+          ) < 0.10
+        for: 5m
+        labels:
+          severity: warning
+          component: storage
+        annotations:
+          summary: "Low disk space on {{ $labels.path }}"
+          description: "Only {{ $value | humanizePercentage }} disk space remaining (threshold: 10%)"
+          runbook: "Free up disk space, extend volume, or enable automatic cleanup"
+
+      - alert: DiskSpaceCritical
+        expr: |
+          (
+            save_disk_usage_bytes{type="available"}
+            /
+            save_disk_usage_bytes{type="total"}
+          ) < 0.05
+        for: 2m
+        labels:
+          severity: critical
+          component: storage
+        annotations:
+          summary: "Critical disk space on {{ $labels.path }}"
+          description: "Only {{ $value | humanizePercentage }} disk space remaining (threshold: 5%)"
+          runbook: "URGENT: Disk full imminent. Stop writes, free up space immediately"
+
+      - alert: ExcessiveTempFiles
+        expr: save_temp_files_count > 1000
+        for: 15m
+        labels:
+          severity: warning
+          component: storage
+        annotations:
+          summary: "Excessive temporary files"
+          description: "{{ $value }} temporary files present (threshold: 1000)"
+          runbook: "Check GC worker health, verify multipart upload cleanup is working"
+
+      - alert: LargeTempFilesSize
+        expr: save_temp_files_size_bytes > 10737418240  # 10GB
+        for: 15m
+        labels:
+          severity: warning
+          component: storage
+        annotations:
+          summary: "Large temporary files accumulation"
+          description: "{{ $value | humanize1024 }}B in temp files (threshold: 10GB)"
+          runbook: "Check for stalled multipart uploads, verify GC is running"
+
+      # GC Worker Alerts
+      - alert: GCWorkerNotRunning
+        expr: |
+          (time() - save_gc_last_run_seconds) > 3600
+        for: 5m
+        labels:
+          severity: critical
+          component: gc
+        annotations:
+          summary: "GC worker hasn't run recently"
+          description: "GC last ran {{ $value | humanizeDuration }} ago (threshold: 1h)"
+          runbook: "Check GC worker logs, verify it hasn't crashed or deadlocked"
+
+      - alert: GCErrors
+        expr: rate(save_gc_errors_total[5m]) > 0.1
+        for: 10m
+        labels:
+          severity: warning
+          component: gc
+        annotations:
+          summary: "GC worker experiencing errors"
+          description: "GC error rate: {{ $value | humanize }} errors/sec"
+          runbook: "Check GC worker logs for specific error messages"
+
+      # RocksDB Alerts
+      - alert: RocksDBLowCacheHitRate
+        expr: |
+          (
+            rate(save_rocksdb_stats{stat="block_cache_hits"}[5m])
+            /
+            (
+              rate(save_rocksdb_stats{stat="block_cache_hits"}[5m])
+              +
+              rate(save_rocksdb_stats{stat="block_cache_misses"}[5m])
+            )
+          ) < 0.80
+        for: 10m
+        labels:
+          severity: warning
+          component: rocksdb
+        annotations:
+          summary: "Low RocksDB cache hit rate"
+          description: "Cache hit rate is {{ $value | humanizePercentage }} (threshold: 80%)"
+          runbook: "Consider increasing RocksDB block cache size in configuration"
+
+      - alert: RocksDBHighMemoryUsage
+        expr: |
+          (
+            save_rocksdb_stats{stat="memtable_size_bytes"}
+            +
+            save_rocksdb_stats{stat="table_readers_mem_bytes"}
+          ) > 2147483648  # 2GB
+        for: 15m
+        labels:
+          severity: warning
+          component: rocksdb
+        annotations:
+          summary: "High RocksDB memory usage"
+          description: "RocksDB using {{ $value | humanize1024 }}B memory (threshold: 2GB)"
+          runbook: "Monitor for memory leaks, consider tuning RocksDB memory settings"
+
+      # Authentication Alerts
+      - alert: HighAuthenticationFailureRate
+        expr: |
+          (
+            rate(save_auth_events_total{result="failure"}[5m])
+            /
+            rate(save_auth_events_total[5m])
+          ) > 0.20
+        for: 10m
+        labels:
+          severity: warning
+          component: auth
+        annotations:
+          summary: "High authentication failure rate"
+          description: "{{ $value | humanizePercentage }} of auth attempts failing (threshold: 20%)"
+          runbook: "Check for misconfigured clients, potential brute force attack, or IAM issues"
+
+      - alert: SuspiciousAuthenticationActivity
+        expr: rate(save_auth_events_total{result="failure"}[1m]) > 10
+        for: 3m
+        labels:
+          severity: critical
+          component: auth
+        annotations:
+          summary: "Suspicious authentication activity"
+          description: "{{ $value | humanize }} auth failures/sec (threshold: 10/sec)"
+          runbook: "Possible attack in progress - review security logs, consider rate limiting"
+
+      # System Health Alerts
+      - alert: ServiceDown
+        expr: up{job="save"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          component: system
+        annotations:
+          summary: "Save service is down"
+          description: "Service {{ $labels.instance }} is not responding to health checks"
+          runbook: "Check service status, logs, and restart if necessary"
+
+      - alert: HighInFlightRequests
+        expr: save_in_flight_requests > 500
+        for: 5m
+        labels:
+          severity: warning
+          component: api
+        annotations:
+          summary: "High number of in-flight requests"
+          description: "{{ $value }} requests currently in flight (threshold: 500)"
+          runbook: "Check for slow queries, review request latency, consider scaling"
+
+      - alert: MultipartUploadBacklog
+        expr: save_multipart_uploads_in_progress > 100
+        for: 30m
+        labels:
+          severity: warning
+          component: storage
+        annotations:
+          summary: "Large number of in-progress multipart uploads"
+          description: "{{ $value }} multipart uploads in progress (threshold: 100)"
+          runbook: "Verify clients are completing uploads, check for abandoned uploads"
+
+      # Data Integrity Alerts
+      - alert: AtomicPutFailures
+        expr: |
+          rate(save_atomic_put_operations_total{result="failure"}[5m]) > 0.01
+        for: 10m
+        labels:
+          severity: critical
+          component: storage
+        annotations:
+          summary: "Atomic PUT operations failing"
+          description: "{{ $value | humanize }} PUT failures/sec detected"
+          runbook: "URGENT: Data integrity at risk. Check storage health and error logs immediately"
+
+      # Multipart Cleanup Alerts
+      - alert: MultipartCleanupFailures
+        expr: rate(save_multipart_cleanup_failures_total[5m]) > 0.1
+        for: 15m
+        labels:
+          severity: warning
+          component: storage
+        annotations:
+          summary: "Multipart upload cleanup failing"
+          description: "{{ $value | humanize }} cleanup failures/sec"
+          runbook: "Check filesystem permissions and GC worker health"

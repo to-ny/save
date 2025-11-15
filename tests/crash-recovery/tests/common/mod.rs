@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 pub mod environment;
 pub mod single_node;
 pub mod verify;

@@ -76,14 +76,34 @@ impl ApiError {
             ApiError::Internal(_) => StatusCode::INTERNAL_SERVER_ERROR,
         }
     }
+
+    fn error_type(&self) -> &'static str {
+        match self {
+            ApiError::BucketNotFound(_)
+            | ApiError::BucketAlreadyExists(_)
+            | ApiError::BucketNotEmpty(_)
+            | ApiError::ObjectNotFound { .. } => "metadata",
+            ApiError::Unauthorized
+            | ApiError::RequestTimeTooSkewed
+            | ApiError::SignatureDoesNotMatch
+            | ApiError::InvalidSignatureException(_) => "auth",
+            ApiError::InvalidRequest(_) => "validation",
+            ApiError::Internal(_) => "internal",
+        }
+    }
 }
 
 impl IntoResponse for ApiError {
     fn into_response(self) -> Response {
         let status = self.status_code();
+        let error_type = self.error_type();
         let s3_error = self.to_s3_error();
         let request_id = s3_error.request_id.clone();
         let xml_body = s3_error.to_xml();
+
+        crate::metrics::errors_total()
+            .with_label_values(&[error_type, "api"])
+            .inc();
 
         let mut response = Response::new(xml_body.into());
         *response.status_mut() = status;

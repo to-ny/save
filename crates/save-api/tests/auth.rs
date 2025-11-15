@@ -25,8 +25,8 @@ async fn test_expired_timestamp_rejected() {
         "PUT",
         "/test-bucket/test-file.txt",
         body,
-        "saveadmin",
-        "savepass",
+        "test-access-key",
+        "test-access-key",
     );
 
     let request = axum::http::Request::builder()
@@ -68,8 +68,8 @@ async fn test_future_timestamp_rejected() {
         "PUT",
         "/test-bucket/test-file.txt",
         body,
-        "saveadmin",
-        "savepass",
+        "test-access-key",
+        "test-access-key",
     );
 
     let request = axum::http::Request::builder()
@@ -137,7 +137,7 @@ async fn test_missing_amz_date_header() {
     let request = axum::http::Request::builder()
         .method("PUT")
         .uri("/test-bucket/test-file.txt")
-        .header("Authorization", "AWS4-HMAC-SHA256 Credential=saveadmin/20240101/us-east-1/s3/aws4_request, SignedHeaders=host, Signature=fake")
+        .header("Authorization", "AWS4-HMAC-SHA256 Credential=test-access-key/20240101/us-east-1/s3/aws4_request, SignedHeaders=host, Signature=fake")
         .header("host", "localhost:9000")
         .body(Body::from("test"))
         .unwrap();

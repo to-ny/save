@@ -13,9 +13,12 @@ struct AwsCli {
 impl AwsCli {
     fn new() -> Self {
         Self {
-            endpoint: "http://localhost:9000".to_string(),
-            access_key: "test-access-key".to_string(),
-            secret_key: "test-secret-key".to_string(),
+            endpoint: std::env::var("S3_ENDPOINT")
+                .unwrap_or_else(|_| "http://localhost:9000".to_string()),
+            access_key: std::env::var("AWS_ACCESS_KEY_ID")
+                .unwrap_or_else(|_| "test-access-key".to_string()),
+            secret_key: std::env::var("AWS_SECRET_ACCESS_KEY")
+                .unwrap_or_else(|_| "test-secret-key".to_string()),
         }
     }
 
@@ -99,6 +102,7 @@ fn check_aws_cli_installed() -> bool {
 
 #[test]
 fn test_cli_create_and_list_buckets() {
+    // TODO Replace skip behavior in all tests for this check to a failure
     if !check_aws_cli_installed() {
         eprintln!("Skipping: AWS CLI not installed");
         return;
@@ -409,6 +413,7 @@ fn test_cli_list_objects_v2() {
     std::fs::write(&temp_file, b"test content").unwrap();
 
     for i in 1..=3 {
+        // TODO Fix test error: "Error parsing parameter '--body': Blob values must be a path to a file."
         let result = cli.run(&[
             "put-object",
             "--bucket",

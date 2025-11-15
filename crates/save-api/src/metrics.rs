@@ -1,6 +1,7 @@
 use prometheus::{
-    Encoder, HistogramVec, IntCounter, IntCounterVec, IntGauge, TextEncoder,
-    register_histogram_vec, register_int_counter, register_int_counter_vec, register_int_gauge,
+    Encoder, GaugeVec, HistogramVec, IntCounter, IntCounterVec, IntGauge, IntGaugeVec, TextEncoder,
+    register_gauge_vec, register_histogram_vec, register_int_counter, register_int_counter_vec,
+    register_int_gauge, register_int_gauge_vec,
 };
 use std::sync::OnceLock;
 use thiserror::Error;
@@ -29,6 +30,20 @@ static GC_LAST_RUN_SECONDS: OnceLock<IntGauge> = OnceLock::new();
 static GC_CYCLES_TOTAL: OnceLock<IntCounterVec> = OnceLock::new();
 static MULTIPART_CLEANUP_FAILURES_TOTAL: OnceLock<IntCounter> = OnceLock::new();
 static AUTH_EVENTS_TOTAL: OnceLock<IntCounterVec> = OnceLock::new();
+
+// Enhanced system metrics
+static DISK_USAGE_BYTES: OnceLock<GaugeVec> = OnceLock::new();
+static IN_FLIGHT_REQUESTS: OnceLock<IntGauge> = OnceLock::new();
+
+// RocksDB metrics
+static ROCKSDB_STATS: OnceLock<IntGaugeVec> = OnceLock::new();
+
+// Error metrics
+static ERRORS_TOTAL: OnceLock<IntCounterVec> = OnceLock::new();
+
+// Temp file metrics
+static TEMP_FILES_COUNT: OnceLock<IntGauge> = OnceLock::new();
+static TEMP_FILES_SIZE_BYTES: OnceLock<IntGauge> = OnceLock::new();
 
 /// HTTP request count by endpoint, method, and status code.
 ///
@@ -196,6 +211,86 @@ pub fn auth_events_total() -> &'static IntCounterVec {
     })
 }
 
+/// Disk usage in bytes by type (total, used, available).
+///
+/// Labels have bounded cardinality:
+/// - `type`: Fixed set of values ("total", "used", "available")
+/// - `path`: Fixed set of paths (data_path, metadata_path)
+pub fn disk_usage_bytes() -> &'static GaugeVec {
+    DISK_USAGE_BYTES.get_or_init(|| {
+        register_gauge_vec!(
+            "save_disk_usage_bytes",
+            "Disk usage in bytes by type and path",
+            &["path", "type"]
+        )
+        .expect("Failed to register save_disk_usage_bytes metric")
+    })
+}
+
+/// Number of in-flight HTTP requests.
+pub fn in_flight_requests() -> &'static IntGauge {
+    IN_FLIGHT_REQUESTS.get_or_init(|| {
+        register_int_gauge!(
+            "save_in_flight_requests",
+            "Number of HTTP requests currently being processed"
+        )
+        .expect("Failed to register save_in_flight_requests metric")
+    })
+}
+
+/// RocksDB statistics by metric name.
+///
+/// Labels have bounded cardinality:
+/// - `stat`: Fixed set of values ("block_cache_hits", "block_cache_misses", "memtable_size_bytes", "estimate_num_keys")
+pub fn rocksdb_stats() -> &'static IntGaugeVec {
+    ROCKSDB_STATS.get_or_init(|| {
+        register_int_gauge_vec!(
+            "save_rocksdb_stats",
+            "RocksDB statistics by metric name",
+            &["stat"]
+        )
+        .expect("Failed to register save_rocksdb_stats metric")
+    })
+}
+
+/// Total errors by type and endpoint.
+///
+/// Labels have bounded cardinality:
+/// - `error_type`: Bounded set of error categories ("storage", "metadata", "auth", "validation", "internal")
+/// - `endpoint`: Normalized to ~5 values (same as http_requests_total)
+pub fn errors_total() -> &'static IntCounterVec {
+    ERRORS_TOTAL.get_or_init(|| {
+        register_int_counter_vec!(
+            "save_errors_total",
+            "Total errors by type and endpoint",
+            &["error_type", "endpoint"]
+        )
+        .expect("Failed to register save_errors_total metric")
+    })
+}
+
+/// Number of temporary files currently on disk.
+pub fn temp_files_count() -> &'static IntGauge {
+    TEMP_FILES_COUNT.get_or_init(|| {
+        register_int_gauge!(
+            "save_temp_files_count",
+            "Number of temporary files currently on disk"
+        )
+        .expect("Failed to register save_temp_files_count metric")
+    })
+}
+
+/// Total size of temporary files in bytes.
+pub fn temp_files_size_bytes() -> &'static IntGauge {
+    TEMP_FILES_SIZE_BYTES.get_or_init(|| {
+        register_int_gauge!(
+            "save_temp_files_size_bytes",
+            "Total size of temporary files in bytes"
+        )
+        .expect("Failed to register save_temp_files_size_bytes metric")
+    })
+}
+
 pub fn init_metrics() {
     let _ = http_requests_total();
     let _ = http_request_duration_seconds();
@@ -208,6 +303,12 @@ pub fn init_metrics() {
     let _ = gc_cycles_total();
     let _ = multipart_cleanup_failures_total();
     let _ = auth_events_total();
+    let _ = disk_usage_bytes();
+    let _ = in_flight_requests();
+    let _ = rocksdb_stats();
+    let _ = errors_total();
+    let _ = temp_files_count();
+    let _ = temp_files_size_bytes();
 }
 
 pub fn encode_metrics() -> Result<String, MetricsError> {
@@ -217,6 +318,79 @@ pub fn encode_metrics() -> Result<String, MetricsError> {
 
     encoder.encode(&metric_families, &mut buffer)?;
     Ok(String::from_utf8(buffer)?)
+}
+
+#[cfg(target_family = "unix")]
+pub fn collect_disk_usage(path: &std::path::Path, label: &str) {
+    use nix::sys::statvfs::statvfs;
+
+    if let Ok(stat) = statvfs(path) {
+        let total_bytes = stat.blocks() * stat.block_size();
+        let available_bytes = stat.blocks_available() * stat.block_size();
+        let used_bytes = total_bytes - available_bytes;
+
+        disk_usage_bytes()
+            .with_label_values(&[label, "total"])
+            .set(total_bytes as f64);
+        disk_usage_bytes()
+            .with_label_values(&[label, "used"])
+            .set(used_bytes as f64);
+        disk_usage_bytes()
+            .with_label_values(&[label, "available"])
+            .set(available_bytes as f64);
+    }
+}
+
+#[cfg(not(target_family = "unix"))]
+pub fn collect_disk_usage(_path: &std::path::Path, _label: &str) {}
+
+pub fn collect_database_stats(stats: &save_metadata::DatabaseStats) {
+    if let Some(hits) = stats.block_cache_hits {
+        rocksdb_stats()
+            .with_label_values(&["block_cache_hits"])
+            .set(hits as i64);
+    }
+    if let Some(misses) = stats.block_cache_misses {
+        rocksdb_stats()
+            .with_label_values(&["block_cache_misses"])
+            .set(misses as i64);
+    }
+
+    if let Some(mem) = stats.table_readers_mem_bytes {
+        rocksdb_stats()
+            .with_label_values(&["table_readers_mem_bytes"])
+            .set(mem as i64);
+    }
+    if let Some(mem) = stats.memtable_size_bytes {
+        rocksdb_stats()
+            .with_label_values(&["memtable_size_bytes"])
+            .set(mem as i64);
+    }
+
+    if let Some(keys) = stats.estimate_num_keys {
+        rocksdb_stats()
+            .with_label_values(&["estimate_num_keys"])
+            .set(keys as i64);
+    }
+}
+
+pub fn collect_temp_file_stats(temp_dir: &std::path::Path) {
+    let mut count = 0;
+    let mut total_size = 0u64;
+
+    if let Ok(entries) = std::fs::read_dir(temp_dir) {
+        for entry in entries.flatten() {
+            if let Ok(metadata) = entry.metadata()
+                && metadata.is_file()
+            {
+                count += 1;
+                total_size += metadata.len();
+            }
+        }
+    }
+
+    temp_files_count().set(count);
+    temp_files_size_bytes().set(total_size as i64);
 }
 
 #[cfg(test)]

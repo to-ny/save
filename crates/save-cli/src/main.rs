@@ -15,10 +15,10 @@ struct Cli {
     #[arg(long, env = "S3_ENDPOINT", default_value = "http://localhost:9000")]
     endpoint: String,
 
-    #[arg(long, env = "AWS_ACCESS_KEY_ID", default_value = "saveadmin")]
+    #[arg(long, env = "AWS_ACCESS_KEY_ID", default_value = "test-access-key")]
     access_key: String,
 
-    #[arg(long, env = "AWS_SECRET_ACCESS_KEY", default_value = "savepass")]
+    #[arg(long, env = "AWS_SECRET_ACCESS_KEY", default_value = "test-access-key")]
     secret_key: String,
 }
 

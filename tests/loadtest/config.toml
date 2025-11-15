@@ -24,13 +24,13 @@ hatch_rate = 5
 put_weight = 1
 get_weight = 8
 delete_weight = 1
-list_weight = 0
+list_weight = 1
 
 [scenarios.write_heavy]
 put_weight = 7
 get_weight = 2
 delete_weight = 1
-list_weight = 0
+list_weight = 1
 
 [scenarios.mixed]
 put_weight = 3

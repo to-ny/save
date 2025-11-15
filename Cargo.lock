@@ -3130,6 +3130,7 @@ dependencies = [
  "hex",
  "hmac",
  "http-body-util",
+ "nix",
  "prometheus",
  "roxmltree",
  "save-common",

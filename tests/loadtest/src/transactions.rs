@@ -20,7 +20,7 @@ impl AppState {
 
         Self {
             config,
-            generator: ObjectGenerator::new("loadtest"),
+            generator: ObjectGenerator::new("test-objects"),
             uploaded_keys: Arc::new(tokio::sync::Mutex::new(Vec::new())),
             signer,
         }
@@ -28,9 +28,8 @@ impl AppState {
 }
 
 pub async fn put_object(user: &mut GooseUser) -> TransactionResult {
-    let state = crate::GLOBAL_STATE
-        .get()
-        .expect("Global state not initialized");
+    let state_guard = crate::GLOBAL_STATE.read().await;
+    let state = state_guard.as_ref().expect("Global state not initialized");
 
     let size = state.config.workload.object_sizes.sample();
     let key = state.generator.random_key();
@@ -73,14 +72,14 @@ pub async fn put_object(user: &mut GooseUser) -> TransactionResult {
     let _response = user.request(goose_request).await?;
 
     state.uploaded_keys.lock().await.push(key);
+    drop(state_guard);
 
     Ok(())
 }
 
 pub async fn get_object(user: &mut GooseUser) -> TransactionResult {
-    let state = crate::GLOBAL_STATE
-        .get()
-        .expect("Global state not initialized");
+    let state_guard = crate::GLOBAL_STATE.read().await;
+    let state = state_guard.as_ref().expect("Global state not initialized");
 
     let keys = state.uploaded_keys.lock().await;
     if keys.is_empty() {
@@ -125,14 +124,14 @@ pub async fn get_object(user: &mut GooseUser) -> TransactionResult {
         .build();
 
     let _response = user.request(goose_request).await?;
+    drop(state_guard);
 
     Ok(())
 }
 
 pub async fn delete_object(user: &mut GooseUser) -> TransactionResult {
-    let state = crate::GLOBAL_STATE
-        .get()
-        .expect("Global state not initialized");
+    let state_guard = crate::GLOBAL_STATE.read().await;
+    let state = state_guard.as_ref().expect("Global state not initialized");
 
     let key = {
         let mut keys = state.uploaded_keys.lock().await;
@@ -177,14 +176,14 @@ pub async fn delete_object(user: &mut GooseUser) -> TransactionResult {
         .build();
 
     let _response = user.request(goose_request).await?;
+    drop(state_guard);
 
     Ok(())
 }
 
 pub async fn list_objects(user: &mut GooseUser) -> TransactionResult {
-    let state = crate::GLOBAL_STATE
-        .get()
-        .expect("Global state not initialized");
+    let state_guard = crate::GLOBAL_STATE.read().await;
+    let state = state_guard.as_ref().expect("Global state not initialized");
 
     let uri = format!("/{}", state.config.target.bucket);
     let query = "max-keys=1000";
@@ -221,14 +220,14 @@ pub async fn list_objects(user: &mut GooseUser) -> TransactionResult {
         .build();
 
     let _response = user.request(goose_request).await?;
+    drop(state_guard);
 
     Ok(())
 }
 
 pub async fn head_object(user: &mut GooseUser) -> TransactionResult {
-    let state = crate::GLOBAL_STATE
-        .get()
-        .expect("Global state not initialized");
+    let state_guard = crate::GLOBAL_STATE.read().await;
+    let state = state_guard.as_ref().expect("Global state not initialized");
 
     let keys = state.uploaded_keys.lock().await;
     if keys.is_empty() {
@@ -273,6 +272,7 @@ pub async fn head_object(user: &mut GooseUser) -> TransactionResult {
         .build();
 
     let _response = user.request(goose_request).await?;
+    drop(state_guard);
 
     Ok(())
 }

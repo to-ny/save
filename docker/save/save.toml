@@ -1,0 +1,15 @@
+[server]
+bind_address = "0.0.0.0:9000"
+
+[storage]
+data_path = "/var/lib/save/data"
+metadata_path = "/var/lib/save/metadata"
+gc_interval_secs = 300
+gc_temp_file_max_age_secs = 3600
+
+[shutdown]
+drain_timeout_secs = 30
+
+[credentials]
+access_key = "test-access-key"
+secret_key = "test-secret-key"

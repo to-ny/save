@@ -138,7 +138,7 @@ fn hmac_sha256(key: &[u8], data: &[u8]) -> Vec<u8> {
 
 pub fn create_signed_headers(method: &str, uri: &str, body: &[u8]) -> Vec<(String, String)> {
     let (authorization, amz_date, payload_hash) =
-        sign_request(method, uri, body, "saveadmin", "savepass");
+        sign_request(method, uri, body, "test-access-key", "test-access-key");
 
     vec![
         ("Authorization".to_string(), authorization),
@@ -151,13 +151,13 @@ pub fn create_signed_headers(method: &str, uri: &str, body: &[u8]) -> Vec<(Strin
 pub fn auth_header() -> (&'static str, &'static str) {
     (
         "Authorization",
-        "AWS4-HMAC-SHA256 Credential=saveadmin/20231201/us-east-1/s3/aws4_request, SignedHeaders=host;x-amz-date, Signature=fake",
+        "AWS4-HMAC-SHA256 Credential=test-access-key/20231201/us-east-1/s3/aws4_request, SignedHeaders=host;x-amz-date, Signature=fake",
     )
 }
 
 pub fn request_with_auth<B>(method: &str, uri: &str, body: B) -> Request<B> {
     let (authorization, amz_date, payload_hash) =
-        sign_request(method, uri, &[], "saveadmin", "savepass");
+        sign_request(method, uri, &[], "test-access-key", "test-access-key");
 
     Request::builder()
         .method(method)
@@ -175,8 +175,13 @@ pub fn request_with_auth_and_body(
     uri: &str,
     body_bytes: Vec<u8>,
 ) -> Request<axum::body::Body> {
-    let (authorization, amz_date, payload_hash) =
-        sign_request(method, uri, &body_bytes, "saveadmin", "savepass");
+    let (authorization, amz_date, payload_hash) = sign_request(
+        method,
+        uri,
+        &body_bytes,
+        "test-access-key",
+        "test-access-key",
+    );
 
     Request::builder()
         .method(method)

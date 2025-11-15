@@ -1,3 +1,5 @@
+#![cfg_attr(not(feature = "crash_tests"), allow(unused_imports))]
+
 mod common;
 
 use anyhow::Result;

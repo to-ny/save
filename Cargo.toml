@@ -61,5 +61,5 @@ tower = { version = "0.5", features = ["util"] }
 http-body-util = "0.1"
 tempfile = "3.14"
 fail = "0.5"
-nix = { version = "0.30.1", features = ["signal", "process"] }
+nix = { version = "0.30.1", features = ["signal", "process", "fs"] }
 async-trait = "0.1"

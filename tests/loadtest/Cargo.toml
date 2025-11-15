@@ -2,14 +2,15 @@
 name = "save-loadtest"
 version = "0.1.0"
 edition = "2024"
+publish = false
 
-[[bin]]
-name = "loadtest"
-path = "src/main.rs"
+[lib]
+name = "save_loadtest"
+path = "src/lib.rs"
 
-[[bin]]
-name = "soaktest"
-path = "src/bin/soaktest.rs"
+[features]
+default = []
+load_tests = []
 
 [dependencies]
 goose = { version = "0.18.1", default-features = false, features = ["rustls-tls"] }

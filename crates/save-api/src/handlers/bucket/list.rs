@@ -27,7 +27,7 @@ pub async fn list_buckets(State(state): State<AppState>) -> Result<Response, Api
     info!("Listed {} buckets", bucket_list.len());
 
     // TODO: Extract owner_id from auth context
-    let owner_id = "saveadmin".to_string();
+    let owner_id = "test-access-key".to_string();
     let result = ListAllMyBucketsResult::new(bucket_list, owner_id);
     let xml = result
         .to_xml()

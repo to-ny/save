@@ -63,6 +63,27 @@ async fn main() -> anyhow::Result<()> {
         }
     });
 
+    let metrics_state = state.clone();
+    let mut metrics_shutdown = shutdown_tx.subscribe();
+    info!("Starting metrics collection worker");
+
+    let metrics_handle = tokio::spawn(async move {
+        let mut interval = tokio::time::interval(Duration::from_secs(60));
+        interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+
+        loop {
+            tokio::select! {
+                _ = interval.tick() => {
+                    save_api::collect_metrics(&metrics_state).await;
+                }
+                _ = metrics_shutdown.recv() => {
+                    info!("Metrics collection worker shutting down");
+                    break;
+                }
+            }
+        }
+    });
+
     let request_tracker = Arc::clone(&state.request_tracker);
     let drain_timeout = Duration::from_secs(config.shutdown.drain_timeout_secs);
 
@@ -110,6 +131,7 @@ async fn main() -> anyhow::Result<()> {
         Ok(_) => {
             info!("Server shutdown gracefully");
             let _ = gc_handle.await;
+            let _ = metrics_handle.await;
             Ok(())
         }
         Err(e) => {

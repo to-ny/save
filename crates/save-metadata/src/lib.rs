@@ -14,6 +14,16 @@ pub use save_common::Bucket;
 use std::path::Path;
 use std::sync::Arc;
 
+/// Database statistics for monitoring.
+#[derive(Debug, Clone, Default)]
+pub struct DatabaseStats {
+    pub block_cache_hits: Option<u64>,
+    pub block_cache_misses: Option<u64>,
+    pub memtable_size_bytes: Option<u64>,
+    pub table_readers_mem_bytes: Option<u64>,
+    pub estimate_num_keys: Option<u64>,
+}
+
 pub struct MetadataStore {
     db: Arc<rocksdb::DB>,
 }
@@ -22,6 +32,36 @@ impl MetadataStore {
     pub fn new<P: AsRef<Path>>(path: P) -> Result<Self> {
         let db = rocksdb::DB::open_default(path)?;
         Ok(Self { db: Arc::new(db) })
+    }
+
+    pub fn get_stats(&self) -> DatabaseStats {
+        DatabaseStats {
+            block_cache_hits: self
+                .db
+                .property_int_value("rocksdb.block-cache-hit")
+                .ok()
+                .flatten(),
+            block_cache_misses: self
+                .db
+                .property_int_value("rocksdb.block-cache-miss")
+                .ok()
+                .flatten(),
+            memtable_size_bytes: self
+                .db
+                .property_int_value("rocksdb.cur-size-all-mem-tables")
+                .ok()
+                .flatten(),
+            table_readers_mem_bytes: self
+                .db
+                .property_int_value("rocksdb.estimate-table-readers-mem")
+                .ok()
+                .flatten(),
+            estimate_num_keys: self
+                .db
+                .property_int_value("rocksdb.estimate-num-keys")
+                .ok()
+                .flatten(),
+        }
     }
 
     pub async fn create_bucket(&self, name: &str) -> Result<Bucket> {

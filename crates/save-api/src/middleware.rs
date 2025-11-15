@@ -2,7 +2,8 @@ use axum::{extract::Request, middleware::Next, response::Response};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Instant;
-use tracing::debug;
+use tracing::{Span, debug};
+use uuid::Uuid;
 
 use crate::metrics::{http_request_duration_seconds, http_requests_total};
 
@@ -43,8 +44,31 @@ pub async fn track_requests(
     next: Next,
 ) -> Response {
     state.request_tracker.increment();
+    crate::metrics::in_flight_requests().inc();
+
     let response = next.run(request).await;
+
     state.request_tracker.decrement();
+    crate::metrics::in_flight_requests().dec();
+    response
+}
+
+pub async fn request_id(mut request: Request, next: Next) -> Response {
+    let request_id = request
+        .headers()
+        .get("x-request-id")
+        .and_then(|v| v.to_str().ok())
+        .map(|s| s.to_string())
+        .unwrap_or_else(|| Uuid::new_v4().to_string());
+
+    Span::current().record("request_id", &request_id);
+    request.extensions_mut().insert(request_id.clone());
+
+    let mut response = next.run(request).await;
+    response
+        .headers_mut()
+        .insert("x-request-id", request_id.parse().unwrap());
+
     response
 }
 
@@ -52,6 +76,12 @@ pub async fn track_metrics(request: Request, next: Next) -> Response {
     let start = Instant::now();
     let method = request.method().to_string();
     let endpoint = normalize_endpoint(request.uri().path());
+
+    let request_id = request
+        .extensions()
+        .get::<String>()
+        .cloned()
+        .unwrap_or_else(|| "unknown".to_string());
 
     let response = next.run(request).await;
     let status = response.status().as_u16().to_string();
@@ -66,6 +96,7 @@ pub async fn track_metrics(request: Request, next: Next) -> Response {
         .observe(duration);
 
     debug!(
+        request_id = %request_id,
         endpoint = %endpoint,
         method = %method,
         status = %status,

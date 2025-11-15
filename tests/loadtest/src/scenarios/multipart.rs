@@ -8,9 +8,8 @@ pub fn build_scenario(_config: &LoadTestConfig) -> Scenario {
 }
 
 async fn multipart_upload(user: &mut GooseUser) -> TransactionResult {
-    let state = crate::GLOBAL_STATE
-        .get()
-        .expect("Global state not initialized");
+    let state_guard = crate::GLOBAL_STATE.read().await;
+    let state = state_guard.as_ref().expect("Global state not initialized");
 
     let key = state.generator.random_key();
     let part_size = 5 * 1024 * 1024; // 5MB per part
@@ -144,6 +143,7 @@ async fn multipart_upload(user: &mut GooseUser) -> TransactionResult {
         .build();
 
     let _response = user.request(goose_request).await?;
+    drop(state_guard);
 
     Ok(())
 }

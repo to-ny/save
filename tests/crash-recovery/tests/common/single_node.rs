@@ -195,6 +195,7 @@ fn ensure_binary_built_with_failpoints() -> Result<()> {
     }
 
     println!("Building save-api with failpoints enabled...");
+    // TODO Fails with message = "error: the package 'crash-recovery-tests' does not contain this feature: failpoints"
     let status = Command::new("cargo")
         .args(["build", "--bin", "save-api", "--features", "failpoints"])
         .status()

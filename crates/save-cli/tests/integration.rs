@@ -1,7 +1,9 @@
 use std::process::Command;
 
 fn save_bin() -> Command {
-    let mut cmd = Command::new(env!("CARGO_BIN_EXE_save"));
+    let bin_path = std::env::var("CARGO_BIN_EXE_save-cli")
+        .unwrap_or_else(|_| "target/debug/save-cli".to_string());
+    let mut cmd = Command::new(bin_path);
     cmd.env_remove("S3_ENDPOINT");
     cmd.env_remove("AWS_ACCESS_KEY_ID");
     cmd.env_remove("AWS_SECRET_ACCESS_KEY");

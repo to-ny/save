@@ -143,6 +143,48 @@ impl TestReport {
         Ok(())
     }
 
+    /// Calculate success rate as a fraction (0.0 to 1.0)
+    pub fn success_rate(&self) -> f64 {
+        if self.summary.total_requests == 0 {
+            0.0
+        } else {
+            self.summary.successful_requests as f64 / self.summary.total_requests as f64
+        }
+    }
+
+    /// Get percentile latency in milliseconds
+    pub fn percentile_latency(&self, percentile: f64) -> Option<f64> {
+        match percentile {
+            50.0 => Some(self.summary.latency_p50_ms),
+            95.0 => Some(self.summary.latency_p95_ms),
+            99.0 => Some(self.summary.latency_p99_ms),
+            100.0 => Some(self.summary.latency_max_ms),
+            _ => None,
+        }
+    }
+
+    /// Get requests per second
+    pub fn requests_per_second(&self) -> Option<f64> {
+        if self.summary.requests_per_second > 0.0 {
+            Some(self.summary.requests_per_second)
+        } else {
+            None
+        }
+    }
+
+    /// Convenience accessors for summary fields
+    pub fn total_requests(&self) -> u64 {
+        self.summary.total_requests
+    }
+
+    pub fn successful_requests(&self) -> u64 {
+        self.summary.successful_requests
+    }
+
+    pub fn failed_requests(&self) -> u64 {
+        self.summary.failed_requests
+    }
+
     fn to_markdown(&self) -> String {
         format!(
             "# Load Test Report: {}\n\n\

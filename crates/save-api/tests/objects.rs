@@ -1094,7 +1094,7 @@ mod put {
             "/test-bucket/test-file.txt",
             b"Hello, World!",
             "wrong-key",
-            "savepass",
+            "test-access-key",
         );
 
         let request = Request::builder()

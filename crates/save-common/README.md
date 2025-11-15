@@ -34,8 +34,8 @@ metadata_path = "/var/lib/save/metadata"
 max_object_size = 5368709120
 
 [credentials]
-access_key = "saveadmin"
-secret_key = "savepass"
+access_key = "test-access-key"
+secret_key = "test-access-key"
 ```
 
 ## Testing

@@ -279,6 +279,7 @@ async fn test_delete_object() -> Result<()> {
     Ok(())
 }
 
+// TODO Update assertion based on new implementation
 #[tokio::test]
 async fn test_delete_object_idempotent() -> Result<()> {
     let client = create_client().await;

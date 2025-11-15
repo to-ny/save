@@ -1,22 +1,25 @@
 # Build stage
-FROM rust:1.85-slim AS builder
+FROM rustlang/rust:nightly-slim AS builder
 
 WORKDIR /build
 
 # Install build dependencies
 RUN apt-get update && \
-    apt-get install -y pkg-config libssl-dev && \
+    apt-get install -y pkg-config libssl-dev clang && \
     rm -rf /var/lib/apt/lists/*
 
 # Copy manifests
 COPY Cargo.toml Cargo.lock ./
 COPY crates/ ./crates/
 
+# Remove test workspace members from Cargo.toml
+RUN sed -i '/tests\//d' Cargo.toml
+
 # Build release binary
 RUN cargo build --release --bin save-api
 
 # Runtime stage
-FROM debian:12-slim
+FROM debian:trixie-slim
 
 # Install runtime dependencies
 RUN apt-get update && \
@@ -32,9 +35,6 @@ WORKDIR /app
 
 # Copy binary from builder
 COPY --from=builder /build/target/release/save-api /usr/local/bin/save-api
-
-# Copy example config
-COPY save.toml.example /app/save.toml.example
 
 USER save
 
