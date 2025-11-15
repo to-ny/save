@@ -43,13 +43,20 @@ pub async fn track_requests(
     request: Request,
     next: Next,
 ) -> Response {
-    state.request_tracker.increment();
-    crate::metrics::in_flight_requests().inc();
+    let path = request.uri().path();
+    let should_track = !matches!(path, "/metrics" | "/health" | "/health/ready");
+
+    if should_track {
+        state.request_tracker.increment();
+        crate::metrics::in_flight_requests().inc();
+    }
 
     let response = next.run(request).await;
 
-    state.request_tracker.decrement();
-    crate::metrics::in_flight_requests().dec();
+    if should_track {
+        state.request_tracker.decrement();
+        crate::metrics::in_flight_requests().dec();
+    }
     response
 }
 

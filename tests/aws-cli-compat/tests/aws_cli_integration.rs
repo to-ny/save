@@ -102,7 +102,7 @@ fn check_aws_cli_installed() -> bool {
 
 #[test]
 fn test_cli_create_and_list_buckets() {
-    // TODO Replace skip behavior in all tests for this check to a failure
+    // TODO Replace skip behavior to a failure in all tests using this check
     if !check_aws_cli_installed() {
         eprintln!("Skipping: AWS CLI not installed");
         return;

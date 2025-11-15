@@ -136,25 +136,6 @@ fn hmac_sha256(key: &[u8], data: &[u8]) -> Vec<u8> {
     mac.finalize().into_bytes().to_vec()
 }
 
-pub fn create_signed_headers(method: &str, uri: &str, body: &[u8]) -> Vec<(String, String)> {
-    let (authorization, amz_date, payload_hash) =
-        sign_request(method, uri, body, "test-access-key", "test-access-key");
-
-    vec![
-        ("Authorization".to_string(), authorization),
-        ("x-amz-date".to_string(), amz_date),
-        ("x-amz-content-sha256".to_string(), payload_hash),
-        ("host".to_string(), "localhost:9000".to_string()),
-    ]
-}
-
-pub fn auth_header() -> (&'static str, &'static str) {
-    (
-        "Authorization",
-        "AWS4-HMAC-SHA256 Credential=test-access-key/20231201/us-east-1/s3/aws4_request, SignedHeaders=host;x-amz-date, Signature=fake",
-    )
-}
-
 pub fn request_with_auth<B>(method: &str, uri: &str, body: B) -> Request<B> {
     let (authorization, amz_date, payload_hash) =
         sign_request(method, uri, &[], "test-access-key", "test-access-key");

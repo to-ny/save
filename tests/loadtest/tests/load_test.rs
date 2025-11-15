@@ -135,7 +135,7 @@ async fn test_multipart_workload() -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Quick smoke test with minimal duration (can run without --ignored)
+/// Quick smoke test with minimal duration
 #[tokio::test]
 #[cfg(feature = "load_tests")]
 async fn test_quick_smoke() -> anyhow::Result<()> {

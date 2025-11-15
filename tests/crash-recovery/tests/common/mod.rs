@@ -1,4 +1,4 @@
-#![allow(dead_code)]
+#![cfg_attr(not(feature = "crash_tests"), allow(dead_code))]
 
 pub mod environment;
 pub mod single_node;

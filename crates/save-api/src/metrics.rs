@@ -378,13 +378,19 @@ pub fn collect_temp_file_stats(temp_dir: &std::path::Path) {
     let mut count = 0;
     let mut total_size = 0u64;
 
-    if let Ok(entries) = std::fs::read_dir(temp_dir) {
-        for entry in entries.flatten() {
-            if let Ok(metadata) = entry.metadata()
-                && metadata.is_file()
-            {
-                count += 1;
-                total_size += metadata.len();
+    let mut dirs_to_process = vec![temp_dir.to_path_buf()];
+
+    while let Some(dir) = dirs_to_process.pop() {
+        if let Ok(entries) = std::fs::read_dir(&dir) {
+            for entry in entries.flatten() {
+                if let Ok(metadata) = entry.metadata() {
+                    if metadata.is_file() {
+                        count += 1;
+                        total_size += metadata.len();
+                    } else if metadata.is_dir() {
+                        dirs_to_process.push(entry.path());
+                    }
+                }
             }
         }
     }
