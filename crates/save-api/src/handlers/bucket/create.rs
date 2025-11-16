@@ -31,6 +31,8 @@ pub async fn create_bucket(
             _ => ApiError::internal(format!("Failed to create bucket: {}", e)),
         })?;
 
+    state.bucket_cache.insert(bucket.clone());
+
     info!("Bucket created successfully");
 
     Ok((

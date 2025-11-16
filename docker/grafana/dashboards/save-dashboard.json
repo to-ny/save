@@ -531,7 +531,7 @@
 
           "expr": "(sum by(instance, path) (save_disk_usage_bytes{instance=~\"$instance\", type=\"used\"}) / sum by(instance, path) (save_disk_usage_bytes{instance=~\"$instance\", type=\"total\"})) * 100",
           "legendFormat": "{{instance}}/{{path}}",
-          "refId": "A",
+          "refId": "A"
         }
       ],
       "title": "Disk Usage (%)",

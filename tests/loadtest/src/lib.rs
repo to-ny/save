@@ -44,6 +44,7 @@ pub async fn run_scenario(
     goose_config.no_metrics = false;
     goose_config.no_reset_metrics = false;
     goose_config.no_error_summary = false;
+    goose_config.timeout = Some("120".to_string());
 
     // Build and execute attack
     let metrics = GooseAttack::initialize_with_config(goose_config)?
@@ -60,9 +61,22 @@ pub async fn run_scenario_with_report(
     config: &config::LoadTestConfig,
     report_name: &str,
 ) -> Result<reporting::TestReport> {
+    // Start metrics collection tasks if configured
+    let (prometheus_handle, system_handle, shutdown_tx) = start_metrics_collection(config).await;
+
+    // Run the load test
     let metrics = run_scenario(scenario, config).await?;
 
-    let report = reporting::TestReport::from_goose_metrics(report_name, &metrics, vec![], vec![]);
+    // Stop metrics collection and gather samples
+    let (prometheus_samples, system_samples) =
+        stop_metrics_collection(prometheus_handle, system_handle, shutdown_tx).await;
+
+    let report = reporting::TestReport::from_goose_metrics(
+        report_name,
+        &metrics,
+        prometheus_samples,
+        system_samples,
+    );
 
     // Save reports if configured
     std::fs::create_dir_all(&config.reporting.output_dir)?;
@@ -81,6 +95,98 @@ pub async fn run_scenario_with_report(
     report.save_markdown(&md_path)?;
 
     Ok(report)
+}
+
+/// Start background metrics collection tasks
+async fn start_metrics_collection(
+    config: &config::LoadTestConfig,
+) -> (
+    Option<tokio::task::JoinHandle<Vec<metrics::PrometheusMetrics>>>,
+    Option<tokio::task::JoinHandle<Vec<system_metrics::SystemMetrics>>>,
+    tokio::sync::broadcast::Sender<()>,
+) {
+    let (shutdown_tx, _) = tokio::sync::broadcast::channel(1);
+
+    let prometheus_handle = if let Some(endpoint) = &config.reporting.prometheus_endpoint {
+        let endpoint = endpoint.clone();
+        let mut shutdown_rx = shutdown_tx.subscribe();
+        Some(tokio::spawn(async move {
+            let collector = metrics::MetricsCollector::new(endpoint);
+            let mut samples = Vec::new();
+            let mut interval = tokio::time::interval(std::time::Duration::from_secs(5));
+
+            loop {
+                tokio::select! {
+                    _ = interval.tick() => {
+                        if let Ok(sample) = collector.collect().await {
+                            samples.push(sample);
+                        }
+                    }
+                    _ = shutdown_rx.recv() => {
+                        break;
+                    }
+                }
+            }
+            samples
+        }))
+    } else {
+        None
+    };
+
+    let system_handle = if config.reporting.collect_system_metrics {
+        let mut shutdown_rx = shutdown_tx.subscribe();
+        Some(tokio::spawn(async move {
+            let pid = std::process::id();
+            let mut collector = system_metrics::SystemCollector::new(pid);
+            let mut samples = Vec::new();
+            let mut interval = tokio::time::interval(std::time::Duration::from_secs(5));
+
+            loop {
+                tokio::select! {
+                    _ = interval.tick() => {
+                        if let Some(sample) = collector.collect() {
+                            samples.push(sample);
+                        }
+                    }
+                    _ = shutdown_rx.recv() => {
+                        break;
+                    }
+                }
+            }
+            samples
+        }))
+    } else {
+        None
+    };
+
+    (prometheus_handle, system_handle, shutdown_tx)
+}
+
+/// Stop metrics collection and return collected samples
+async fn stop_metrics_collection(
+    prometheus_handle: Option<tokio::task::JoinHandle<Vec<metrics::PrometheusMetrics>>>,
+    system_handle: Option<tokio::task::JoinHandle<Vec<system_metrics::SystemMetrics>>>,
+    shutdown_tx: tokio::sync::broadcast::Sender<()>,
+) -> (
+    Vec<metrics::PrometheusMetrics>,
+    Vec<system_metrics::SystemMetrics>,
+) {
+    // Signal shutdown to all collection tasks
+    let _ = shutdown_tx.send(());
+
+    let prometheus_samples = if let Some(handle) = prometheus_handle {
+        handle.await.unwrap_or_default()
+    } else {
+        Vec::new()
+    };
+
+    let system_samples = if let Some(handle) = system_handle {
+        handle.await.unwrap_or_default()
+    } else {
+        Vec::new()
+    };
+
+    (prometheus_samples, system_samples)
 }
 
 /// Helper to load config from environment or use default path

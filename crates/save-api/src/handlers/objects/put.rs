@@ -6,14 +6,14 @@ use axum::{
 };
 use futures::TryStreamExt;
 use save_common::{validate_bucket_name, validate_object_key};
-use save_metadata::{MetadataError, ObjectMetadata};
+use save_metadata::ObjectMetadata;
 use sha2::{Digest, Sha256};
 use std::time::Instant;
 use tokio::io::AsyncRead;
 use tokio_util::io::StreamReader;
 use tracing::{debug, info, instrument};
 
-use crate::handlers::ApiError;
+use crate::handlers::{ApiError, validate_bucket_exists};
 use crate::metrics::{atomic_put_operations_total, object_size_bytes};
 use crate::state::AppState;
 
@@ -80,17 +80,7 @@ pub async fn put_object(
         .await
         .map_err(|e| ApiError::internal(format!("Failed to acquire object lock: {}", e)))?;
 
-    state
-        .metadata
-        .get_bucket(&bucket)
-        .await
-        .map_err(|e| match e {
-            MetadataError::BucketNotFound(_) => {
-                debug!("Bucket not found: {}", bucket);
-                ApiError::BucketNotFound(bucket.clone())
-            }
-            _ => ApiError::internal(format!("Metadata error: {}", e)),
-        })?;
+    validate_bucket_exists(&state, &bucket).await?;
 
     let stream = body.into_data_stream().map_err(std::io::Error::other);
     let stream_reader = StreamReader::new(stream);

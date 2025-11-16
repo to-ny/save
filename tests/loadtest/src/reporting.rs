@@ -53,36 +53,36 @@ impl TestReport {
         };
 
         let (p50, p95, p99, max) = {
-            let mut agg_p50 = 0u64;
-            let mut agg_p95 = 0u64;
-            let mut agg_p99 = 0u64;
-            let mut agg_max = 0u64;
-            let mut count = 0;
+            // Collect response times from all requests
+            // The times BTreeMap has: key = response_time_ms, value = count
+            let mut all_times: Vec<usize> = Vec::new();
 
             for req_metric in metrics.requests.values() {
-                if let (Some(p50), Some(p95), Some(p99), Some(max)) = (
-                    req_metric.raw_data.times.get(&50),
-                    req_metric.raw_data.times.get(&95),
-                    req_metric.raw_data.times.get(&99),
-                    req_metric.raw_data.times.get(&100),
-                ) {
-                    agg_p50 += *p50 as u64;
-                    agg_p95 += *p95 as u64;
-                    agg_p99 += *p99 as u64;
-                    agg_max += *max as u64;
-                    count += 1;
+                // Expand the histogram: for each response time, add it N times based on count
+                for (&time_ms, &count) in &req_metric.raw_data.times {
+                    for _ in 0..count {
+                        all_times.push(time_ms);
+                    }
                 }
             }
 
-            if count > 0 {
-                (
-                    agg_p50 / count / 1_000_000,
-                    agg_p95 / count / 1_000_000,
-                    agg_p99 / count / 1_000_000,
-                    agg_max / count / 1_000_000,
-                )
+            if all_times.is_empty() {
+                (0.0, 0.0, 0.0, 0.0)
             } else {
-                (0, 0, 0, 0)
+                all_times.sort_unstable();
+                let len = all_times.len();
+
+                let p50_idx = (len * 50) / 100;
+                let p95_idx = (len * 95) / 100;
+                let p99_idx = (len * 99) / 100;
+
+                // Times are already in milliseconds, no conversion needed
+                let p50 = all_times[p50_idx.min(len - 1)] as f64;
+                let p95 = all_times[p95_idx.min(len - 1)] as f64;
+                let p99 = all_times[p99_idx.min(len - 1)] as f64;
+                let max = all_times[len - 1] as f64;
+
+                (p50, p95, p99, max)
             }
         };
 
@@ -95,10 +95,10 @@ impl TestReport {
                 successful_requests,
                 failed_requests,
                 requests_per_second,
-                latency_p50_ms: p50 as f64,
-                latency_p95_ms: p95 as f64,
-                latency_p99_ms: p99 as f64,
-                latency_max_ms: max as f64,
+                latency_p50_ms: p50,
+                latency_p95_ms: p95,
+                latency_p99_ms: p99,
+                latency_max_ms: max,
             },
             prometheus_samples,
             system_samples,

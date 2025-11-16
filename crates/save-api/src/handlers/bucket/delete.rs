@@ -48,6 +48,8 @@ pub async fn delete_bucket(
         .await
         .map_err(|e| ApiError::internal(format!("Failed to delete bucket: {}", e)))?;
 
+    state.bucket_cache.remove(&bucket);
+
     info!("Bucket deleted successfully");
 
     Ok(StatusCode::NO_CONTENT.into_response())

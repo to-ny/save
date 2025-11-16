@@ -17,8 +17,7 @@ fn init_tracing() {
         .init();
 }
 
-#[tokio::main]
-async fn main() -> anyhow::Result<()> {
+fn main() -> anyhow::Result<()> {
     init_tracing();
 
     let config_path = std::env::var("SAVE_CONFIG").unwrap_or_else(|_| "save.toml".to_string());
@@ -31,11 +30,34 @@ async fn main() -> anyhow::Result<()> {
         SaveConfig::default()
     };
 
+    info!(
+        "Configuring tokio runtime - worker_threads: {}, max_blocking_threads: {}",
+        config.server.worker_threads, config.server.max_blocking_threads
+    );
+
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(config.server.worker_threads)
+        .max_blocking_threads(config.server.max_blocking_threads)
+        .enable_all()
+        .build()?;
+
+    runtime.block_on(async_main_with_config(config))
+}
+
+async fn async_main_with_config(config: SaveConfig) -> anyhow::Result<()> {
+    info!("Starting save object storage server");
+
     info!("Initializing storage at: {}", config.storage.data_path);
     let storage = ObjectStorage::new(&config.storage.data_path).await?;
 
     info!("Initializing metadata at: {}", config.storage.metadata_path);
-    let metadata = MetadataStore::new(&config.storage.metadata_path)?;
+    info!(
+        "Metadata config - write_buffer: {}MB, cache: {}MB, bg_jobs: {}",
+        config.metadata.write_buffer_size_mb,
+        config.metadata.block_cache_size_mb,
+        config.metadata.max_background_jobs
+    );
+    let metadata = MetadataStore::new_with_config(&config.storage.metadata_path, &config.metadata)?;
 
     let bind_addr = config.server.bind_address.clone();
     let state = save_api::AppState::new(storage, metadata, config.clone());
@@ -78,6 +100,31 @@ async fn main() -> anyhow::Result<()> {
                 }
                 _ = metrics_shutdown.recv() => {
                     info!("Metrics collection worker shutting down");
+                    break;
+                }
+            }
+        }
+    });
+
+    let cache_cleanup_state = state.clone();
+    let mut cache_cleanup_shutdown = shutdown_tx.subscribe();
+    let cache_cleanup_interval_secs = config.server.bucket_cache_ttl_secs.max(60);
+    info!(
+        interval_secs = cache_cleanup_interval_secs,
+        "Starting bucket cache cleanup worker"
+    );
+
+    let cache_cleanup_handle = tokio::spawn(async move {
+        let mut interval = tokio::time::interval(Duration::from_secs(cache_cleanup_interval_secs));
+        interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+
+        loop {
+            tokio::select! {
+                _ = interval.tick() => {
+                    cache_cleanup_state.bucket_cache.cleanup_expired();
+                }
+                _ = cache_cleanup_shutdown.recv() => {
+                    info!("Bucket cache cleanup worker shutting down");
                     break;
                 }
             }
@@ -132,6 +179,7 @@ async fn main() -> anyhow::Result<()> {
             info!("Server shutdown gracefully");
             let _ = gc_handle.await;
             let _ = metrics_handle.await;
+            let _ = cache_cleanup_handle.await;
             Ok(())
         }
         Err(e) => {

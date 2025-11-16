@@ -4,10 +4,9 @@ use axum::{
     response::{IntoResponse, Response},
 };
 use save_common::{ListMultipartUploadsResult, S3XmlResponse, validate_bucket_name};
-use save_metadata::MetadataError;
-use tracing::{debug, info, instrument};
+use tracing::{info, instrument};
 
-use crate::handlers::ApiError;
+use crate::handlers::{ApiError, validate_bucket_exists};
 use crate::state::AppState;
 
 #[instrument(skip(state), fields(bucket = %bucket))]
@@ -19,17 +18,7 @@ pub async fn list_multipart_uploads(
 
     validate_bucket_name(&bucket).map_err(|e| ApiError::InvalidRequest(e.to_string()))?;
 
-    state
-        .metadata
-        .get_bucket(&bucket)
-        .await
-        .map_err(|e| match e {
-            MetadataError::BucketNotFound(_) => {
-                debug!("Bucket not found: {}", bucket);
-                ApiError::BucketNotFound(bucket.clone())
-            }
-            _ => ApiError::internal(format!("Failed to get bucket: {}", e)),
-        })?;
+    validate_bucket_exists(&state, &bucket).await?;
 
     let uploads = state
         .metadata

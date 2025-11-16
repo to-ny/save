@@ -455,10 +455,12 @@ mod tests {
 
     #[test]
     fn test_multipart_gauge() {
+        let initial = multipart_uploads_in_progress().get();
+
         multipart_uploads_in_progress().inc();
-        assert_eq!(multipart_uploads_in_progress().get(), 1);
+        assert_eq!(multipart_uploads_in_progress().get(), initial + 1);
 
         multipart_uploads_in_progress().dec();
-        assert_eq!(multipart_uploads_in_progress().get(), 0);
+        assert_eq!(multipart_uploads_in_progress().get(), initial);
     }
 }

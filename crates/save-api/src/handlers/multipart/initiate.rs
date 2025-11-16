@@ -6,13 +6,12 @@ use axum::{
 use save_common::{
     InitiateMultipartUploadResult, S3XmlResponse, validate_bucket_name, validate_object_key,
 };
-use save_metadata::MetadataError;
 use std::time::Instant;
 use tokio::fs;
-use tracing::{debug, info, instrument};
+use tracing::{info, instrument};
 use uuid::Uuid;
 
-use crate::handlers::ApiError;
+use crate::handlers::{ApiError, validate_bucket_exists};
 use crate::state::AppState;
 
 use super::{InitiateQuery, MultipartGaugeGuard, part_path};
@@ -30,17 +29,7 @@ pub async fn initiate_multipart(
     validate_bucket_name(&bucket).map_err(|e| ApiError::InvalidRequest(e.to_string()))?;
     validate_object_key(&key).map_err(|e| ApiError::InvalidRequest(e.to_string()))?;
 
-    state
-        .metadata
-        .get_bucket(&bucket)
-        .await
-        .map_err(|e| match e {
-            MetadataError::BucketNotFound(_) => {
-                debug!("Bucket not found: {}", bucket);
-                ApiError::BucketNotFound(bucket.clone())
-            }
-            _ => ApiError::internal(format!("Metadata error: {}", e)),
-        })?;
+    validate_bucket_exists(&state, &bucket).await?;
 
     let upload_id = Uuid::new_v4().to_string();
 

@@ -29,8 +29,47 @@ pub struct MetadataStore {
 }
 
 impl MetadataStore {
+    /// Creates a new MetadataStore with default configuration.
     pub fn new<P: AsRef<Path>>(path: P) -> Result<Self> {
-        let db = rocksdb::DB::open_default(path)?;
+        Self::new_with_config(path, &save_common::config::MetadataConfig::default())
+    }
+
+    /// Creates a new MetadataStore with custom configuration.
+    pub fn new_with_config<P: AsRef<Path>>(
+        path: P,
+        config: &save_common::config::MetadataConfig,
+    ) -> Result<Self> {
+        let mut opts = rocksdb::Options::default();
+        opts.create_if_missing(true);
+
+        // Performance optimizations for high-throughput workloads
+
+        // Configure write buffer size
+        // Larger write buffers reduce compaction frequency but use more memory
+        opts.set_write_buffer_size(config.write_buffer_size_mb * 1024 * 1024);
+        opts.set_max_write_buffer_number(config.max_write_buffer_number);
+        opts.set_min_write_buffer_number_to_merge(2);
+
+        // Configure block-based table with cache and bloom filters
+        let mut block_opts = rocksdb::BlockBasedOptions::default();
+
+        // Block cache for read performance
+        let cache = rocksdb::Cache::new_lru_cache(config.block_cache_size_mb * 1024 * 1024);
+        block_opts.set_block_cache(&cache);
+
+        // Enable bloom filters for faster key existence checks (10 bits = ~1% false positive rate)
+        block_opts.set_bloom_filter(10.0, false);
+        block_opts.set_block_size(16 * 1024); // 16KB blocks
+        opts.set_block_based_table_factory(&block_opts);
+
+        // Configure parallelism for background compactions
+        opts.set_max_background_jobs(config.max_background_jobs);
+
+        // Enable statistics for monitoring
+        opts.enable_statistics();
+        opts.set_stats_dump_period_sec(300); // Dump stats every 5 minutes
+
+        let db = rocksdb::DB::open(&opts, path)?;
         Ok(Self { db: Arc::new(db) })
     }
 

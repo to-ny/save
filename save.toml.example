@@ -8,6 +8,24 @@ bind_address = "0.0.0.0:9000"
 # Maximum request body size in bytes (100 MB default)
 max_body_size = 104857600
 
+# Tokio runtime worker threads (default: 4)
+# Should generally match CPU core count for best performance
+# Recommendation: Set to number of CPU cores
+worker_threads = 4
+
+# Tokio runtime max blocking threads (default: 512)
+# Used for spawn_blocking tasks (RocksDB operations, fsync, etc.)
+# Increase if you see "blocking operation took too long" warnings
+# Recommendation: 512 for light workloads, 1024+ for heavy concurrent workloads
+max_blocking_threads = 512
+
+# Bucket existence cache TTL in seconds (default: 60)
+# Caches bucket existence checks to avoid repeated DB lookups
+# Lower values = fresher data but more DB load
+# Higher values = less DB load but stale cache after bucket deletion
+# Recommendation: 30-120 seconds depending on bucket creation/deletion frequency
+bucket_cache_ttl_secs = 60
+
 [storage]
 # Path to object data storage
 data_path = "/var/lib/save/data"
@@ -23,6 +41,36 @@ gc_interval_secs = 600
 
 # Maximum age for temp files before GC in seconds (1 hour)
 gc_temp_file_max_age_secs = 3600
+
+[metadata]
+# RocksDB performance tuning options
+# These settings affect memory usage and I/O performance
+# Adjust based on available system resources
+
+# Write buffer size in MB (default: 128)
+# Larger values reduce compaction frequency but use more memory
+# Total write buffer memory = write_buffer_size_mb × max_write_buffer_number
+# Recommendation: 64-128 MB for small servers, 256-512 MB for large servers
+write_buffer_size_mb = 128
+
+# Maximum number of write buffers (default: 4)
+# Total write buffer memory = write_buffer_size_mb × max_write_buffer_number
+# Example: 128 MB × 4 = 512 MB total write buffer memory
+max_write_buffer_number = 4
+
+# Block cache size in MB (default: 256)
+# Critical for read performance. Should be ~25% of available RAM for dedicated servers
+# Recommendation:
+#   - Small servers (2-4 GB RAM): 128-256 MB
+#   - Medium servers (8-16 GB RAM): 512-1024 MB
+#   - Large servers (32+ GB RAM): 2048-4096 MB
+block_cache_size_mb = 256
+
+# Maximum background jobs for compaction/flush (default: 4)
+# Generally should match CPU core count. Higher values increase write throughput
+# but consume more CPU during compactions
+# Recommendation: Match CPU core count (1-16)
+max_background_jobs = 4
 
 [credentials]
 # S3 API access credentials

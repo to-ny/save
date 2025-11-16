@@ -58,7 +58,10 @@ async fn test_soak() -> anyhow::Result<()> {
 
     // Initialize state
     let app_state = Arc::new(save_loadtest::transactions::AppState::new(config.clone()));
-    save_loadtest::GLOBAL_STATE.set(app_state.clone()).ok();
+    {
+        let mut state = save_loadtest::GLOBAL_STATE.write().await;
+        *state = Some(app_state.clone());
+    }
 
     // Build scenario
     let scenario = scenarios::mixed::build_scenario(&config);
@@ -178,7 +181,10 @@ async fn test_soak_short() -> anyhow::Result<()> {
 
     // Simple run without metrics collection
     let app_state = Arc::new(save_loadtest::transactions::AppState::new(config.clone()));
-    save_loadtest::GLOBAL_STATE.set(app_state).ok();
+    {
+        let mut state = save_loadtest::GLOBAL_STATE.write().await;
+        *state = Some(app_state);
+    }
 
     let metrics = GooseAttack::initialize()?
         .register_scenario(scenario)
