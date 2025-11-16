@@ -1,0 +1,308 @@
+name: Load Testing
+
+on:
+  workflow_dispatch:
+    inputs:
+      runner_profile:
+        description: 'GitHub Runner Profile'
+        required: true
+        type: choice
+        options:
+          - small
+          - medium
+          - large
+        default: small
+      workload_profile:
+        description: 'Workload Intensity Profile'
+        required: true
+        type: choice
+        options:
+          - quick-smoke
+          - medium-load
+          - stress-test
+          - soak-test
+        default: quick-smoke
+      server_mode:
+        description: 'Server Mode'
+        required: true
+        type: choice
+        options:
+          - local
+          - external
+        default: local
+      scenario:
+        description: 'Test Scenario(s)'
+        required: true
+        type: choice
+        options:
+          - mixed
+          - read-heavy
+          - write-heavy
+          - multipart
+          - all
+        default: mixed
+      external_endpoint:
+        description: 'External Endpoint (for external mode, e.g., http://your-server:9000)'
+        required: false
+        type: string
+        default: ''
+
+env:
+  RUST_BACKTRACE: 1
+  CARGO_TERM_COLOR: always
+
+jobs:
+  loadtest:
+    name: "Run Load Tests (${{ inputs.runner_profile }} / ${{ inputs.workload_profile }})"
+    runs-on: ${{ fromJson('{"small":"ubuntu-latest","medium":"ubuntu-latest-4-cores","large":"ubuntu-latest-8-cores"}')[inputs.runner_profile] }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Cache Cargo dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
+
+      - name: Determine runner specs
+        id: runner_specs
+        run: |
+          echo "cpu_count=$(nproc)" >> $GITHUB_OUTPUT
+          echo "memory_gb=$(free -g | awk '/^Mem:/{print $2}')" >> $GITHUB_OUTPUT
+          echo "os_version=$(uname -r)" >> $GITHUB_OUTPUT
+          echo "rust_version=$(rustc --version)" >> $GITHUB_OUTPUT
+
+      - name: Configure loadtest endpoint
+        id: configure
+        run: |
+          if [ "${{ inputs.server_mode }}" = "external" ]; then
+            if [ -z "${{ inputs.external_endpoint }}" ]; then
+              echo "Error: External endpoint must be provided for external mode"
+              exit 1
+            fi
+            echo "endpoint=${{ inputs.external_endpoint }}" >> $GITHUB_OUTPUT
+          else
+            echo "endpoint=http://localhost:9000" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Build save server (local mode)
+        if: inputs.server_mode == 'local'
+        run: |
+          cargo build --package save-cli --release
+
+      - name: Start save server (local mode)
+        if: inputs.server_mode == 'local'
+        run: |
+          # Create temporary directory for server data
+          mkdir -p /tmp/save-server-data
+
+          # Start server in background
+          nohup ./target/release/save-cli \
+            --port 9000 \
+            --data-dir /tmp/save-server-data \
+            > /tmp/save-server.log 2>&1 &
+
+          echo $! > /tmp/save-server.pid
+
+          # Wait for server to be ready
+          for i in {1..30}; do
+            if curl -sf http://localhost:9000/health > /dev/null 2>&1; then
+              echo "Server is ready!"
+              break
+            fi
+            echo "Waiting for server to start... ($i/30)"
+            sleep 2
+          done
+
+          # Verify server is running
+          if ! curl -sf http://localhost:9000/health > /dev/null 2>&1; then
+            echo "Server failed to start. Logs:"
+            cat /tmp/save-server.log
+            exit 1
+          fi
+
+      - name: Create test bucket
+        if: inputs.server_mode == 'local'
+        run: |
+          # Create bucket using AWS CLI or direct API call
+          curl -X PUT http://localhost:9000/loadtest \
+            -H "x-amz-date: $(date -u +'%Y%m%dT%H%M%SZ')"
+
+      - name: Copy and configure loadtest profile
+        run: |
+          # Copy selected profile
+          cp .github/loadtest-profiles/${{ inputs.workload_profile }}.toml tests/loadtest/config-gh.toml
+
+          # Update endpoint if using external mode
+          if [ "${{ inputs.server_mode }}" = "external" ]; then
+            sed -i 's|endpoint = ".*"|endpoint = "${{ steps.configure.outputs.endpoint }}"|' tests/loadtest/config-gh.toml
+            sed -i 's|prometheus_endpoint = ".*"|prometheus_endpoint = "${{ steps.configure.outputs.endpoint }}/metrics"|' tests/loadtest/config-gh.toml
+          fi
+
+      - name: Build loadtest suite
+        run: |
+          cargo build --package save-loadtest --features load_tests --release
+
+      - name: Run load tests
+        id: run_tests
+        env:
+          LOADTEST_CONFIG: tests/loadtest/config-gh.toml
+          RUST_LOG: info
+        run: |
+          # Determine which scenarios to run
+          SCENARIOS="${{ inputs.scenario }}"
+
+          # Create output directory
+          mkdir -p loadtest-results
+
+          # Run tests based on scenario selection
+          if [ "$SCENARIOS" = "all" ]; then
+            cargo test --package save-loadtest --features load_tests --release -- --nocapture
+          else
+            cargo test --package save-loadtest --features load_tests --release test_${SCENARIOS}_workload -- --nocapture
+          fi
+
+          # Capture test exit code
+          TEST_EXIT=$?
+          echo "test_exit_code=$TEST_EXIT" >> $GITHUB_OUTPUT
+
+          # Continue even if tests fail (we still want reports)
+          exit 0
+
+      - name: Generate environment metadata
+        if: always()
+        run: |
+          # Get git commit info
+          GIT_COMMIT=$(git rev-parse HEAD)
+          GIT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
+
+          # Create environment metadata JSON
+          cat > loadtest-results/environment.json <<EOF
+          {
+            "timestamp": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+            "git_commit": "$GIT_COMMIT",
+            "git_branch": "$GIT_BRANCH",
+            "runner_profile": "${{ inputs.runner_profile }}",
+            "workload_profile": "${{ inputs.workload_profile }}",
+            "server_mode": "${{ inputs.server_mode }}",
+            "scenario": "${{ inputs.scenario }}",
+            "endpoint": "${{ steps.configure.outputs.endpoint }}",
+            "runner_specs": {
+              "os": "ubuntu",
+              "os_version": "${{ steps.runner_specs.outputs.os_version }}",
+              "cpu_count": ${{ steps.runner_specs.outputs.cpu_count }},
+              "memory_gb": ${{ steps.runner_specs.outputs.memory_gb }},
+              "rust_version": "${{ steps.runner_specs.outputs.rust_version }}"
+            }
+          }
+          EOF
+
+      - name: Organize reports
+        if: always()
+        run: |
+          # Create timestamped directory structure
+          REPORT_DATE=$(date -u +%Y-%m-%d)
+          REPORT_TIME=$(date -u +%H%M%S)
+          REPORT_DIR="reports/loadtest/$REPORT_DATE/${{ inputs.scenario }}-${{ inputs.workload_profile }}-$REPORT_TIME"
+
+          mkdir -p "$REPORT_DIR"
+
+          # Move all generated reports
+          if [ -d "loadtest-results" ]; then
+            mv loadtest-results/* "$REPORT_DIR/" 2>/dev/null || true
+          fi
+
+          # Move environment metadata
+          if [ -f "loadtest-results/environment.json" ]; then
+            mv loadtest-results/environment.json "$REPORT_DIR/"
+          fi
+
+          # Save report path for later steps
+          echo "$REPORT_DIR" > /tmp/report_path.txt
+
+      - name: Update report index
+        if: always()
+        run: |
+          REPORT_DIR=$(cat /tmp/report_path.txt)
+          INDEX_FILE="reports/loadtest/INDEX.md"
+
+          # Create index if it doesn't exist
+          if [ ! -f "$INDEX_FILE" ]; then
+            cat > "$INDEX_FILE" <<EOF
+          # Load Test Reports
+
+          This directory contains all load test execution reports.
+
+          ## Recent Runs
+
+          | Date | Profile | Scenario | Runner | Mode | Reports |
+          |------|---------|----------|--------|------|---------|
+          EOF
+          fi
+
+          # Add new entry to index
+          REPORT_DATE=$(date -u +%Y-%m-%d)
+          REPORT_TIME=$(date -u +%H:%M:%S)
+
+          # Insert new row after header (line 7)
+          sed -i "7i| $REPORT_DATE $REPORT_TIME | ${{ inputs.workload_profile }} | ${{ inputs.scenario }} | ${{ inputs.runner_profile }} | ${{ inputs.server_mode }} | [View]($REPORT_DIR) |" "$INDEX_FILE"
+
+      - name: Commit reports to repository
+        if: always()
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          REPORT_DIR=$(cat /tmp/report_path.txt)
+
+          git add "$REPORT_DIR"
+          git add reports/loadtest/INDEX.md
+
+          git commit -m "Add loadtest report: ${{ inputs.scenario }} (${{ inputs.workload_profile }}, ${{ inputs.runner_profile }})
+
+          - Workload: ${{ inputs.workload_profile }}
+          - Scenario: ${{ inputs.scenario }}
+          - Runner: ${{ inputs.runner_profile }}
+          - Mode: ${{ inputs.server_mode }}
+          - Commit: ${{ github.sha }}
+
+          Generated by GitHub Actions workflow run: ${{ github.run_id }}"
+
+          git push
+
+      - name: Upload reports as artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: loadtest-reports-${{ inputs.scenario }}-${{ inputs.workload_profile }}-${{ github.run_number }}
+          path: reports/loadtest/
+          retention-days: 90
+
+      - name: Stop save server (local mode)
+        if: always() && inputs.server_mode == 'local'
+        run: |
+          if [ -f /tmp/save-server.pid ]; then
+            kill $(cat /tmp/save-server.pid) || true
+          fi
+
+          # Show server logs for debugging
+          if [ -f /tmp/save-server.log ]; then
+            echo "=== Server Logs ==="
+            cat /tmp/save-server.log
+          fi
+
+      - name: Report test results
+        if: always()
+        run: |
+          if [ "${{ steps.run_tests.outputs.test_exit_code }}" != "0" ]; then
+            echo "⚠️ Load tests completed with failures. Check reports for details."
+            exit 1
+          else
+            echo "✅ Load tests completed successfully!"
+          fi

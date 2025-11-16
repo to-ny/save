@@ -61,6 +61,16 @@ pub async fn run_scenario_with_report(
     config: &config::LoadTestConfig,
     report_name: &str,
 ) -> Result<reporting::TestReport> {
+    run_scenario_with_report_and_env(scenario, config, report_name, None).await
+}
+
+/// Run a scenario with custom environment specification
+pub async fn run_scenario_with_report_and_env(
+    scenario: Scenario,
+    config: &config::LoadTestConfig,
+    report_name: &str,
+    env_spec: Option<reporting::EnvironmentSpec>,
+) -> Result<reporting::TestReport> {
     // Start metrics collection tasks if configured
     let (prometheus_handle, system_handle, shutdown_tx) = start_metrics_collection(config).await;
 
@@ -71,11 +81,17 @@ pub async fn run_scenario_with_report(
     let (prometheus_samples, system_samples) =
         stop_metrics_collection(prometheus_handle, system_handle, shutdown_tx).await;
 
-    let report = reporting::TestReport::from_goose_metrics(
+    // Use provided environment spec or detect automatically
+    let environment = env_spec.unwrap_or_else(|| {
+        reporting::EnvironmentSpec::detect().with_endpoint(config.target.endpoint.clone())
+    });
+
+    let report = reporting::TestReport::from_goose_metrics_with_env(
         report_name,
         &metrics,
         prometheus_samples,
         system_samples,
+        environment,
     );
 
     // Save reports if configured
