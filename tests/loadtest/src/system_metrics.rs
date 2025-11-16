@@ -22,7 +22,7 @@ pub struct SystemCollector {
 
 impl SystemCollector {
     pub fn new(pid: u32) -> Self {
-        let refresh_kind = RefreshKind::new()
+        let refresh_kind = RefreshKind::nothing()
             .with_cpu(CpuRefreshKind::everything())
             .with_memory(MemoryRefreshKind::everything())
             .with_processes(ProcessRefreshKind::everything());

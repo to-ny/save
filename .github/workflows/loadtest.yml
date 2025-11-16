@@ -94,18 +94,53 @@ jobs:
       - name: Build save server (local mode)
         if: inputs.server_mode == 'local'
         run: |
-          cargo build --package save-cli --release
+          cargo build --package save-api --release
+
+      - name: Create server configuration (local mode)
+        if: inputs.server_mode == 'local'
+        run: |
+          # Create temporary directories for server data
+          mkdir -p /tmp/save-server-data/data
+          mkdir -p /tmp/save-server-data/metadata
+
+          # Create save.toml config file
+          cat > /tmp/save.toml <<EOF
+          [server]
+          bind_address = "0.0.0.0:9000"
+          worker_threads = 4
+          max_blocking_threads = 512
+          bucket_cache_ttl_secs = 60
+
+          [storage]
+          data_path = "/tmp/save-server-data/data"
+          metadata_path = "/tmp/save-server-data/metadata"
+          gc_interval_secs = 600
+          gc_temp_file_max_age_secs = 3600
+
+          [metadata]
+          write_buffer_size_mb = 64
+          max_write_buffer_number = 2
+          block_cache_size_mb = 128
+          max_background_jobs = 2
+
+          [credentials]
+          access_key = "test-access-key"
+          secret_key = "test-secret-key"
+
+          [limits]
+          max_concurrent_requests = 1000
+          requests_per_second = 1000
+          request_timeout_secs = 300
+
+          [shutdown]
+          drain_timeout_secs = 30
+          EOF
 
       - name: Start save server (local mode)
         if: inputs.server_mode == 'local'
         run: |
-          # Create temporary directory for server data
-          mkdir -p /tmp/save-server-data
-
-          # Start server in background
-          nohup ./target/release/save-cli \
-            --port 9000 \
-            --data-dir /tmp/save-server-data \
+          # Start server in background with config
+          SAVE_CONFIG=/tmp/save.toml nohup ./target/release/save-api \
             > /tmp/save-server.log 2>&1 &
 
           echo $! > /tmp/save-server.pid
