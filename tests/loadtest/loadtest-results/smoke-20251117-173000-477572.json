@@ -1,0 +1,176 @@
+{
+  "metadata": {
+    "test_name": "smoke",
+    "start_time": "2025-11-17T17:29:35.477559622Z",
+    "end_time": "2025-11-17T17:30:00.477559622Z",
+    "target": {
+      "endpoint": "http://195.201.2.225:9000/",
+      "deployment_mode": {
+        "type": "remote",
+        "server_type": "cpx31"
+      },
+      "resources": {
+        "vcpu": 4,
+        "memory_gb": 8,
+        "os": "Linux",
+        "os_version": "Ubuntu 24.04"
+      },
+      "build_info": {
+        "rust_version": "rustc 1.91.0",
+        "save_version": "0.1.0",
+        "git_commit": "8c9ad717809f7cb53df7bc1b832fa01b1b98fb90",
+        "git_branch": "main"
+      }
+    }
+  },
+  "execution": {
+    "total_requests": 2,
+    "successful_requests": 2,
+    "failed_requests": 0,
+    "requests_per_second": 0.08,
+    "latency": {
+      "p50_ms": 66000.0,
+      "p95_ms": 66000.0,
+      "p99_ms": 66000.0,
+      "max_ms": 66000.0
+    }
+  },
+  "observability": {
+    "prometheus_samples": [],
+    "system_samples": [
+      {
+        "timestamp": "2025-11-17T17:28:26.627469951Z",
+        "cpu_percent": 0.0,
+        "memory_mb": 31.65625,
+        "disk_read_mb": 0.0,
+        "disk_write_mb": 0.0
+      },
+      {
+        "timestamp": "2025-11-17T17:28:54.116623428Z",
+        "cpu_percent": 97.08284759521484,
+        "memory_mb": 141.78125,
+        "disk_read_mb": 0.0,
+        "disk_write_mb": 0.0
+      },
+      {
+        "timestamp": "2025-11-17T17:28:54.116725430Z",
+        "cpu_percent": 0.0,
+        "memory_mb": 141.78125,
+        "disk_read_mb": 0.0,
+        "disk_write_mb": 0.0
+      },
+      {
+        "timestamp": "2025-11-17T17:28:54.116813132Z",
+        "cpu_percent": 0.0,
+        "memory_mb": 141.78125,
+        "disk_read_mb": 0.0,
+        "disk_write_mb": 0.0
+      },
+      {
+        "timestamp": "2025-11-17T17:28:54.116905034Z",
+        "cpu_percent": 0.0,
+        "memory_mb": 141.78125,
+        "disk_read_mb": 0.0,
+        "disk_write_mb": 0.0
+      },
+      {
+        "timestamp": "2025-11-17T17:28:54.116995536Z",
+        "cpu_percent": 0.0,
+        "memory_mb": 141.78125,
+        "disk_read_mb": 0.0,
+        "disk_write_mb": 0.0
+      },
+      {
+        "timestamp": "2025-11-17T17:28:56.627345338Z",
+        "cpu_percent": 0.3976143002510071,
+        "memory_mb": 141.78125,
+        "disk_read_mb": 0.0,
+        "disk_write_mb": 0.0
+      },
+      {
+        "timestamp": "2025-11-17T17:29:01.627511054Z",
+        "cpu_percent": 0.0,
+        "memory_mb": 141.78125,
+        "disk_read_mb": 0.0,
+        "disk_write_mb": 0.0
+      },
+      {
+        "timestamp": "2025-11-17T17:29:06.627513665Z",
+        "cpu_percent": 0.19960080087184906,
+        "memory_mb": 141.78125,
+        "disk_read_mb": 0.0,
+        "disk_write_mb": 0.0
+      },
+      {
+        "timestamp": "2025-11-17T17:29:11.627431812Z",
+        "cpu_percent": 0.19980019330978394,
+        "memory_mb": 131.82421875,
+        "disk_read_mb": 0.0,
+        "disk_write_mb": 0.0
+      },
+      {
+        "timestamp": "2025-11-17T17:29:16.626975233Z",
+        "cpu_percent": 0.0,
+        "memory_mb": 131.82421875,
+        "disk_read_mb": 0.0,
+        "disk_write_mb": 0.0
+      },
+      {
+        "timestamp": "2025-11-17T17:29:21.627619878Z",
+        "cpu_percent": 0.0,
+        "memory_mb": 131.82421875,
+        "disk_read_mb": 0.0,
+        "disk_write_mb": 0.0
+      },
+      {
+        "timestamp": "2025-11-17T17:29:26.627151130Z",
+        "cpu_percent": 0.20020020008087158,
+        "memory_mb": 131.82421875,
+        "disk_read_mb": 0.0,
+        "disk_write_mb": 0.0
+      },
+      {
+        "timestamp": "2025-11-17T17:29:31.627100664Z",
+        "cpu_percent": 0.0,
+        "memory_mb": 131.82421875,
+        "disk_read_mb": 0.0,
+        "disk_write_mb": 0.0
+      },
+      {
+        "timestamp": "2025-11-17T17:29:36.627712306Z",
+        "cpu_percent": 0.19910402595996857,
+        "memory_mb": 131.82421875,
+        "disk_read_mb": 0.0,
+        "disk_write_mb": 0.0
+      },
+      {
+        "timestamp": "2025-11-17T17:29:41.627504484Z",
+        "cpu_percent": 0.0,
+        "memory_mb": 131.82421875,
+        "disk_read_mb": 0.0,
+        "disk_write_mb": 0.0
+      },
+      {
+        "timestamp": "2025-11-17T17:29:46.627540483Z",
+        "cpu_percent": 0.0,
+        "memory_mb": 131.82421875,
+        "disk_read_mb": 0.0,
+        "disk_write_mb": 0.0
+      },
+      {
+        "timestamp": "2025-11-17T17:29:51.627489229Z",
+        "cpu_percent": 0.19880715012550354,
+        "memory_mb": 131.82421875,
+        "disk_read_mb": 0.0,
+        "disk_write_mb": 0.0
+      },
+      {
+        "timestamp": "2025-11-17T17:29:56.627534161Z",
+        "cpu_percent": 0.0,
+        "memory_mb": 131.82421875,
+        "disk_read_mb": 0.0,
+        "disk_write_mb": 0.0
+      }
+    ]
+  }
+}

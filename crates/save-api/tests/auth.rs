@@ -171,3 +171,35 @@ fn test_credentials_debug_redacted() {
         debug_output
     );
 }
+
+#[tokio::test]
+async fn test_create_bucket_with_valid_auth() {
+    let (state, _temp_dir) = common::setup_empty().await;
+    let app = save_api::app(state);
+
+    let (authorization, amz_date, payload_hash) = sign_request(
+        "PUT",
+        "/testbucket",
+        b"",
+        "test-access-key",
+        "test-secret-key",
+    );
+
+    let request = axum::http::Request::builder()
+        .method("PUT")
+        .uri("/testbucket")
+        .header("Authorization", authorization)
+        .header("x-amz-date", amz_date)
+        .header("x-amz-content-sha256", payload_hash)
+        .header("host", "localhost:9000")
+        .body(Body::empty())
+        .unwrap();
+
+    let response = app.oneshot(request).await.unwrap();
+
+    assert_eq!(
+        response.status(),
+        StatusCode::OK,
+        "Expected bucket creation to succeed with valid auth"
+    );
+}

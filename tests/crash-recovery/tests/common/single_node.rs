@@ -23,7 +23,7 @@ pub struct SingleNodeEnv {
 
 impl SingleNodeEnv {
     async fn wait_ready(&self) -> Result<()> {
-        let url = format!("http://127.0.0.1:{}/health", self.port);
+        let url = format!("http://0.0.0.0:{}/health", self.port);
         let start = Instant::now();
 
         loop {
@@ -49,7 +49,7 @@ impl TestEnvironment for SingleNodeEnv {
         let config = format!(
             r#"
 [server]
-bind_address = "127.0.0.1:{}"
+bind_address = "0.0.0.0:{}"
 
 [storage]
 data_path = "{}/data"
@@ -81,7 +81,7 @@ secret_key = "test-secret-key"
             .spawn()
             .context("Failed to spawn save-api")?;
 
-        let client = create_client(&format!("http://127.0.0.1:{}", port)).await;
+        let client = create_client(&format!("http://0.0.0.0:{}", port)).await;
 
         let data_path = data_dir.path().join("data");
         let metadata_path = data_dir.path().join("metadata");
@@ -176,7 +176,7 @@ impl Drop for SingleNodeEnv {
 
 fn find_free_port() -> Result<u16> {
     use std::net::TcpListener;
-    let listener = TcpListener::bind("127.0.0.1:0")?;
+    let listener = TcpListener::bind("0.0.0.0:0")?;
     Ok(listener.local_addr()?.port())
 }
 

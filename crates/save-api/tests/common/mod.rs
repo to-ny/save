@@ -138,7 +138,7 @@ fn hmac_sha256(key: &[u8], data: &[u8]) -> Vec<u8> {
 
 pub fn request_with_auth<B>(method: &str, uri: &str, body: B) -> Request<B> {
     let (authorization, amz_date, payload_hash) =
-        sign_request(method, uri, &[], "test-access-key", "test-access-key");
+        sign_request(method, uri, &[], "test-access-key", "test-secret-key");
 
     Request::builder()
         .method(method)
@@ -161,7 +161,7 @@ pub fn request_with_auth_and_body(
         uri,
         &body_bytes,
         "test-access-key",
-        "test-access-key",
+        "test-secret-key",
     );
 
     Request::builder()

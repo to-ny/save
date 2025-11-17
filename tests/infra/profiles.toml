@@ -1,0 +1,29 @@
+# Load Test Infrastructure Profiles
+# Hetzner Cloud CPX series (AMD EPYC, NVMe)
+
+[smoke]
+name = "smoke"
+server_type = "cpx11"
+vcpu = 2
+ram_gb = 2
+disk_gb = 40
+price_monthly_eur = 4.15
+use_case = "Quick validation, CI smoke tests"
+
+[medium]
+name = "medium"
+server_type = "cpx31"
+vcpu = 4
+ram_gb = 8
+disk_gb = 160
+price_monthly_eur = 13.90
+use_case = "Realistic workloads, comparable to MinIO small deployments"
+
+[large]
+name = "large"
+server_type = "cpx41"
+vcpu = 8
+ram_gb = 16
+disk_gb = 240
+price_monthly_eur = 26.90
+use_case = "Stress testing, high-concurrency scenarios"

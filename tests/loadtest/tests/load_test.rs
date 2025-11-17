@@ -37,13 +37,12 @@ async fn test_mixed_workload() -> anyhow::Result<()> {
     );
 
     // P95 latency should be reasonable (< 1 second for local testing)
-    if let Some(p95) = report.percentile_latency(95.0) {
-        assert!(
-            p95 < 1000.0,
-            "P95 latency {:.2}ms exceeds 1000ms threshold",
-            p95
-        );
-    }
+    let p95 = report.execution.latency.p95_ms;
+    assert!(
+        p95 < 1000.0,
+        "P95 latency {:.2}ms exceeds 1000ms threshold",
+        p95
+    );
 
     println!("\n✅ Mixed workload test passed");
     println!("   Success rate: {:.2}%", success_rate * 100.0);

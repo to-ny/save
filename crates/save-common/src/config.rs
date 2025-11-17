@@ -64,6 +64,9 @@ pub struct StorageConfig {
     pub gc_interval_secs: u64,
     #[serde(default = "default_gc_temp_file_max_age_secs")]
     pub gc_temp_file_max_age_secs: u64,
+    /// Fsync mode: "full", "data" (default), or "none"
+    #[serde(default = "default_fsync_mode")]
+    pub fsync_mode: String,
 }
 
 fn default_gc_interval_secs() -> u64 {
@@ -72,6 +75,10 @@ fn default_gc_interval_secs() -> u64 {
 
 fn default_gc_temp_file_max_age_secs() -> u64 {
     60 * 60 // 1 hour
+}
+
+fn default_fsync_mode() -> String {
+    "data".to_string()
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -259,7 +266,7 @@ impl Default for SaveConfig {
     fn default() -> Self {
         Self {
             server: ServerConfig {
-                bind_address: "127.0.0.1:9000".to_string(),
+                bind_address: "0.0.0.0:9000".to_string(),
                 max_body_size: default_max_body_size(),
                 worker_threads: default_worker_threads(),
                 max_blocking_threads: default_max_blocking_threads(),
@@ -271,11 +278,12 @@ impl Default for SaveConfig {
                 max_object_size: Some(5 * 1024 * 1024 * 1024),
                 gc_interval_secs: default_gc_interval_secs(),
                 gc_temp_file_max_age_secs: default_gc_temp_file_max_age_secs(),
+                fsync_mode: default_fsync_mode(),
             },
             metadata: MetadataConfig::default(),
             credentials: CredentialsConfig {
                 access_key: "test-access-key".to_string(),
-                secret_key: "test-access-key".to_string(),
+                secret_key: "test-secret-key".to_string(),
             },
             limits: LimitsConfig::default(),
             shutdown: ShutdownConfig::default(),

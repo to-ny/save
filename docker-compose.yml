@@ -13,6 +13,7 @@ services:
     environment:
       - SAVE_CONFIG=/app/save.toml
       - RUST_LOG=save_api=info,save_storage=info,save_metadata=info
+      - LOG_FORMAT=json
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:9000/health"]
       interval: 10s
@@ -22,6 +23,12 @@ services:
     networks:
       - save-network
     restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+        labels: "service,environment"
 
   # Prometheus - Metrics collection and alerting
   prometheus:
@@ -85,6 +92,37 @@ services:
     restart: unless-stopped
     depends_on:
       - prometheus
+      - loki
+
+  # TODO Review log monitoring/browsing solution
+  # Loki - Log aggregation
+  loki:
+    image: grafana/loki:3.0.0
+    container_name: loki
+    ports:
+      - "3100:3100"
+    volumes:
+      - ./docker/loki/loki-config.yml:/etc/loki/local-config.yaml:ro
+      - loki-data:/loki
+    command: -config.file=/etc/loki/local-config.yaml
+    networks:
+      - save-network
+    restart: unless-stopped
+
+  # Promtail - Log shipper for Loki
+  promtail:
+    image: grafana/promtail:3.0.0
+    container_name: promtail
+    volumes:
+      - ./docker/promtail/promtail-config.yml:/etc/promtail/config.yml:ro
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    command: -config.file=/etc/promtail/config.yml
+    networks:
+      - save-network
+    restart: unless-stopped
+    depends_on:
+      - loki
 
 networks:
   save-network:
@@ -96,3 +134,4 @@ volumes:
   prometheus-data:
   alertmanager-data:
   grafana-data:
+  loki-data:

@@ -1,11 +1,17 @@
 use crate::config::LoadTestConfig;
 use crate::transactions::*;
 use goose::prelude::*;
+use std::sync::Arc;
 
 pub fn build_scenario(config: &LoadTestConfig) -> Scenario {
     let weights = &config.scenarios.read_heavy;
+    let shared_keys = Arc::new(tokio::sync::Mutex::new(Vec::new()));
+    let config_clone = config.clone();
 
     scenario!("ReadHeavy")
+        .register_transaction(
+            Transaction::new(Arc::new(setup_user(config_clone, shared_keys))).set_name("Setup"),
+        )
         .register_transaction(
             transaction!(put_object)
                 .set_name("PUT")

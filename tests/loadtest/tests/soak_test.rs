@@ -56,13 +56,6 @@ async fn test_soak() -> anyhow::Result<()> {
     println!("   Users: {}", users);
     println!("   Metrics interval: {}s", metrics_interval_secs);
 
-    // Initialize state
-    let app_state = Arc::new(save_loadtest::transactions::AppState::new(config.clone()));
-    {
-        let mut state = save_loadtest::GLOBAL_STATE.write().await;
-        *state = Some(app_state.clone());
-    }
-
     // Build scenario
     let scenario = scenarios::mixed::build_scenario(&config);
 
@@ -71,7 +64,10 @@ async fn test_soak() -> anyhow::Result<()> {
     let system_samples = Arc::new(tokio::sync::Mutex::new(Vec::new()));
 
     let metrics_task = if let Some(prom_endpoint) = &config.reporting.prometheus_endpoint {
-        let collector = save_loadtest::metrics::MetricsCollector::new(prom_endpoint.clone());
+        let collector = match save_loadtest::metrics::MetricsCollector::new(prom_endpoint.clone()) {
+            Ok(c) => c,
+            Err(_) => return Ok(()),
+        };
         let prom_samples = prometheus_samples.clone();
         let sys_samples = system_samples.clone();
         let collect_sys = config.reporting.collect_system_metrics;
@@ -118,25 +114,19 @@ async fn test_soak() -> anyhow::Result<()> {
     }
 
     // Generate report
+    let target =
+        save_loadtest::reporting::TargetEnvironment::detect(config.target.endpoint.clone())?;
     let report = TestReport::from_goose_metrics(
         "soak-test",
         &metrics,
+        target,
         prometheus_samples.lock().await.clone(),
         system_samples.lock().await.clone(),
     );
 
     // Save reports
-    std::fs::create_dir_all(&config.reporting.output_dir)?;
-
-    let timestamp = chrono::Utc::now().format("%Y%m%d-%H%M%S");
-    let json_path = format!(
-        "{}/soaktest-{}.json",
-        config.reporting.output_dir, timestamp
-    );
-    report.save_json(&json_path)?;
-
-    let md_path = format!("{}/soaktest-{}.md", config.reporting.output_dir, timestamp);
-    report.save_markdown(&md_path)?;
+    let writer = save_loadtest::reporting::ReportWriter::new(config.reporting.output_dir.clone());
+    let paths = writer.save(&report)?;
 
     // Assert soak test requirements
     assert!(report.total_requests() > 0, "No requests were made");
@@ -157,8 +147,9 @@ async fn test_soak() -> anyhow::Result<()> {
     println!("   Total requests: {}", report.total_requests());
     println!("   Duration: {}s", duration_secs);
     println!("\n📊 Reports saved:");
-    println!("   {}", json_path);
-    println!("   {}", md_path);
+    for path in &paths {
+        println!("   {}", path.display());
+    }
 
     Ok(())
 }
@@ -180,12 +171,6 @@ async fn test_soak_short() -> anyhow::Result<()> {
     let scenario = scenarios::mixed::build_scenario(&config);
 
     // Simple run without metrics collection
-    let app_state = Arc::new(save_loadtest::transactions::AppState::new(config.clone()));
-    {
-        let mut state = save_loadtest::GLOBAL_STATE.write().await;
-        *state = Some(app_state);
-    }
-
     let metrics = GooseAttack::initialize()?
         .register_scenario(scenario)
         .set_default(GooseDefault::Host, config.target.endpoint.as_str())?
@@ -193,7 +178,9 @@ async fn test_soak_short() -> anyhow::Result<()> {
         .execute()
         .await?;
 
-    let report = TestReport::from_goose_metrics("soak-short", &metrics, vec![], vec![]);
+    let target =
+        save_loadtest::reporting::TargetEnvironment::detect(config.target.endpoint.clone())?;
+    let report = TestReport::from_goose_metrics("soak-short", &metrics, target, vec![], vec![]);
 
     assert!(report.total_requests() > 0);
 

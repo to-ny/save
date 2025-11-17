@@ -1,45 +1,62 @@
 use crate::config::LoadTestConfig;
 use crate::signing::sha256_hex;
+use crate::transactions::setup_user;
 use goose::prelude::*;
+use std::sync::Arc;
+use url::Url;
 
-pub fn build_scenario(_config: &LoadTestConfig) -> Scenario {
+pub fn build_scenario(config: &LoadTestConfig) -> Scenario {
+    let shared_keys = Arc::new(tokio::sync::Mutex::new(Vec::new()));
+    let config_clone = config.clone();
+
     scenario!("Multipart")
+        .register_transaction(
+            Transaction::new(Arc::new(setup_user(config_clone, shared_keys))).set_name("Setup"),
+        )
         .register_transaction(transaction!(multipart_upload).set_name("MultipartUpload"))
 }
 
-async fn multipart_upload(user: &mut GooseUser) -> TransactionResult {
-    let state_guard = crate::GLOBAL_STATE.read().await;
-    let state = state_guard.as_ref().expect("Global state not initialized");
+fn extract_host(endpoint: &Url) -> String {
+    let host = endpoint.host_str().unwrap_or("localhost");
+    if let Some(port) = endpoint.port() {
+        format!("{}:{}", host, port)
+    } else {
+        host.to_string()
+    }
+}
 
-    let key = state.generator.random_key();
+async fn multipart_upload(user: &mut GooseUser) -> TransactionResult {
+    let (key, bucket, host, signer, generator) = {
+        let state = user.get_session_data_unchecked::<crate::transactions::UserState>();
+        (
+            state.generator.random_key(),
+            state.config.target.bucket.clone(),
+            extract_host(&state.config.target.endpoint),
+            state.signer.clone(),
+            state.generator.clone(),
+        )
+    };
+
     let part_size = 5 * 1024 * 1024; // 5MB per part
     let num_parts = 3;
 
     // Step 1: Initiate multipart upload
-    let initiate_uri = format!("/{}/{}?uploads", state.config.target.bucket, key);
+    let initiate_uri = format!("/{}/{}?uploads", bucket, key);
     let now = chrono::Utc::now();
     let amz_date = now.format("%Y%m%dT%H%M%SZ").to_string();
-    let host = state
-        .config
-        .target
-        .endpoint
-        .trim_start_matches("http://")
-        .trim_start_matches("https://");
 
     let empty_hash = sha256_hex(b"");
     let headers = [
-        ("host", host),
+        ("host", host.as_str()),
         ("x-amz-content-sha256", empty_hash.as_str()),
         ("x-amz-date", amz_date.as_str()),
     ];
 
-    let auth = state
-        .signer
-        .sign_request("POST", &initiate_uri, "uploads", &headers, &empty_hash);
+    let auth = signer.sign_request("POST", &initiate_uri, "uploads", &headers, &empty_hash);
 
     let request_builder = user
         .get_request_builder(&GooseMethod::Post, &initiate_uri)?
-        .header("Host", host)
+        .header("Host", &host)
         .header("x-amz-content-sha256", &empty_hash)
         .header("x-amz-date", &amz_date)
         .header("Authorization", &auth);
@@ -65,30 +82,27 @@ async fn multipart_upload(user: &mut GooseUser) -> TransactionResult {
     let mut etags = Vec::new();
 
     for part_num in 1..=num_parts {
-        let data = state.generator.random_data(part_size);
+        let data = generator.random_data(part_size);
         let content_hash = sha256_hex(&data);
 
-        let part_uri = format!("/{}/{}", state.config.target.bucket, key);
+        let part_uri = format!("/{}/{}", bucket, key);
         let part_query = format!("uploadId={}&partNumber={}", upload_id, part_num);
         let now = chrono::Utc::now();
         let amz_date = now.format("%Y%m%dT%H%M%SZ").to_string();
 
         let headers = [
-            ("host", host),
+            ("host", host.as_str()),
             ("x-amz-content-sha256", content_hash.as_str()),
             ("x-amz-date", amz_date.as_str()),
         ];
 
-        let auth =
-            state
-                .signer
-                .sign_request("PUT", &part_uri, &part_query, &headers, &content_hash);
+        let auth = signer.sign_request("PUT", &part_uri, &part_query, &headers, &content_hash);
 
         let uri_with_query = format!("{}?{}", part_uri, part_query);
 
         let request_builder = user
             .get_request_builder(&GooseMethod::Put, &uri_with_query)?
-            .header("Host", host)
+            .header("Host", &host)
             .header("x-amz-content-sha256", &content_hash)
             .header("x-amz-date", &amz_date)
             .header("Authorization", &auth)
@@ -109,28 +123,25 @@ async fn multipart_upload(user: &mut GooseUser) -> TransactionResult {
 
     // Step 3: Complete multipart upload
     let complete_body = build_complete_multipart_xml(&etags);
-    let complete_uri = format!("/{}/{}", state.config.target.bucket, key);
+    let complete_uri = format!("/{}/{}", bucket, key);
     let complete_query = format!("uploadId={}", upload_id);
     let now = chrono::Utc::now();
     let amz_date = now.format("%Y%m%dT%H%M%SZ").to_string();
     let body_hash = sha256_hex(complete_body.as_bytes());
 
     let headers = [
-        ("host", host),
+        ("host", host.as_str()),
         ("x-amz-content-sha256", body_hash.as_str()),
         ("x-amz-date", amz_date.as_str()),
     ];
 
-    let auth =
-        state
-            .signer
-            .sign_request("POST", &complete_uri, &complete_query, &headers, &body_hash);
+    let auth = signer.sign_request("POST", &complete_uri, &complete_query, &headers, &body_hash);
 
     let uri_with_query = format!("{}?{}", complete_uri, complete_query);
 
     let request_builder = user
         .get_request_builder(&GooseMethod::Post, &uri_with_query)?
-        .header("Host", host)
+        .header("Host", &host)
         .header("x-amz-content-sha256", &body_hash)
         .header("x-amz-date", &amz_date)
         .header("Authorization", &auth)
@@ -143,7 +154,6 @@ async fn multipart_upload(user: &mut GooseUser) -> TransactionResult {
         .build();
 
     let _response = user.request(goose_request).await?;
-    drop(state_guard);
 
     Ok(())
 }

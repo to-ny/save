@@ -110,16 +110,27 @@ pub async fn fsync_dir<P: AsRef<Path>>(path: P) -> Result<()> {
 
 pub struct ObjectStorage {
     layout: StorageLayout,
+    fsync_mode: String,
 }
 
 impl ObjectStorage {
     pub async fn new<P: AsRef<Path>>(base_path: P) -> Result<Self> {
+        Self::new_with_fsync_mode(base_path, "data").await
+    }
+
+    pub async fn new_with_fsync_mode<P: AsRef<Path>>(
+        base_path: P,
+        fsync_mode: &str,
+    ) -> Result<Self> {
         let layout = StorageLayout::new(base_path);
 
         fs::create_dir_all(layout.objects_dir()).await?;
         fs::create_dir_all(layout.temp_dir()).await?;
 
-        Ok(Self { layout })
+        Ok(Self {
+            layout,
+            fsync_mode: fsync_mode.to_string(),
+        })
     }
 
     /// Writes object data to temporary file and syncs to disk.
@@ -149,10 +160,13 @@ impl ObjectStorage {
 
         tokio::io::copy(&mut reader, &mut temp_file).await?;
         temp_file.flush().await?;
-        temp_file.sync_all().await?;
+
+        if self.fsync_mode != "none" {
+            temp_file.sync_all().await?;
+        }
         drop(temp_file);
 
-        debug!("Object written to temp and synced");
+        debug!("Object written to temp");
 
         Ok(TempObject::new(temp_path, final_path))
     }
@@ -178,7 +192,9 @@ impl ObjectStorage {
         #[cfg(feature = "failpoints")]
         fail::fail_point!("storage_commit_after_rename");
 
-        fsync_dir(final_parent).await?;
+        if self.fsync_mode == "full" {
+            fsync_dir(final_parent).await?;
+        }
 
         #[cfg(feature = "failpoints")]
         fail::fail_point!("storage_commit_after_fsync");

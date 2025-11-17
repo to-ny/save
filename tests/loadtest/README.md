@@ -22,6 +22,9 @@ cargo run --release -p save-cli -- \
 # All tests
 cargo test -p save-loadtest --features load_tests
 
+# Quick smoke test
+cargo test -p save-loadtest --features load_tests test_quick_smoke
+
 # Specific scenario
 cargo test -p save-loadtest --features load_tests test_mixed_workload
 

@@ -18,7 +18,7 @@ struct Cli {
     #[arg(long, env = "AWS_ACCESS_KEY_ID", default_value = "test-access-key")]
     access_key: String,
 
-    #[arg(long, env = "AWS_SECRET_ACCESS_KEY", default_value = "test-access-key")]
+    #[arg(long, env = "AWS_SECRET_ACCESS_KEY", default_value = "test-secret-key")]
     secret_key: String,
 }
 

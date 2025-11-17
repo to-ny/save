@@ -1,0 +1,63 @@
+#cloud-config
+
+package_update: true
+package_upgrade: true
+
+packages:
+  - docker.io
+  - docker-compose
+  - curl
+  - git
+
+runcmd:
+  - systemctl enable docker
+  - systemctl start docker
+  - usermod -aG docker root
+  - |
+    cat > /etc/docker/daemon.json <<'EOF'
+    {
+      "log-driver": "json-file",
+      "log-opts": {
+        "max-size": "10m",
+        "max-file": "3"
+      }
+    }
+    EOF
+  - systemctl restart docker
+  - mkdir -p /opt/save
+
+write_files:
+  - path: /opt/save/docker-compose.yml
+    content: |
+      ${docker_compose_yml}
+    permissions: '0644'
+
+  - path: /opt/save/prometheus.yml
+    content: |
+      ${prometheus_yml}
+    permissions: '0644'
+
+  - path: /opt/save/loki-config.yml
+    content: |
+      ${loki_config_yml}
+    permissions: '0644'
+
+  - path: /opt/save/promtail-config.yml
+    content: |
+      ${promtail_config_yml}
+    permissions: '0644'
+
+  - path: /opt/save/grafana-datasources.yml
+    content: |
+      ${grafana_datasources_yml}
+    permissions: '0644'
+
+  - path: /opt/save/save.toml
+    content: |
+      ${save_toml}
+    permissions: '0644'
+
+  - path: /opt/save/README.txt
+    content: |
+      ${readme_txt}
+    permissions: '0644'

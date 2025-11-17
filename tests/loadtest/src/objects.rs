@@ -1,5 +1,6 @@
 use rand::Rng;
 
+#[derive(Clone)]
 pub struct ObjectGenerator {
     key_prefix: String,
 }

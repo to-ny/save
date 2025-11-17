@@ -1,9 +1,9 @@
-use chrono::Utc;
 use hmac::{Hmac, Mac};
 use sha2::{Digest, Sha256};
 
 type HmacSha256 = Hmac<Sha256>;
 
+#[derive(Clone)]
 pub struct S3Signer {
     access_key: String,
     secret_key: String,
@@ -27,29 +27,40 @@ impl S3Signer {
         headers: &[(&str, &str)],
         payload_hash: &str,
     ) -> String {
-        let now = Utc::now();
-        let date_stamp = now.format("%Y%m%d").to_string();
-        let amz_date = now.format("%Y%m%dT%H%M%SZ").to_string();
-
         let canonical_uri = uri;
         let canonical_query = query;
 
-        let mut canonical_headers = String::new();
-        let mut signed_headers_list = Vec::new();
+        // Use BTreeMap to automatically sort headers (same as server and test code)
+        let mut canonical_headers_map: std::collections::BTreeMap<String, String> =
+            std::collections::BTreeMap::new();
+        let mut amz_date = String::new();
 
         for (name, value) in headers {
-            canonical_headers.push_str(&format!("{}:{}\n", name.to_lowercase(), value));
-            signed_headers_list.push(name.to_lowercase());
+            let name_lower = name.to_lowercase();
+            canonical_headers_map.insert(name_lower.clone(), value.to_string());
+            if name_lower == "x-amz-date" {
+                amz_date = value.to_string();
+            }
         }
 
-        signed_headers_list.sort();
-        let signed_headers = signed_headers_list.join(";");
+        let canonical_headers = canonical_headers_map
+            .iter()
+            .map(|(k, v)| format!("{}:{}", k, v))
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        let signed_headers = canonical_headers_map
+            .keys()
+            .map(|k| k.as_str())
+            .collect::<Vec<_>>()
+            .join(";");
 
         let canonical_request = format!(
-            "{}\n{}\n{}\n{}\n{}\n{}",
+            "{}\n{}\n{}\n{}\n\n{}\n{}",
             method, canonical_uri, canonical_query, canonical_headers, signed_headers, payload_hash
         );
 
+        let date_stamp = &amz_date[..8];
         let credential_scope = format!("{}/{}/s3/aws4_request", date_stamp, self.region);
 
         let canonical_request_hash = hex::encode(Sha256::digest(canonical_request.as_bytes()));
@@ -59,7 +70,7 @@ impl S3Signer {
             amz_date, credential_scope, canonical_request_hash
         );
 
-        let signing_key = self.get_signature_key(&date_stamp);
+        let signing_key = self.get_signature_key(date_stamp);
         let signature = hex::encode(hmac_sha256(&signing_key, string_to_sign.as_bytes()));
 
         format!(
@@ -105,5 +116,32 @@ mod tests {
     fn test_signer_creates() {
         let signer = S3Signer::new("test-key", "test-secret");
         assert_eq!(signer.access_key, "test-key");
+    }
+
+    #[test]
+    fn test_sign_request_matches_server() {
+        let signer = S3Signer::new("test-access-key", "test-secret-key");
+
+        let headers = [
+            ("host", "localhost:9000"),
+            (
+                "x-amz-content-sha256",
+                "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            ),
+            ("x-amz-date", "20251117T120000Z"),
+        ];
+
+        let auth = signer.sign_request(
+            "PUT",
+            "/loadtest",
+            "",
+            &headers,
+            "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        );
+
+        eprintln!("Generated auth header: {}", auth);
+        assert!(auth.starts_with(
+            "AWS4-HMAC-SHA256 Credential=test-access-key/20251117/us-east-1/s3/aws4_request"
+        ));
     }
 }

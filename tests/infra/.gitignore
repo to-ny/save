@@ -1,0 +1,26 @@
+# Infrastructure-specific gitignore rules
+
+# Environment files
+.env
+.env.local
+.env.*.local
+.env.loadtest
+
+# Terraform state and cache
+terraform/.terraform/
+terraform/.terraform.lock.hcl
+terraform/terraform.tfstate
+terraform/terraform.tfstate.backup
+terraform/*.tfplan
+terraform/crash.log
+
+# Terraform variable files (may contain sensitive data)
+terraform/*.auto.tfvars
+
+# Backup files
+*.bak
+*~
+
+# Temporary files from scripts
+*.tmp
+*.temp

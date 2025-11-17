@@ -9,12 +9,25 @@ use tokio::signal;
 use tracing::{error, info};
 
 fn init_tracing() {
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "save_api=info,tower_http=info".into()),
-        )
-        .init();
+    let env_filter = tracing_subscriber::EnvFilter::try_from_default_env()
+        .unwrap_or_else(|_| "save_api=info,tower_http=info".into());
+
+    // Support both text and JSON logging based on LOG_FORMAT env var
+    // JSON is better for log aggregation tools like Loki, Datadog, etc.
+    match std::env::var("LOG_FORMAT").as_deref() {
+        Ok("json") => {
+            tracing_subscriber::fmt()
+                .json()
+                .with_env_filter(env_filter)
+                .with_target(true)
+                .with_current_span(false)
+                .init();
+        }
+        _ => {
+            // Default to human-readable text format
+            tracing_subscriber::fmt().with_env_filter(env_filter).init();
+        }
+    }
 }
 
 fn main() -> anyhow::Result<()> {
@@ -48,7 +61,9 @@ async fn async_main_with_config(config: SaveConfig) -> anyhow::Result<()> {
     info!("Starting save object storage server");
 
     info!("Initializing storage at: {}", config.storage.data_path);
-    let storage = ObjectStorage::new(&config.storage.data_path).await?;
+    let storage =
+        ObjectStorage::new_with_fsync_mode(&config.storage.data_path, &config.storage.fsync_mode)
+            .await?;
 
     info!("Initializing metadata at: {}", config.storage.metadata_path);
     info!(

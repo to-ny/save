@@ -25,7 +25,7 @@ Example `save.toml`:
 
 ```toml
 [server]
-bind_address = "127.0.0.1:9000"
+bind_address = "0.0.0.0:9000"
 max_body_size = 104857600
 
 [storage]
