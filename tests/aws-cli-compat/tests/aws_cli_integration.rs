@@ -1,6 +1,7 @@
 #![cfg(feature = "compat_tests")]
 
 use serde_json::Value;
+use std::io::Write;
 use std::process::Command;
 
 /// Helper to run AWS CLI commands with proper configuration
@@ -102,11 +103,10 @@ fn check_aws_cli_installed() -> bool {
 
 #[test]
 fn test_cli_create_and_list_buckets() {
-    // TODO Replace skip behavior to a failure in all tests using this check
-    if !check_aws_cli_installed() {
-        eprintln!("Skipping: AWS CLI not installed");
-        return;
-    }
+    assert!(
+        check_aws_cli_installed(),
+        "AWS CLI is required but not installed"
+    );
 
     let cli = AwsCli::new();
     let bucket_name = format!(
@@ -145,10 +145,10 @@ fn test_cli_create_and_list_buckets() {
 
 #[test]
 fn test_cli_bucket_already_exists_error() {
-    if !check_aws_cli_installed() {
-        eprintln!("Skipping: AWS CLI not installed");
-        return;
-    }
+    assert!(
+        check_aws_cli_installed(),
+        "AWS CLI is required but not installed"
+    );
 
     let cli = AwsCli::new();
     let bucket_name = format!(
@@ -183,10 +183,10 @@ fn test_cli_bucket_already_exists_error() {
 
 #[test]
 fn test_cli_no_such_bucket_error() {
-    if !check_aws_cli_installed() {
-        eprintln!("Skipping: AWS CLI not installed");
-        return;
-    }
+    assert!(
+        check_aws_cli_installed(),
+        "AWS CLI is required but not installed"
+    );
 
     let cli = AwsCli::new();
     let bucket_name = format!("cli-nonexistent-{}", uuid::Uuid::new_v4().simple());
@@ -208,10 +208,10 @@ fn test_cli_no_such_bucket_error() {
 
 #[test]
 fn test_cli_put_and_get_object() {
-    if !check_aws_cli_installed() {
-        eprintln!("Skipping: AWS CLI not installed");
-        return;
-    }
+    assert!(
+        check_aws_cli_installed(),
+        "AWS CLI is required but not installed"
+    );
 
     let cli = AwsCli::new();
     let bucket_name = format!(
@@ -275,10 +275,10 @@ fn test_cli_put_and_get_object() {
 
 #[test]
 fn test_cli_no_such_key_error() {
-    if !check_aws_cli_installed() {
-        eprintln!("Skipping: AWS CLI not installed");
-        return;
-    }
+    assert!(
+        check_aws_cli_installed(),
+        "AWS CLI is required but not installed"
+    );
 
     let cli = AwsCli::new();
     let bucket_name = format!(
@@ -323,10 +323,10 @@ fn test_cli_no_such_key_error() {
 
 #[test]
 fn test_cli_bucket_not_empty_error() {
-    if !check_aws_cli_installed() {
-        eprintln!("Skipping: AWS CLI not installed");
-        return;
-    }
+    assert!(
+        check_aws_cli_installed(),
+        "AWS CLI is required but not installed"
+    );
 
     let cli = AwsCli::new();
     let bucket_name = format!(
@@ -343,8 +343,9 @@ fn test_cli_bucket_not_empty_error() {
     );
 
     // Put an object
-    let temp_file = std::env::temp_dir().join("test-file.txt");
-    std::fs::write(&temp_file, b"test content").unwrap();
+    let mut temp_file = tempfile::NamedTempFile::new().unwrap();
+    temp_file.write_all(b"test content").unwrap();
+    temp_file.flush().unwrap();
 
     let result = cli.run(&[
         "put-object",
@@ -353,7 +354,7 @@ fn test_cli_bucket_not_empty_error() {
         "--key",
         "test.txt",
         "--body",
-        temp_file.to_str().unwrap(),
+        temp_file.path().to_str().unwrap(),
     ]);
     assert!(
         result.is_success(),
@@ -376,7 +377,6 @@ fn test_cli_bucket_not_empty_error() {
     );
 
     // Cleanup
-    std::fs::remove_file(temp_file).ok();
     cli.run(&[
         "delete-object",
         "--bucket",
@@ -389,10 +389,10 @@ fn test_cli_bucket_not_empty_error() {
 
 #[test]
 fn test_cli_list_objects_v2() {
-    if !check_aws_cli_installed() {
-        eprintln!("Skipping: AWS CLI not installed");
-        return;
-    }
+    assert!(
+        check_aws_cli_installed(),
+        "AWS CLI is required but not installed"
+    );
 
     let cli = AwsCli::new();
     let bucket_name = format!(
@@ -409,11 +409,11 @@ fn test_cli_list_objects_v2() {
     );
 
     // Put multiple objects
-    let temp_file = std::env::temp_dir().join("test-file.txt");
-    std::fs::write(&temp_file, b"test content").unwrap();
+    let mut temp_file = tempfile::NamedTempFile::new().unwrap();
+    temp_file.write_all(b"test content").unwrap();
+    temp_file.flush().unwrap();
 
     for i in 1..=3 {
-        // TODO Fix test error: "Error parsing parameter '--body': Blob values must be a path to a file."
         let result = cli.run(&[
             "put-object",
             "--bucket",
@@ -421,7 +421,7 @@ fn test_cli_list_objects_v2() {
             "--key",
             &format!("file-{}.txt", i),
             "--body",
-            temp_file.to_str().unwrap(),
+            temp_file.path().to_str().unwrap(),
         ]);
         assert!(
             result.is_success(),
@@ -453,7 +453,6 @@ fn test_cli_list_objects_v2() {
     assert!(keys.contains(&"file-3.txt".to_string()));
 
     // Cleanup
-    std::fs::remove_file(temp_file).ok();
     for i in 1..=3 {
         cli.run(&[
             "delete-object",
@@ -468,10 +467,10 @@ fn test_cli_list_objects_v2() {
 
 #[test]
 fn test_cli_head_object() {
-    if !check_aws_cli_installed() {
-        eprintln!("Skipping: AWS CLI not installed");
-        return;
-    }
+    assert!(
+        check_aws_cli_installed(),
+        "AWS CLI is required but not installed"
+    );
 
     let cli = AwsCli::new();
     let bucket_name = format!(
@@ -488,9 +487,10 @@ fn test_cli_head_object() {
     );
 
     // Put object
-    let temp_file = std::env::temp_dir().join("test-file.txt");
     let content = b"Hello, World!";
-    std::fs::write(&temp_file, content).unwrap();
+    let mut temp_file = tempfile::NamedTempFile::new().unwrap();
+    temp_file.write_all(content).unwrap();
+    temp_file.flush().unwrap();
 
     let result = cli.run(&[
         "put-object",
@@ -499,7 +499,7 @@ fn test_cli_head_object() {
         "--key",
         "test.txt",
         "--body",
-        temp_file.to_str().unwrap(),
+        temp_file.path().to_str().unwrap(),
     ]);
     assert!(
         result.is_success(),
@@ -524,7 +524,6 @@ fn test_cli_head_object() {
     assert!(json["LastModified"].is_string(), "Should have LastModified");
 
     // Cleanup
-    std::fs::remove_file(temp_file).ok();
     cli.run(&[
         "delete-object",
         "--bucket",
@@ -537,10 +536,10 @@ fn test_cli_head_object() {
 
 #[test]
 fn test_cli_invalid_bucket_name() {
-    if !check_aws_cli_installed() {
-        eprintln!("Skipping: AWS CLI not installed");
-        return;
-    }
+    assert!(
+        check_aws_cli_installed(),
+        "AWS CLI is required but not installed"
+    );
 
     let cli = AwsCli::new();
 
