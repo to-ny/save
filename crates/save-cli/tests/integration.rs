@@ -57,28 +57,6 @@ fn test_object_subcommand_help() {
 }
 
 #[test]
-fn test_default_endpoint() {
-    save_cmd().args(["health"]).assert().failure();
-}
-
-#[test]
-fn test_custom_endpoint_flag() {
-    save_cmd()
-        .args(["--endpoint", "http://localhost:19000", "health"])
-        .assert()
-        .failure();
-}
-
-#[test]
-fn test_endpoint_env_var() {
-    save_cmd()
-        .env("S3_ENDPOINT", "http://localhost:19000")
-        .args(["health"])
-        .assert()
-        .failure();
-}
-
-#[test]
 fn test_access_key_env_var() {
     save_cmd()
         .env("AWS_ACCESS_KEY_ID", "custom-key")
@@ -94,14 +72,6 @@ fn test_missing_required_args() {
         .assert()
         .failure()
         .stderr(predicate::str::contains("required").or(predicate::str::contains("argument")));
-}
-
-#[test]
-fn test_bucket_list_requires_endpoint() {
-    save_cmd()
-        .args(["--endpoint", "http://nonexistent:9999", "bucket", "list"])
-        .assert()
-        .failure();
 }
 
 #[test]

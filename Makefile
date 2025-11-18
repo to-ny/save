@@ -1,4 +1,4 @@
-.PHONY: build test fmt clippy docker-build
+.PHONY: build test integration-test fmt clippy docker-build
 
 IMAGE_NAME ?= save
 IMAGE_TAG ?= latest
@@ -8,6 +8,9 @@ build:
 
 test:
 	cargo test
+
+integration-test:
+	cargo test --features compat_tests --features concurrency_tests
 
 fmt:
 	cargo fmt --all
