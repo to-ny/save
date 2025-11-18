@@ -42,7 +42,8 @@ async fn test_delete_crash_after_metadata() -> Result<()> {
     assert_eq!(body.as_ref(), b"data to be deleted");
 
     // Configure crash after metadata delete
-    env.configure_failpoint("metadata_delete_after_write", "pause")?;
+    env.configure_failpoint("metadata_delete_after_write", "pause")
+        .await?;
 
     // Start DELETE in background
     let client = env.client().clone();

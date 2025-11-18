@@ -14,7 +14,7 @@ pub trait TestEnvironment: Sized {
     async fn setup() -> Result<Self>;
 
     /// Configure failpoint (pause, return error, panic, etc.)
-    fn configure_failpoint(&self, name: &str, action: &str) -> Result<()>;
+    async fn configure_failpoint(&self, name: &str, action: &str) -> Result<()>;
 
     /// Wait for failpoint to be hit (process paused or marker file created)
     async fn wait_for_failpoint(&self, name: &str) -> Result<()>;

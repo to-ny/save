@@ -6,18 +6,33 @@ use aws_sdk_s3::Client;
 use aws_sdk_s3::config::{Credentials, Region};
 use nix::sys::signal::{Signal, kill};
 use nix::unistd::Pid;
+use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command};
 use std::time::{Duration, Instant};
 use tempfile::TempDir;
 
+#[derive(Debug, Serialize)]
+#[allow(dead_code)]
+struct ConfigureFailpointRequest {
+    name: String,
+    action: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[allow(dead_code)]
+struct ConfigureFailpointResponse {
+    success: bool,
+    message: String,
+}
+
 pub struct SingleNodeEnv {
     child: Option<Child>,
     port: u16,
-    _data_dir: TempDir, // Keep TempDir alive
+    _data_dir: TempDir,
     data_path: PathBuf,
     metadata_path: PathBuf,
-    _config_path: PathBuf, // Keep config file alive
+    _config_path: PathBuf,
     client: Client,
 }
 
@@ -57,7 +72,7 @@ metadata_path = "{}/metadata"
 gc_interval_secs = 10
 gc_temp_file_max_age_secs = 60
 
-[auth]
+[credentials]
 access_key = "test-access-key"
 secret_key = "test-secret-key"
 "#,
@@ -73,7 +88,7 @@ secret_key = "test-secret-key"
         ensure_binary_built_with_failpoints()?;
 
         // Spawn server
-        let child = Command::new("target/debug/save-api")
+        let child = Command::new(get_binary_path())
             .env("SAVE_CONFIG", &config_path)
             .env("RUST_LOG", "info")
             .stdout(std::process::Stdio::null())
@@ -100,21 +115,38 @@ secret_key = "test-secret-key"
         Ok(env)
     }
 
-    fn configure_failpoint(&self, name: &str, action: &str) -> Result<()> {
-        // Configure failpoint using the fail crate
-        fail::cfg(name, action)
-            .map_err(|e| anyhow::anyhow!("Failed to configure failpoint {}: {}", name, e))
+    async fn configure_failpoint(&self, name: &str, action: &str) -> Result<()> {
+        let url = format!("http://0.0.0.0:{}/_failpoint/configure", self.port);
+        let req = ConfigureFailpointRequest {
+            name: name.to_string(),
+            action: action.to_string(),
+        };
+
+        let client = reqwest::Client::new();
+        let response = client
+            .post(&url)
+            .json(&req)
+            .send()
+            .await
+            .context("Failed to send failpoint configuration")?;
+
+        let status = response.status();
+        let body: ConfigureFailpointResponse = response
+            .json()
+            .await
+            .context("Failed to parse failpoint response")?;
+
+        if !status.is_success() || !body.success {
+            anyhow::bail!("Failed to configure failpoint: {}", body.message);
+        }
+
+        Ok(())
     }
 
     async fn wait_for_failpoint(&self, _name: &str) -> Result<()> {
-        // When using "pause" action, the failpoint blocks the thread.
-        // We detect this by checking if the server stops responding to health checks
-        // or by using a marker file approach.
-
-        // For now, use a simple time-based approach: wait a bit for the failpoint to be hit
-        tokio::time::sleep(Duration::from_millis(100)).await;
-
-        // TODO: Implement more robust detection using HTTP endpoint or marker files
+        // When using "pause" action, the failpoint blocks the request thread indefinitely.
+        // Wait for the request to reach the failpoint and block.
+        tokio::time::sleep(Duration::from_secs(2)).await;
         Ok(())
     }
 
@@ -126,14 +158,13 @@ secret_key = "test-secret-key"
         }
         self.child = None;
 
-        // Remove failpoint config so restart works normally
         fail::remove(name);
 
         Ok(())
     }
 
     async fn restart(&mut self) -> Result<()> {
-        let child = Command::new("target/debug/save-api")
+        let child = Command::new(get_binary_path())
             .env("SAVE_CONFIG", &self._config_path)
             .env("RUST_LOG", "info")
             .stdout(std::process::Stdio::null())
@@ -151,6 +182,16 @@ secret_key = "test-secret-key"
     }
 
     async fn verify_consistency(&self) -> Result<()> {
+        // Need to verify with server stopped to avoid RocksDB lock conflicts
+        // This is safe because verification is typically the last step in tests
+        if let Some(ref child) = self.child {
+            let pid = Pid::from_raw(child.id() as i32);
+            kill(pid, Signal::SIGTERM).ok();
+
+            // Wait briefly for graceful shutdown
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+
         verify_no_phantom_objects(self.data_dir(), self.metadata_dir()).await?;
         verify_no_orphans_or_gc_pending(self.data_dir(), self.metadata_dir()).await?;
         Ok(())
@@ -180,24 +221,20 @@ fn find_free_port() -> Result<u16> {
     Ok(listener.local_addr()?.port())
 }
 
+fn get_binary_path() -> PathBuf {
+    let manifest_dir = env!("CARGO_MANIFEST_DIR");
+    PathBuf::from(manifest_dir)
+        .parent()
+        .unwrap()
+        .parent()
+        .unwrap()
+        .join("target/debug/save-api")
+}
+
 fn ensure_binary_built_with_failpoints() -> Result<()> {
-    let binary_path = "target/debug/save-api";
-
-    // Check if binary exists and was built recently
-    if let Ok(metadata) = std::fs::metadata(binary_path)
-        && let Ok(modified) = metadata.modified()
-        && let Ok(elapsed) = modified.elapsed()
-    {
-        // If binary was built within last 5 minutes, assume it's up to date
-        if elapsed < Duration::from_secs(300) {
-            return Ok(());
-        }
-    }
-
-    println!("Building save-api with failpoints enabled...");
-    // TODO Fails with message = "error: the package 'crash-recovery-tests' does not contain this feature: failpoints"
     let status = Command::new("cargo")
-        .args(["build", "--bin", "save-api", "--features", "failpoints"])
+        .args(["build", "-p", "save-api", "--features", "failpoints"])
+        .stdout(std::process::Stdio::null())
         .status()
         .context("Failed to run cargo build")?;
 

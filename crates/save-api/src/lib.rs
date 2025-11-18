@@ -41,8 +41,15 @@ pub fn app(state: AppState) -> Router {
         ))
         .with_state(state.clone());
 
-    Router::new()
-        .merge(routes::health::routes().with_state(state.clone()))
+    #[cfg_attr(not(feature = "failpoints"), allow(unused_mut))]
+    let mut router = Router::new().merge(routes::health::routes().with_state(state.clone()));
+
+    #[cfg(feature = "failpoints")]
+    {
+        router = router.merge(routes::failpoint::routes().with_state(state.clone()));
+    }
+
+    router
         .merge(api_routes)
         .layer(axum::middleware::from_fn_with_state(
             state,

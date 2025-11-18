@@ -28,6 +28,7 @@ uuid = { version = "1.0", features = ["v4"] }
 prometheus = { version = "0.14.0", default-features = false }
 nix = { workspace = true }
 dashmap = "6.1"
+fail = { workspace = true, optional = true }
 
 [dev-dependencies]
 tower = { workspace = true }
@@ -38,4 +39,4 @@ roxmltree = "0.21.1"
 
 [features]
 default = []
-failpoints = ["save-storage/failpoints", "save-metadata/failpoints"]
+failpoints = ["dep:fail", "save-storage/failpoints", "save-metadata/failpoints"]

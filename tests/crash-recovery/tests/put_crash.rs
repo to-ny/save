@@ -23,24 +23,26 @@ async fn test_put_crash_after_storage_before_metadata() -> Result<()> {
     env.client().create_bucket().bucket("test").send().await?;
 
     // Configure failpoint to pause after storage commit, before metadata commit
-    env.configure_failpoint("storage_commit_after_fsync", "pause")?;
+    env.configure_failpoint("storage_commit_after_fsync", "pause")
+        .await?;
 
-    // Start PUT in background
+    // Start PUT in background with large body to ensure it's in progress
     let client = env.client().clone();
     let _put_handle = tokio::spawn(async move {
+        let large_body = vec![0u8; 50 * 1024 * 1024];
         client
             .put_object()
             .bucket("test")
             .key("crash-test.txt")
-            .body(b"test data for crash recovery".to_vec().into())
+            .body(large_body.into())
             .send()
             .await
     });
 
-    // Wait for failpoint to be hit
+    // Wait for operation to reach failpoint and pause
     env.wait_for_failpoint("storage_commit_after_fsync").await?;
 
-    // CRASH!
+    // Crash server
     tracing::info!("Crashing server at failpoint");
     env.crash_at_failpoint("storage_commit_after_fsync").await?;
 
@@ -150,25 +152,27 @@ async fn test_put_crash_before_rename_temp_cleanup() -> Result<()> {
     env.client().create_bucket().bucket("test").send().await?;
 
     // Configure failpoint to pause before rename
-    env.configure_failpoint("storage_commit_before_rename", "pause")?;
+    env.configure_failpoint("storage_commit_before_rename", "pause")
+        .await?;
 
-    // Start PUT in background
+    // Start PUT in background with large body to ensure it's in progress
     let client = env.client().clone();
     let _put_handle = tokio::spawn(async move {
+        let large_body = vec![0u8; 50 * 1024 * 1024];
         client
             .put_object()
             .bucket("test")
             .key("temp-test.txt")
-            .body(b"temp file test data".to_vec().into())
+            .body(large_body.into())
             .send()
             .await
     });
 
-    // Wait for failpoint to be hit
+    // Wait for operation to reach failpoint and pause
     env.wait_for_failpoint("storage_commit_before_rename")
         .await?;
 
-    // CRASH!
+    // Crash server
     tracing::info!("Crashing server before rename");
     env.crash_at_failpoint("storage_commit_before_rename")
         .await?;

@@ -32,7 +32,8 @@ async fn test_multipart_crash_during_part_upload() -> Result<()> {
     let upload_id = init.upload_id().unwrap();
 
     // Configure failpoint during part upload
-    env.configure_failpoint("storage_write_during_copy", "pause")?;
+    env.configure_failpoint("storage_write_during_copy", "pause")
+        .await?;
 
     // Start part upload in background
     let client = env.client().clone();
@@ -129,7 +130,8 @@ async fn test_multipart_crash_during_complete() -> Result<()> {
     }
 
     // Configure crash during complete (after storage commit, before metadata)
-    env.configure_failpoint("storage_commit_after_fsync", "pause")?;
+    env.configure_failpoint("storage_commit_after_fsync", "pause")
+        .await?;
 
     // Start complete in background
     let client = env.client().clone();

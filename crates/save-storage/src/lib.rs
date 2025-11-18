@@ -189,9 +189,6 @@ impl ObjectStorage {
 
         fs::rename(temp_path, final_path).await?;
 
-        #[cfg(feature = "failpoints")]
-        fail::fail_point!("storage_commit_after_rename");
-
         if self.fsync_mode == "full" {
             fsync_dir(final_parent).await?;
         }

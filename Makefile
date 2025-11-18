@@ -9,14 +9,14 @@ build:
 test:
 	cargo test
 
-integration-test:
-	cargo test --features compat_tests --features concurrency_tests
-
 fmt:
 	cargo fmt --all
 
 clippy:
 	cargo clippy --all-targets --all-features -- -D warnings
+
+integration-test:
+	cargo test --features compat_tests --features concurrency_tests --features crash_tests
 
 docker-build:
 	DOCKER_BUILDKIT=1 docker build \
