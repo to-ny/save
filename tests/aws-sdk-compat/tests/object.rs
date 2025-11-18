@@ -279,7 +279,6 @@ async fn test_delete_object() -> Result<()> {
     Ok(())
 }
 
-// TODO Update assertion based on new implementation
 #[tokio::test]
 async fn test_delete_object_idempotent() -> Result<()> {
     let client = create_client().await;
@@ -289,15 +288,22 @@ async fn test_delete_object_idempotent() -> Result<()> {
     // Setup
     ensure_bucket(&client, &bucket).await?;
 
-    // Delete non-existent object (should succeed)
+    // Delete non-existent object (should fail with NoSuchKey)
     info!("Deleting non-existent object: {}/{}", bucket, key);
-    client
-        .delete_object()
-        .bucket(&bucket)
-        .key(key)
-        .send()
-        .await
-        .context("DELETE should be idempotent")?;
+    let result = client.delete_object().bucket(&bucket).key(key).send().await;
+
+    assert!(
+        result.is_err(),
+        "Deleting non-existent object should return an error"
+    );
+
+    let err = result.unwrap_err();
+    let err_str = format!("{:?}", err);
+    assert!(
+        err_str.contains("NoSuchKey"),
+        "Error should be NoSuchKey, got: {}",
+        err_str
+    );
 
     // Cleanup
     cleanup_bucket(&client, &bucket).await?;
