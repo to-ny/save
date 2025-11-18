@@ -155,7 +155,6 @@ async fn test_concurrent_gets_during_put() -> Result<()> {
     let put_result = put_task.await.context("PUT task panicked")??;
     info!("PUT completed - ETag: {:?}", put_result.e_tag);
 
-    // TODO Flaky test - Fails sometimes on this assertion
     // Verify no size mismatches (no partial reads)
     assert_eq!(
         size_mismatches, 0,

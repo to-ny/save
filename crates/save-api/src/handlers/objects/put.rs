@@ -73,10 +73,9 @@ pub async fn put_object(
     validate_bucket_name(&bucket).map_err(|e| ApiError::InvalidRequest(e.to_string()))?;
     validate_object_key(&key).map_err(|e| ApiError::InvalidRequest(e.to_string()))?;
 
-    // Serialize concurrent writes to the same object
     let _guard = state
         .lock_manager
-        .acquire_lock(&bucket, &key)
+        .acquire_write_lock(&bucket, &key)
         .await
         .map_err(|e| ApiError::internal(format!("Failed to acquire object lock: {}", e)))?;
 

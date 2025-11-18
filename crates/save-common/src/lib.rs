@@ -7,7 +7,7 @@ pub mod types;
 pub mod validation;
 
 pub use error::{Error, Result};
-pub use lock::{LockGuard, ObjectLockManager};
+pub use lock::{ObjectLockManager, ReadLockGuard, WriteLockGuard};
 pub use s3_error::{S3Error, S3ErrorCode};
 pub use s3_responses::{
     CompleteMultipartUploadResult, InitiateMultipartUploadResult, ListAllMyBucketsResult,

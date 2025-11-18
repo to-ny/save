@@ -22,6 +22,12 @@ pub async fn head_object(
     validate_bucket_name(&bucket).map_err(|e| ApiError::InvalidRequest(e.to_string()))?;
     validate_object_key(&key).map_err(|e| ApiError::InvalidRequest(e.to_string()))?;
 
+    let _guard = state
+        .lock_manager
+        .acquire_read_lock(&bucket, &key)
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to acquire object lock: {}", e)))?;
+
     let metadata = state
         .metadata
         .get_object_metadata(&bucket, &key)

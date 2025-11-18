@@ -55,7 +55,7 @@ fn bench_object_lock_acquire_release(c: &mut Criterion) {
     group.bench_function("uncontended", |b| {
         let lock_mgr = ObjectLockManager::new(Duration::from_secs(30));
         b.to_async(&rt).iter(|| async {
-            let _guard = lock_mgr.acquire_lock("bucket", "key").await.unwrap();
+            let _guard = lock_mgr.acquire_write_lock("bucket", "key").await.unwrap();
             black_box(());
         });
     });
@@ -66,7 +66,7 @@ fn bench_object_lock_acquire_release(c: &mut Criterion) {
             || uuid::Uuid::new_v4().to_string(),
             |key| {
                 rt.block_on(async {
-                    let _guard = lock_mgr.acquire_lock("bucket", &key).await.unwrap();
+                    let _guard = lock_mgr.acquire_write_lock("bucket", &key).await.unwrap();
                     black_box(());
                 })
             },
@@ -92,7 +92,8 @@ fn bench_object_lock_contention(c: &mut Criterion) {
                     for i in 0..concurrent {
                         let mgr = Arc::clone(&lock_mgr);
                         let handle = tokio::spawn(async move {
-                            let _guard = mgr.acquire_lock("bucket", "same-key").await.unwrap();
+                            let _guard =
+                                mgr.acquire_write_lock("bucket", "same-key").await.unwrap();
                             tokio::time::sleep(tokio::time::Duration::from_micros(100)).await;
                             black_box(i);
                         });

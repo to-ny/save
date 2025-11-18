@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::sync::{Mutex, OwnedMutexGuard};
+use tokio::sync::{Mutex, OwnedRwLockReadGuard, OwnedRwLockWriteGuard, RwLock};
 use tokio::time::timeout;
 
 /// Error type for lock operations
@@ -13,39 +13,49 @@ pub enum LockError {
 
 pub type Result<T> = std::result::Result<T, LockError>;
 
-/// RAII guard that releases the object lock on drop
-pub struct LockGuard {
-    _guard: OwnedMutexGuard<()>,
-    manager: Arc<Mutex<HashMap<String, Arc<Mutex<()>>>>>,
+/// RAII guard that releases the read lock on drop
+pub struct ReadLockGuard {
+    _guard: OwnedRwLockReadGuard<()>,
+    manager: Arc<Mutex<HashMap<String, Arc<RwLock<()>>>>>,
     key: String,
 }
 
-impl Drop for LockGuard {
+/// RAII guard that releases the write lock on drop
+pub struct WriteLockGuard {
+    _guard: OwnedRwLockWriteGuard<()>,
+    manager: Arc<Mutex<HashMap<String, Arc<RwLock<()>>>>>,
+    key: String,
+}
+
+fn cleanup_lock(manager: Arc<Mutex<HashMap<String, Arc<RwLock<()>>>>>, key: String) {
+    tokio::spawn(async move {
+        let mut map = manager.lock().await;
+        if let Some(lock_arc) = map.get(&key)
+            && Arc::strong_count(lock_arc) == 1
+        {
+            map.remove(&key);
+        }
+    });
+}
+
+impl Drop for ReadLockGuard {
     fn drop(&mut self) {
-        // Lock is automatically released when _guard is dropped
-        // Optionally clean up the entry from the map if no one else is waiting
-        let manager = Arc::clone(&self.manager);
-        let key = self.key.clone();
-        tokio::spawn(async move {
-            let mut map = manager.lock().await;
-            // Only remove if the lock has exactly 1 strong reference (ours)
-            if let Some(lock_arc) = map.get(&key)
-                && Arc::strong_count(lock_arc) == 1
-            {
-                map.remove(&key);
-            }
-        });
+        cleanup_lock(Arc::clone(&self.manager), self.key.clone());
     }
 }
 
-/// Per-object lock manager to serialize concurrent writes.
+impl Drop for WriteLockGuard {
+    fn drop(&mut self) {
+        cleanup_lock(Arc::clone(&self.manager), self.key.clone());
+    }
+}
+
 pub struct ObjectLockManager {
-    locks: Arc<Mutex<HashMap<String, Arc<Mutex<()>>>>>,
+    locks: Arc<Mutex<HashMap<String, Arc<RwLock<()>>>>>,
     timeout: Duration,
 }
 
 impl ObjectLockManager {
-    /// Creates a new lock manager with the specified timeout
     pub fn new(timeout: Duration) -> Self {
         Self {
             locks: Arc::new(Mutex::new(HashMap::new())),
@@ -53,31 +63,48 @@ impl ObjectLockManager {
         }
     }
 
-    /// Creates a new lock manager with default 30 second timeout
     pub fn new_default() -> Self {
         Self::new(Duration::from_secs(30))
     }
 
-    /// Acquires a lock for the given bucket and key.
-    /// Returns a guard that releases the lock on drop.
-    pub async fn acquire_lock(&self, bucket: &str, key: &str) -> Result<LockGuard> {
+    pub async fn acquire_read_lock(&self, bucket: &str, key: &str) -> Result<ReadLockGuard> {
         let full_key = format!("{}/{}", bucket, key);
 
-        // Get or create the lock for this key
         let lock_arc = {
             let mut locks = self.locks.lock().await;
             locks
                 .entry(full_key.clone())
-                .or_insert_with(|| Arc::new(Mutex::new(())))
+                .or_insert_with(|| Arc::new(RwLock::new(())))
                 .clone()
         };
 
-        // Acquire the lock with timeout
-        let guard = timeout(self.timeout, lock_arc.clone().lock_owned())
+        let guard = timeout(self.timeout, lock_arc.clone().read_owned())
             .await
             .map_err(|_| LockError::Timeout)?;
 
-        Ok(LockGuard {
+        Ok(ReadLockGuard {
+            _guard: guard,
+            manager: Arc::clone(&self.locks),
+            key: full_key,
+        })
+    }
+
+    pub async fn acquire_write_lock(&self, bucket: &str, key: &str) -> Result<WriteLockGuard> {
+        let full_key = format!("{}/{}", bucket, key);
+
+        let lock_arc = {
+            let mut locks = self.locks.lock().await;
+            locks
+                .entry(full_key.clone())
+                .or_insert_with(|| Arc::new(RwLock::new(())))
+                .clone()
+        };
+
+        let guard = timeout(self.timeout, lock_arc.clone().write_owned())
+            .await
+            .map_err(|_| LockError::Timeout)?;
+
+        Ok(WriteLockGuard {
             _guard: guard,
             manager: Arc::clone(&self.locks),
             key: full_key,
@@ -99,21 +126,20 @@ mod tests {
     use tokio::time::sleep;
 
     #[tokio::test]
-    async fn test_lock_acquire_and_release() {
+    async fn test_write_lock_acquire_and_release() {
         let manager = ObjectLockManager::new_default();
 
         {
-            let _guard = manager.acquire_lock("bucket", "key").await.unwrap();
+            let _guard = manager.acquire_write_lock("bucket", "key").await.unwrap();
             assert_eq!(manager.active_lock_count().await, 1);
         }
 
-        // Give time for cleanup task to run
         sleep(Duration::from_millis(10)).await;
         assert_eq!(manager.active_lock_count().await, 0);
     }
 
     #[tokio::test]
-    async fn test_concurrent_locks_serialize() {
+    async fn test_concurrent_writes_serialize() {
         let manager = Arc::new(ObjectLockManager::new_default());
         let counter = Arc::new(AtomicU32::new(0));
 
@@ -124,9 +150,8 @@ mod tests {
             let counter = Arc::clone(&counter);
 
             handles.push(tokio::spawn(async move {
-                let _guard = manager.acquire_lock("bucket", "key").await.unwrap();
+                let _guard = manager.acquire_write_lock("bucket", "key").await.unwrap();
 
-                // Critical section - increment counter
                 let old = counter.load(Ordering::SeqCst);
                 sleep(Duration::from_millis(5)).await;
                 counter.store(old + 1, Ordering::SeqCst);
@@ -137,7 +162,6 @@ mod tests {
             handle.await.unwrap();
         }
 
-        // If locks work correctly, counter should be exactly 10
         assert_eq!(counter.load(Ordering::SeqCst), 10);
     }
 
@@ -148,14 +172,13 @@ mod tests {
 
         let mut handles = vec![];
 
-        // Different keys should not block each other
         for i in 0..10 {
             let manager = Arc::clone(&manager);
             let counter = Arc::clone(&counter);
 
             handles.push(tokio::spawn(async move {
                 let key = format!("key{}", i);
-                let _guard = manager.acquire_lock("bucket", &key).await.unwrap();
+                let _guard = manager.acquire_write_lock("bucket", &key).await.unwrap();
 
                 counter.fetch_add(1, Ordering::SeqCst);
                 sleep(Duration::from_millis(10)).await;
@@ -170,15 +193,14 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_lock_timeout() {
+    async fn test_write_lock_timeout() {
         let manager = Arc::new(ObjectLockManager::new(Duration::from_millis(100)));
 
-        // Hold the lock
-        let _guard = manager.acquire_lock("bucket", "key").await.unwrap();
+        let _guard = manager.acquire_write_lock("bucket", "key").await.unwrap();
 
-        // Try to acquire from another task - should timeout
         let manager2 = Arc::clone(&manager);
-        let handle = tokio::spawn(async move { manager2.acquire_lock("bucket", "key").await });
+        let handle =
+            tokio::spawn(async move { manager2.acquire_write_lock("bucket", "key").await });
 
         let result = handle.await.unwrap();
         assert!(matches!(result, Err(LockError::Timeout)));
@@ -188,17 +210,13 @@ mod tests {
     async fn test_lock_cleanup() {
         let manager = ObjectLockManager::new_default();
 
-        // Acquire and release locks for multiple keys
         for i in 0..5 {
             let key = format!("key{}", i);
-            let _guard = manager.acquire_lock("bucket", &key).await.unwrap();
-            // Guard dropped here
+            let _guard = manager.acquire_write_lock("bucket", &key).await.unwrap();
         }
 
-        // Give cleanup tasks time to run
         sleep(Duration::from_millis(50)).await;
 
-        // All locks should be cleaned up
         assert_eq!(manager.active_lock_count().await, 0);
     }
 
@@ -206,8 +224,8 @@ mod tests {
     async fn test_same_bucket_different_keys() {
         let manager = Arc::new(ObjectLockManager::new_default());
 
-        let _guard1 = manager.acquire_lock("bucket", "key1").await.unwrap();
-        let _guard2 = manager.acquire_lock("bucket", "key2").await.unwrap();
+        let _guard1 = manager.acquire_write_lock("bucket", "key1").await.unwrap();
+        let _guard2 = manager.acquire_write_lock("bucket", "key2").await.unwrap();
 
         assert_eq!(manager.active_lock_count().await, 2);
     }
@@ -216,9 +234,66 @@ mod tests {
     async fn test_different_buckets_same_key() {
         let manager = Arc::new(ObjectLockManager::new_default());
 
-        let _guard1 = manager.acquire_lock("bucket1", "key").await.unwrap();
-        let _guard2 = manager.acquire_lock("bucket2", "key").await.unwrap();
+        let _guard1 = manager.acquire_write_lock("bucket1", "key").await.unwrap();
+        let _guard2 = manager.acquire_write_lock("bucket2", "key").await.unwrap();
 
         assert_eq!(manager.active_lock_count().await, 2);
+    }
+
+    #[tokio::test]
+    async fn test_concurrent_reads_allowed() {
+        let manager = Arc::new(ObjectLockManager::new_default());
+        let counter = Arc::new(AtomicU32::new(0));
+
+        let mut handles = vec![];
+
+        for _ in 0..10 {
+            let manager = Arc::clone(&manager);
+            let counter = Arc::clone(&counter);
+
+            handles.push(tokio::spawn(async move {
+                let _guard = manager.acquire_read_lock("bucket", "key").await.unwrap();
+                counter.fetch_add(1, Ordering::SeqCst);
+                sleep(Duration::from_millis(50)).await;
+            }));
+        }
+
+        sleep(Duration::from_millis(10)).await;
+
+        let count = counter.load(Ordering::SeqCst);
+        assert!(count >= 5, "Expected concurrent readers, got {}", count);
+
+        for handle in handles {
+            handle.await.unwrap();
+        }
+
+        assert_eq!(counter.load(Ordering::SeqCst), 10);
+    }
+
+    #[tokio::test]
+    async fn test_write_blocks_reads() {
+        let manager = Arc::new(ObjectLockManager::new(Duration::from_millis(100)));
+
+        let _write_guard = manager.acquire_write_lock("bucket", "key").await.unwrap();
+
+        let manager2 = Arc::clone(&manager);
+        let handle = tokio::spawn(async move { manager2.acquire_read_lock("bucket", "key").await });
+
+        let result = handle.await.unwrap();
+        assert!(matches!(result, Err(LockError::Timeout)));
+    }
+
+    #[tokio::test]
+    async fn test_read_blocks_write() {
+        let manager = Arc::new(ObjectLockManager::new(Duration::from_millis(100)));
+
+        let _read_guard = manager.acquire_read_lock("bucket", "key").await.unwrap();
+
+        let manager2 = Arc::clone(&manager);
+        let handle =
+            tokio::spawn(async move { manager2.acquire_write_lock("bucket", "key").await });
+
+        let result = handle.await.unwrap();
+        assert!(matches!(result, Err(LockError::Timeout)));
     }
 }
