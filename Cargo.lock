@@ -3511,6 +3511,7 @@ version = "0.1.0"
 dependencies = [
  "chrono",
  "criterion",
+ "dashmap",
  "hex",
  "hmac",
  "quick-xml",
@@ -3542,7 +3543,6 @@ dependencies = [
  "reqwest",
  "rustc_version_runtime",
  "serde",
- "serde_json",
  "sha2",
  "sys-info",
  "sysinfo",

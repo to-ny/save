@@ -15,6 +15,7 @@ quick-xml = { workspace = true }
 uuid = { workspace = true }
 tracing = { workspace = true }
 tokio = { workspace = true }
+dashmap = "6.1"
 
 [dev-dependencies]
 tempfile = { workspace = true }
@@ -23,8 +24,7 @@ criterion = { version = "0.5", features = ["html_reports", "async_tokio"] }
 sha2 = "0.10"
 hmac = "0.12"
 rand = "0.9"
-hex = "0.4"
-uuid = { version = "1.0", features = ["v4"] }
+hex = { workspace = true }
 
 [[bench]]
 name = "crypto"

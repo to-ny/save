@@ -24,6 +24,23 @@ runcmd:
     }
     EOF
   - systemctl restart docker
+%{ if use_volume ~}
+  - |
+    DEVICE="/dev/disk/by-id/scsi-0HC_Volume_*"
+    while [ ! -e $DEVICE ]; do
+      echo "Waiting for volume device..."
+      sleep 2
+    done
+    DEVICE=$(ls /dev/disk/by-id/scsi-0HC_Volume_* | head -1)
+    mkfs.ext4 -F $DEVICE || true
+    mkdir -p /var/lib/save
+    mount $DEVICE /var/lib/save
+    echo "$DEVICE /var/lib/save ext4 defaults,nofail 0 2" >> /etc/fstab
+    mkdir -p /var/lib/save/data /var/lib/save/metadata
+    chown -R root:root /var/lib/save
+%{ else ~}
+  - mkdir -p /var/lib/save/data /var/lib/save/metadata
+%{ endif ~}
   - mkdir -p /opt/save
 
 write_files:

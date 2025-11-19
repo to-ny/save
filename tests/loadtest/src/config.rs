@@ -1,4 +1,5 @@
 use crate::error::{LoadTestError, Result};
+use crate::{deserialize_url, serialize_url};
 use config::{Config, Environment, File};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
@@ -216,21 +217,6 @@ impl ObjectSizeDistribution {
 
         104_857_600
     }
-}
-
-fn deserialize_url<'de, D>(deserializer: D) -> std::result::Result<Url, D::Error>
-where
-    D: serde::Deserializer<'de>,
-{
-    let s = String::deserialize(deserializer)?;
-    s.parse().map_err(serde::de::Error::custom)
-}
-
-fn serialize_url<S>(url: &Url, serializer: S) -> std::result::Result<S::Ok, S::Error>
-where
-    S: serde::Serializer,
-{
-    serializer.serialize_str(url.as_str())
 }
 
 fn deserialize_optional_url<'de, D>(deserializer: D) -> std::result::Result<Option<Url>, D::Error>

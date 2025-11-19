@@ -68,7 +68,7 @@ fi
 
 TF_ALLOWED_IPS="[\"$(echo "$ALLOWED_IPS" | sed 's/,/","/g')\"]"
 
-log_info "Running Terraform..."
+log_info "Running Terraform with profile: ${PROFILE}"
 cd "${TF_DIR}"
 
 terraform init -upgrade
@@ -85,14 +85,15 @@ terraform apply \
 
 SERVER_IP=$(terraform output -raw server_ip)
 SAVE_ENDPOINT=$(terraform output -raw save_endpoint)
+STORAGE_BACKEND=$(terraform output -raw storage_backend)
 
-log_success "Server provisioned at: ${SERVER_IP}"
+log_success "Infrastructure provisioned at: ${SERVER_IP}"
 
 if [[ -f "${HOME}/.ssh/known_hosts" ]]; then
   ssh-keygen -R "${SERVER_IP}" &>/dev/null || true
 fi
 
-log_info "Building Docker image locally..."
+log_info "Building Docker image..."
 cd "${SCRIPT_DIR}/../../.."
 docker build -t save-api:latest -f Dockerfile .
 
@@ -101,40 +102,22 @@ IMAGE_TARBALL="/tmp/save-api-$(date +%s).tar.gz"
 register_temp_file "$IMAGE_TARBALL"
 docker save save-api:latest | gzip > "$IMAGE_TARBALL"
 
-wait_for_condition "SSH to become available" 60 5 \
-  ssh -o StrictHostKeyChecking=accept-new -o ConnectTimeout=5 "root@${SERVER_IP}" "echo SSH ready"
-
-wait_for_condition "cloud-init to complete" 60 5 \
-  ssh "root@${SERVER_IP}" "test -f /var/lib/cloud/instance/boot-finished"
-
-log_info "Checking cloud-init status..."
-ssh "root@${SERVER_IP}" "cloud-init status --wait || cloud-init status" || true
-
-log_info "Waiting for Docker to be installed and ready..."
-wait_for_condition "Docker daemon to be ready" 120 5 \
-  ssh "root@${SERVER_IP}" "command -v docker >/dev/null 2>&1 && systemctl is-active docker >/dev/null 2>&1"
-
-log_info "Waiting for docker-compose to be installed..."
-wait_for_condition "docker-compose to be available" 60 5 \
-  ssh "root@${SERVER_IP}" "command -v docker-compose >/dev/null 2>&1"
-
-log_info "Ensuring /opt/save directory exists..."
-ssh "root@${SERVER_IP}" "mkdir -p /opt/save"
+log_info "Waiting for server to be ready..."
+"${SCRIPT_DIR}/wait-for-server.sh" "${SERVER_IP}"
 
 log_info "Uploading Docker image to server..."
 scp "$IMAGE_TARBALL" "root@${SERVER_IP}:/opt/save/save-api.tar.gz"
 
-log_info "Loading image and starting services..."
-ssh "root@${SERVER_IP}" << 'ENDSSH'
-cd /opt/save
-echo "Loading save-api image..."
-docker load < save-api.tar.gz
-rm save-api.tar.gz
-echo "Starting containers..."
-docker-compose up -d
-echo "Checking container status..."
-docker-compose ps
-ENDSSH
+log_info "Uploading deployment script..."
+scp "${SCRIPT_DIR}/deploy-image.sh" "root@${SERVER_IP}:/tmp/deploy-image.sh"
+
+log_info "Deploying image..."
+if ssh "root@${SERVER_IP}" "chmod +x /tmp/deploy-image.sh && /tmp/deploy-image.sh"; then
+  log_success "Deployment successful!"
+else
+  log_error "Deployment failed, check logs with: ssh root@${SERVER_IP} 'cd /opt/save && docker-compose logs save-api'"
+  exit 1
+fi
 
 log_info "Waiting for save-api to be ready..."
 HEALTH_OK=false
@@ -159,24 +142,11 @@ if [[ "$HEALTH_OK" == "false" ]]; then
   echo ""
   log_error "External health check failed after 5 minutes"
   echo ""
-  log_info "Testing endpoint from your machine..."
-  echo "Endpoint: ${SAVE_ENDPOINT}/health"
-  curl -v "${SAVE_ENDPOINT}/health" 2>&1 | head -20
-  echo ""
-  log_info "Container status:"
-  ssh "root@${SERVER_IP}" "cd /opt/save && docker-compose ps"
-  echo ""
-  log_info "Testing health endpoint from server (should work):"
+  log_info "Checking server-side health..."
   ssh "root@${SERVER_IP}" "curl -v http://localhost:9000/health" 2>&1 | head -10
   echo ""
-  log_info "save-api logs (last 30 lines):"
+  log_info "Container logs:"
   ssh "root@${SERVER_IP}" "cd /opt/save && docker-compose logs --tail=30 save-api"
-  echo ""
-  echo "This usually means the firewall is blocking port 9000 or health check failed."
-  echo "To troubleshoot:"
-  echo "  ssh root@${SERVER_IP}"
-  echo "  curl http://localhost:9000/health  # Test locally (should work)"
-  echo "  cd /opt/save && docker-compose logs -f save-api"
   exit 1
 fi
 
@@ -236,6 +206,10 @@ export SAVE_SERVER_PROFILE=${PROFILE}
 export SAVE_SERVER_OS=Linux
 export SAVE_SERVER_OS_VERSION="Ubuntu 24.04"
 EOF
+
+if [[ -n "${STORAGE_BACKEND}" ]]; then
+  echo "export SAVE_STORAGE_TYPE=${STORAGE_BACKEND}" >> "${SCRIPT_DIR}/../.env.loadtest"
+fi
 
 log_success "Server metadata saved to: ${SCRIPT_DIR}/../.env.loadtest"
 echo ""

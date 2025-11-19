@@ -26,6 +26,46 @@ variable "location" {
   default     = "nbg1"
 }
 
+variable "storage_type" {
+  description = "Storage backend: empty for local disk, 'volume' to create and attach Hetzner volume"
+  type        = string
+  default     = ""
+
+  validation {
+    condition     = var.storage_type == "" || var.storage_type == "volume"
+    error_message = "storage_type must be empty (local disk) or 'volume' (Hetzner volume)"
+  }
+}
+
+variable "volume_size_gb" {
+  description = "Size of Hetzner volume in GB (minimum 10, only used when storage_type='volume')"
+  type        = number
+  default     = 10
+
+  validation {
+    condition     = var.volume_size_gb >= 10
+    error_message = "volume_size_gb must be at least 10 GB"
+  }
+}
+
+variable "worker_threads" {
+  description = "Number of worker threads for save-api"
+  type        = number
+  default     = 4
+}
+
+variable "write_buffer_size_mb" {
+  description = "RocksDB write buffer size in MB"
+  type        = number
+  default     = 256
+}
+
+variable "block_cache_size_mb" {
+  description = "RocksDB block cache size in MB"
+  type        = number
+  default     = 512
+}
+
 # Security credentials
 variable "save_access_key" {
   description = "S3 access key for save-api authentication"

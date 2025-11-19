@@ -54,7 +54,6 @@ tests/infra/
 ├── scripts/                   # Implementation (called by Makefile)
 │   ├── common.sh
 │   ├── deploy.sh
-│   ├── update.sh
 │   └── ...
 └── terraform/
     ├── main.tf
@@ -85,15 +84,11 @@ make deploy-large   # Stress testing
 
 The script provisions infrastructure, builds/uploads Docker image, runs smoke tests, and outputs endpoint URL.
 
-### Update
-
-After code changes, update save-api without full redeploy:
+To update after code changes, simply re-run the deploy command. Terraform will detect what changed and only update necessary resources:
 
 ```bash
-make update
+make deploy-medium  # Terraform detects changes and updates automatically
 ```
-
-Automatically backs up current image and rolls back if health check fails.
 
 ### Load Tests
 

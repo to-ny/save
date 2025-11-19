@@ -11,6 +11,8 @@ pub mod transactions;
 
 use goose::metrics::GooseMetrics;
 use goose::prelude::*;
+use serde::Deserialize;
+use url::Url;
 
 pub type Result<T> = anyhow::Result<T>;
 
@@ -59,6 +61,7 @@ pub async fn run_scenario_with_report(
         report_name,
         &metrics,
         target,
+        config,
         prometheus_samples,
         system_samples,
     );
@@ -184,4 +187,19 @@ pub fn build_scenario_by_name(name: &str, config: &config::LoadTestConfig) -> Re
         ),
     };
     Ok(scenario)
+}
+
+fn serialize_url<S>(url: &Url, serializer: S) -> std::result::Result<S::Ok, S::Error>
+where
+    S: serde::Serializer,
+{
+    serializer.serialize_str(url.as_str())
+}
+
+fn deserialize_url<'de, D>(deserializer: D) -> std::result::Result<Url, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let s = String::deserialize(deserializer)?;
+    s.parse().map_err(serde::de::Error::custom)
 }

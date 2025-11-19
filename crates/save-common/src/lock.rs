@@ -1,7 +1,7 @@
-use std::collections::HashMap;
+use dashmap::DashMap;
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::sync::{Mutex, OwnedRwLockReadGuard, OwnedRwLockWriteGuard, RwLock};
+use tokio::sync::{OwnedRwLockReadGuard, OwnedRwLockWriteGuard, RwLock};
 use tokio::time::timeout;
 
 /// Error type for lock operations
@@ -16,24 +16,24 @@ pub type Result<T> = std::result::Result<T, LockError>;
 /// RAII guard that releases the read lock on drop
 pub struct ReadLockGuard {
     _guard: OwnedRwLockReadGuard<()>,
-    manager: Arc<Mutex<HashMap<String, Arc<RwLock<()>>>>>,
+    manager: Arc<DashMap<String, Arc<RwLock<()>>>>,
     key: String,
 }
 
 /// RAII guard that releases the write lock on drop
 pub struct WriteLockGuard {
     _guard: OwnedRwLockWriteGuard<()>,
-    manager: Arc<Mutex<HashMap<String, Arc<RwLock<()>>>>>,
+    manager: Arc<DashMap<String, Arc<RwLock<()>>>>,
     key: String,
 }
 
-fn cleanup_lock(manager: Arc<Mutex<HashMap<String, Arc<RwLock<()>>>>>, key: String) {
+fn cleanup_lock(manager: Arc<DashMap<String, Arc<RwLock<()>>>>, key: String) {
     tokio::spawn(async move {
-        let mut map = manager.lock().await;
-        if let Some(lock_arc) = map.get(&key)
-            && Arc::strong_count(lock_arc) == 1
+        if let Some(entry) = manager.get(&key)
+            && Arc::strong_count(entry.value()) == 1
         {
-            map.remove(&key);
+            drop(entry);
+            manager.remove(&key);
         }
     });
 }
@@ -51,14 +51,14 @@ impl Drop for WriteLockGuard {
 }
 
 pub struct ObjectLockManager {
-    locks: Arc<Mutex<HashMap<String, Arc<RwLock<()>>>>>,
+    locks: Arc<DashMap<String, Arc<RwLock<()>>>>,
     timeout: Duration,
 }
 
 impl ObjectLockManager {
     pub fn new(timeout: Duration) -> Self {
         Self {
-            locks: Arc::new(Mutex::new(HashMap::new())),
+            locks: Arc::new(DashMap::new()),
             timeout,
         }
     }
@@ -70,13 +70,12 @@ impl ObjectLockManager {
     pub async fn acquire_read_lock(&self, bucket: &str, key: &str) -> Result<ReadLockGuard> {
         let full_key = format!("{}/{}", bucket, key);
 
-        let lock_arc = {
-            let mut locks = self.locks.lock().await;
-            locks
-                .entry(full_key.clone())
-                .or_insert_with(|| Arc::new(RwLock::new(())))
-                .clone()
-        };
+        let lock_arc = self
+            .locks
+            .entry(full_key.clone())
+            .or_insert_with(|| Arc::new(RwLock::new(())))
+            .value()
+            .clone();
 
         let guard = timeout(self.timeout, lock_arc.clone().read_owned())
             .await
@@ -92,13 +91,12 @@ impl ObjectLockManager {
     pub async fn acquire_write_lock(&self, bucket: &str, key: &str) -> Result<WriteLockGuard> {
         let full_key = format!("{}/{}", bucket, key);
 
-        let lock_arc = {
-            let mut locks = self.locks.lock().await;
-            locks
-                .entry(full_key.clone())
-                .or_insert_with(|| Arc::new(RwLock::new(())))
-                .clone()
-        };
+        let lock_arc = self
+            .locks
+            .entry(full_key.clone())
+            .or_insert_with(|| Arc::new(RwLock::new(())))
+            .value()
+            .clone();
 
         let guard = timeout(self.timeout, lock_arc.clone().write_owned())
             .await
@@ -114,8 +112,7 @@ impl ObjectLockManager {
     /// Returns the number of active locks (for testing/metrics)
     #[cfg(test)]
     pub async fn active_lock_count(&self) -> usize {
-        let locks = self.locks.lock().await;
-        locks.len()
+        self.locks.len()
     }
 }
 

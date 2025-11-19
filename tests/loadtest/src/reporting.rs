@@ -1,6 +1,7 @@
 use crate::error::{LoadTestError, Result};
 use crate::metrics::PrometheusSnapshot;
 use crate::system_metrics::SystemMetrics;
+use crate::{deserialize_url, serialize_url};
 use chrono::{DateTime, Utc};
 use goose::metrics::GooseMetrics;
 use serde::{Deserialize, Serialize};
@@ -12,8 +13,33 @@ use url::Url;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TestReport {
     pub metadata: TestMetadata,
+    pub workload: WorkloadConfig,
     pub execution: ExecutionMetrics,
     pub observability: ObservabilityData,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WorkloadConfig {
+    pub duration_secs: u64,
+    pub concurrent_users: usize,
+    pub object_size_distribution: ObjectSizeDistribution,
+    pub operation_mix: OperationMix,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ObjectSizeDistribution {
+    pub small_1kb_pct: u32,
+    pub medium_1mb_pct: u32,
+    pub large_10mb_pct: u32,
+    pub xlarge_100mb_pct: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OperationMix {
+    pub put_weight: usize,
+    pub get_weight: usize,
+    pub delete_weight: usize,
+    pub list_weight: usize,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -22,6 +48,22 @@ pub struct TestMetadata {
     pub start_time: DateTime<Utc>,
     pub end_time: DateTime<Utc>,
     pub target: TargetEnvironment,
+    pub client: ClientEnvironment,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ClientEnvironment {
+    pub resources: ResourceSpec,
+    pub network_mode: NetworkMode,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum NetworkMode {
+    Localhost,
+    LAN,
+    WAN,
+    Cloud,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -31,6 +73,7 @@ pub struct TargetEnvironment {
     pub endpoint: Url,
     pub deployment_mode: DeploymentMode,
     pub resources: Option<ResourceSpec>,
+    pub storage: Option<StorageInfo>,
     pub build_info: BuildInfo,
 }
 
@@ -59,6 +102,11 @@ pub struct ResourceSpec {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StorageInfo {
+    pub storage_type: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BuildInfo {
     pub rust_version: String,
     pub save_version: String,
@@ -79,6 +127,7 @@ pub struct ExecutionMetrics {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LatencyMetrics {
+    pub min_ms: f64,
     pub p50_ms: f64,
     pub p95_ms: f64,
     pub p99_ms: f64,
@@ -96,6 +145,7 @@ impl TestReport {
         test_name: impl Into<String>,
         metrics: &GooseMetrics,
         target: TargetEnvironment,
+        config: &crate::config::LoadTestConfig,
         prometheus_samples: Vec<PrometheusSnapshot>,
         system_samples: Vec<SystemMetrics>,
     ) -> Self {
@@ -123,13 +173,45 @@ impl TestReport {
         let end_time = Utc::now();
         let start_time = end_time - chrono::Duration::seconds(metrics.duration as i64);
 
+        let network_mode = Self::detect_network_mode(&target.endpoint);
+        let client = ClientEnvironment {
+            resources: ResourceSpec {
+                vcpu: num_cpus::get(),
+                memory_gb: (sys_info::mem_info()
+                    .map(|m| m.total / 1024 / 1024)
+                    .unwrap_or(0)) as usize,
+                os: std::env::consts::OS.to_string(),
+                os_version: detect_os_version(),
+            },
+            network_mode,
+        };
+
+        let workload = WorkloadConfig {
+            duration_secs: config.workload.duration_secs,
+            concurrent_users: config.workload.users.max,
+            object_size_distribution: ObjectSizeDistribution {
+                small_1kb_pct: config.workload.object_sizes.small_1kb_percent,
+                medium_1mb_pct: config.workload.object_sizes.medium_1mb_percent,
+                large_10mb_pct: config.workload.object_sizes.large_10mb_percent,
+                xlarge_100mb_pct: config.workload.object_sizes.xlarge_100mb_percent,
+            },
+            operation_mix: OperationMix {
+                put_weight: config.scenarios.mixed.put_weight,
+                get_weight: config.scenarios.mixed.get_weight,
+                delete_weight: config.scenarios.mixed.delete_weight,
+                list_weight: config.scenarios.mixed.list_weight,
+            },
+        };
+
         Self {
             metadata: TestMetadata {
                 test_name: test_name.into(),
                 start_time,
                 end_time,
                 target,
+                client,
             },
+            workload,
             execution: ExecutionMetrics {
                 total_requests,
                 successful_requests,
@@ -161,6 +243,7 @@ impl TestReport {
                 p95_ms: 0.0,
                 p99_ms: 0.0,
                 max_ms: 0.0,
+                min_ms: 0.0,
             };
         }
 
@@ -172,10 +255,25 @@ impl TestReport {
         let p99_idx = (len * 99) / 100;
 
         LatencyMetrics {
+            min_ms: all_times[0] as f64,
             p50_ms: all_times[p50_idx.min(len - 1)] as f64,
             p95_ms: all_times[p95_idx.min(len - 1)] as f64,
             p99_ms: all_times[p99_idx.min(len - 1)] as f64,
             max_ms: all_times[len - 1] as f64,
+        }
+    }
+
+    fn detect_network_mode(endpoint: &Url) -> NetworkMode {
+        match endpoint.host_str() {
+            Some("localhost") | Some("127.0.0.1") | Some("::1") => NetworkMode::Localhost,
+            Some(host)
+                if host.starts_with("192.168.")
+                    || host.starts_with("10.")
+                    || host.starts_with("172.") =>
+            {
+                NetworkMode::LAN
+            }
+            _ => NetworkMode::WAN,
         }
     }
 
@@ -262,10 +360,16 @@ impl TargetEnvironment {
 
         let build_info = BuildInfo::detect();
 
+        let storage = std::env::var("SAVE_STORAGE_TYPE")
+            .ok()
+            .filter(|s| !s.is_empty())
+            .map(|storage_type| StorageInfo { storage_type });
+
         Ok(Self {
             endpoint,
             deployment_mode,
             resources,
+            storage,
             build_info,
         })
     }
@@ -324,18 +428,6 @@ pub trait ReportFormatter: Send + Sync {
     fn file_extension(&self) -> &str;
 }
 
-pub struct JsonFormatter;
-
-impl ReportFormatter for JsonFormatter {
-    fn format(&self, report: &TestReport) -> Result<String> {
-        serde_json::to_string_pretty(report).map_err(LoadTestError::JsonSerialization)
-    }
-
-    fn file_extension(&self) -> &str {
-        "json"
-    }
-}
-
 pub struct MarkdownFormatter;
 
 impl ReportFormatter for MarkdownFormatter {
@@ -353,7 +445,28 @@ impl ReportFormatter for MarkdownFormatter {
             duration_secs,
         );
 
-        md.push_str("## Target Environment\n\n");
+        md.push_str("## Test Environment\n\n");
+        md.push_str("### Client\n\n");
+        md.push_str("| Property | Value |\n");
+        md.push_str("|----------|-------|\n");
+        md.push_str(&format!(
+            "| vCPU | {} |\n",
+            report.metadata.client.resources.vcpu
+        ));
+        md.push_str(&format!(
+            "| Memory | {}GB |\n",
+            report.metadata.client.resources.memory_gb
+        ));
+        md.push_str(&format!(
+            "| OS | {} {} |\n",
+            report.metadata.client.resources.os, report.metadata.client.resources.os_version
+        ));
+        md.push_str(&format!(
+            "| Network | {:?} |\n\n",
+            report.metadata.client.network_mode
+        ));
+
+        md.push_str("### Server\n\n");
         md.push_str("| Property | Value |\n");
         md.push_str("|----------|-------|\n");
         md.push_str(&format!(
@@ -392,15 +505,14 @@ impl ReportFormatter for MarkdownFormatter {
             ));
         }
 
-        md.push_str(&format!(
-            "| Rust | {} |\n",
-            report.metadata.target.build_info.rust_version
-        ));
+        if let Some(ref storage) = report.metadata.target.storage {
+            md.push_str(&format!("| Storage | {} |\n", storage.storage_type));
+        }
+
         md.push_str(&format!(
             "| Save | {} |\n",
             report.metadata.target.build_info.save_version
         ));
-
         if let Some(ref commit) = report.metadata.target.build_info.git_commit {
             md.push_str(&format!(
                 "| Git Commit | {} |\n",
@@ -411,8 +523,62 @@ impl ReportFormatter for MarkdownFormatter {
             md.push_str(&format!("| Git Branch | {} |\n", branch));
         }
 
+        md.push_str("\n## Workload Configuration\n\n");
+        md.push_str("| Setting | Value |\n");
+        md.push_str("|---------|-------|\n");
         md.push_str(&format!(
-            "\n## Summary\n\n\
+            "| Duration | {}s |\n",
+            report.workload.duration_secs
+        ));
+        md.push_str(&format!(
+            "| Concurrent Users | {} |\n\n",
+            report.workload.concurrent_users
+        ));
+
+        md.push_str("**Object Size Distribution:**\n");
+        md.push_str(&format!(
+            "- Small (1KB): {}%\n",
+            report.workload.object_size_distribution.small_1kb_pct
+        ));
+        md.push_str(&format!(
+            "- Medium (1MB): {}%\n",
+            report.workload.object_size_distribution.medium_1mb_pct
+        ));
+        md.push_str(&format!(
+            "- Large (10MB): {}%\n",
+            report.workload.object_size_distribution.large_10mb_pct
+        ));
+        md.push_str(&format!(
+            "- XLarge (100MB): {}%\n\n",
+            report.workload.object_size_distribution.xlarge_100mb_pct
+        ));
+
+        let total_weight = report.workload.operation_mix.put_weight
+            + report.workload.operation_mix.get_weight
+            + report.workload.operation_mix.delete_weight
+            + report.workload.operation_mix.list_weight;
+        if total_weight > 0 {
+            md.push_str("**Operation Mix:**\n");
+            md.push_str(&format!(
+                "- PUT: {:.0}%\n",
+                (report.workload.operation_mix.put_weight as f64 / total_weight as f64) * 100.0
+            ));
+            md.push_str(&format!(
+                "- GET: {:.0}%\n",
+                (report.workload.operation_mix.get_weight as f64 / total_weight as f64) * 100.0
+            ));
+            md.push_str(&format!(
+                "- DELETE: {:.0}%\n",
+                (report.workload.operation_mix.delete_weight as f64 / total_weight as f64) * 100.0
+            ));
+            md.push_str(&format!(
+                "- LIST: {:.0}%\n\n",
+                (report.workload.operation_mix.list_weight as f64 / total_weight as f64) * 100.0
+            ));
+        }
+
+        md.push_str(&format!(
+            "## Results Summary\n\n\
              | Metric | Value |\n\
              |--------|-------|\n\
              | Total Requests | {} |\n\
@@ -427,59 +593,43 @@ impl ReportFormatter for MarkdownFormatter {
             report.execution.requests_per_second,
         ));
 
+        md.push_str("## End-to-End Performance\n\n");
+        md.push_str("_Measured from client perspective, includes full request/response cycle with data transfer._\n\n");
+        md.push_str("| Metric | Latency (ms) |\n");
+        md.push_str("|--------|-------------:|\n");
         md.push_str(&format!(
-            "## Latency\n\n\
-             | Percentile | Latency (ms) |\n\
-             |------------|-------------|\n\
-             | p50 | {:.2} |\n\
-             | p95 | {:.2} |\n\
-             | p99 | {:.2} |\n\
-             | max | {:.2} |\n",
-            report.execution.latency.p50_ms,
-            report.execution.latency.p95_ms,
-            report.execution.latency.p99_ms,
-            report.execution.latency.max_ms,
+            "| Min | {:.2} |\n",
+            report.execution.latency.min_ms
         ));
+        md.push_str(&format!(
+            "| p50 (median) | {:.2} |\n",
+            report.execution.latency.p50_ms
+        ));
+        md.push_str(&format!(
+            "| p95 | {:.2} |\n",
+            report.execution.latency.p95_ms
+        ));
+        md.push_str(&format!(
+            "| p99 | {:.2} |\n",
+            report.execution.latency.p99_ms
+        ));
+        md.push_str(&format!(
+            "| Max | {:.2} |\n\n",
+            report.execution.latency.max_ms
+        ));
+
+        if report.execution.latency.max_ms > 1000.0 {
+            md.push_str(
+                "_Note: High latency values (>1s) typically indicate large object transfers. ",
+            );
+            md.push_str("For 100MB objects, 3-4s is expected at ~30MB/s throughput._\n\n");
+        }
 
         Ok(md)
     }
 
     fn file_extension(&self) -> &str {
         "md"
-    }
-}
-
-pub struct CsvFormatter;
-
-impl ReportFormatter for CsvFormatter {
-    fn format(&self, report: &TestReport) -> Result<String> {
-        Ok(format!(
-            "metric,value\n\
-             test_name,{}\n\
-             total_requests,{}\n\
-             successful_requests,{}\n\
-             failed_requests,{}\n\
-             success_rate,{:.4}\n\
-             requests_per_second,{:.2}\n\
-             latency_p50_ms,{:.2}\n\
-             latency_p95_ms,{:.2}\n\
-             latency_p99_ms,{:.2}\n\
-             latency_max_ms,{:.2}\n",
-            report.metadata.test_name,
-            report.execution.total_requests,
-            report.execution.successful_requests,
-            report.execution.failed_requests,
-            report.success_rate(),
-            report.execution.requests_per_second,
-            report.execution.latency.p50_ms,
-            report.execution.latency.p95_ms,
-            report.execution.latency.p99_ms,
-            report.execution.latency.max_ms,
-        ))
-    }
-
-    fn file_extension(&self) -> &str {
-        "csv"
     }
 }
 
@@ -490,11 +640,7 @@ pub struct ReportWriter {
 
 impl ReportWriter {
     pub fn new(output_dir: PathBuf) -> Self {
-        let formatters: Vec<Box<dyn ReportFormatter>> = vec![
-            Box::new(JsonFormatter),
-            Box::new(MarkdownFormatter),
-            Box::new(CsvFormatter),
-        ];
+        let formatters: Vec<Box<dyn ReportFormatter>> = vec![Box::new(MarkdownFormatter)];
 
         Self {
             output_dir,
@@ -524,19 +670,4 @@ impl ReportWriter {
 
         Ok(paths)
     }
-}
-
-fn serialize_url<S>(url: &Url, serializer: S) -> std::result::Result<S::Ok, S::Error>
-where
-    S: serde::Serializer,
-{
-    serializer.serialize_str(url.as_str())
-}
-
-fn deserialize_url<'de, D>(deserializer: D) -> std::result::Result<Url, D::Error>
-where
-    D: serde::Deserializer<'de>,
-{
-    let s = String::deserialize(deserializer)?;
-    s.parse().map_err(serde::de::Error::custom)
 }

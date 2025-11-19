@@ -1,6 +1,6 @@
 [server]
 bind_address = "0.0.0.0:9000"
-worker_threads = 4
+worker_threads = ${worker_threads}
 max_blocking_threads = 512
 
 [storage]
@@ -9,10 +9,10 @@ metadata_path = "/var/lib/save/metadata"
 fsync_mode = "data"
 
 [metadata]
-write_buffer_size_mb = 128
-max_write_buffer_number = 4
-block_cache_size_mb = 512
-max_background_jobs = 4
+write_buffer_size_mb = ${write_buffer_size_mb}
+max_write_buffer_number = 6
+block_cache_size_mb = ${block_cache_size_mb}
+max_background_jobs = 8
 
 [credentials]
 access_key = "${save_access_key}"

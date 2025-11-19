@@ -120,6 +120,7 @@ async fn test_soak() -> anyhow::Result<()> {
         "soak-test",
         &metrics,
         target,
+        &config,
         prometheus_samples.lock().await.clone(),
         system_samples.lock().await.clone(),
     );
@@ -180,7 +181,8 @@ async fn test_soak_short() -> anyhow::Result<()> {
 
     let target =
         save_loadtest::reporting::TargetEnvironment::detect(config.target.endpoint.clone())?;
-    let report = TestReport::from_goose_metrics("soak-short", &metrics, target, vec![], vec![]);
+    let report =
+        TestReport::from_goose_metrics("soak-short", &metrics, target, &config, vec![], vec![]);
 
     assert!(report.total_requests() > 0);
 

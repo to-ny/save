@@ -156,70 +156,6 @@ require_env_var() {
     fi
 }
 
-generate_save_config() {
-    local profile=$1
-    local access_key=$2
-    local secret_key=$3
-    local output_file=$4
-
-    local worker_threads
-    local write_buffer_mb
-    local block_cache_mb
-
-    case "$profile" in
-        smoke)
-            worker_threads=2
-            write_buffer_mb=64
-            block_cache_mb=256
-            ;;
-        medium)
-            worker_threads=4
-            write_buffer_mb=128
-            block_cache_mb=512
-            ;;
-        large)
-            worker_threads=8
-            write_buffer_mb=256
-            block_cache_mb=2048
-            ;;
-        *)
-            log_error "Unknown profile: $profile"
-            return 1
-            ;;
-    esac
-
-    cat > "$output_file" <<EOF
-[server]
-bind_address = "0.0.0.0:9000"
-worker_threads = $worker_threads
-max_blocking_threads = 512
-
-[storage]
-data_path = "/var/lib/save/data"
-metadata_path = "/var/lib/save/metadata"
-fsync_mode = "data"
-
-[metadata]
-write_buffer_size_mb = $write_buffer_mb
-max_write_buffer_number = 4
-block_cache_size_mb = $block_cache_mb
-max_background_jobs = 4
-
-[credentials]
-access_key = "$access_key"
-secret_key = "$secret_key"
-
-[limits]
-max_concurrent_requests = 1000
-requests_per_second = 500
-
-[shutdown]
-drain_timeout_secs = 30
-EOF
-
-    log_info "Generated configuration for profile '$profile' at $output_file"
-}
-
 run_smoke_tests() {
     local endpoint=$1
     local access_key=$2
@@ -297,6 +233,6 @@ export -f log_info log_success log_warn log_error
 export -f check_command wait_for_condition
 export -f get_local_public_ip is_valid_cidr
 export -f get_credential require_env_var
-export -f generate_save_config run_smoke_tests
+export -f run_smoke_tests
 export -f cleanup_temp_files handle_error setup_error_handling
 export -f register_temp_file

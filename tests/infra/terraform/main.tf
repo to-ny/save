@@ -50,6 +50,7 @@ resource "hcloud_server" "save" {
   firewall_ids = [hcloud_firewall.save.id]
 
   user_data = templatefile("${path.module}/cloud-init.yml", {
+    use_volume = var.storage_type == "volume"
     # Render config files with variable substitution
     docker_compose_yml = indent(6, templatefile("${path.module}/files/docker-compose.yml.tpl", {
       prometheus_version = var.prometheus_version
@@ -59,8 +60,11 @@ resource "hcloud_server" "save" {
       grafana_password   = var.grafana_password
     }))
     save_toml = indent(6, templatefile("${path.module}/files/save.toml.tpl", {
-      save_access_key = var.save_access_key
-      save_secret_key = var.save_secret_key
+      save_access_key      = var.save_access_key
+      save_secret_key      = var.save_secret_key
+      worker_threads       = var.worker_threads
+      write_buffer_size_mb = var.write_buffer_size_mb
+      block_cache_size_mb  = var.block_cache_size_mb
     }))
     # Static config files
     prometheus_yml          = indent(6, file("${path.module}/files/prometheus.yml"))
@@ -78,6 +82,22 @@ resource "hcloud_server" "save" {
     ipv4_enabled = true
     ipv6_enabled = false
   }
+}
+
+resource "hcloud_volume" "data" {
+  count    = var.storage_type == "volume" ? 1 : 0
+  name     = "save-data-${var.profile}-${random_id.suffix.hex}"
+  size     = var.volume_size_gb
+  location = var.location
+  format   = "ext4"
+  labels   = local.common_tags
+}
+
+resource "hcloud_volume_attachment" "data" {
+  count     = var.storage_type == "volume" ? 1 : 0
+  volume_id = hcloud_volume.data[0].id
+  server_id = hcloud_server.save.id
+  automount = false
 }
 
 resource "hcloud_firewall" "save" {

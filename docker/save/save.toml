@@ -7,14 +7,15 @@ bucket_cache_ttl_secs = 60
 [storage]
 data_path = "/var/lib/save/data"
 metadata_path = "/var/lib/save/metadata"
+fsync_mode = "data"
 gc_interval_secs = 300
 gc_temp_file_max_age_secs = 3600
 
 [metadata]
-write_buffer_size_mb = 128
-max_write_buffer_number = 4
-block_cache_size_mb = 256
-max_background_jobs = 4
+write_buffer_size_mb = 256
+max_write_buffer_number = 6
+block_cache_size_mb = 512
+max_background_jobs = 8
 
 [shutdown]
 drain_timeout_secs = 30

@@ -27,9 +27,6 @@ pub enum LoadTestError {
     #[error("IO error: {0}")]
     Io(#[from] std::io::Error),
 
-    #[error("JSON serialization error: {0}")]
-    JsonSerialization(#[from] serde_json::Error),
-
     #[error("URL parse error: {0}")]
     UrlParse(#[from] url::ParseError),
 

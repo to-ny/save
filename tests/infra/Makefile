@@ -1,7 +1,7 @@
 SCRIPTS_DIR := scripts
 TERRAFORM_DIR := terraform
 
-.PHONY: help check deploy-smoke deploy-medium deploy-large update teardown status logs logs-follow cleanup cleanup-delete diagnose
+.PHONY: help check deploy-smoke deploy-medium deploy-large teardown status logs logs-follow cleanup cleanup-delete diagnose
 
 .DEFAULT_GOAL := help
 
@@ -12,7 +12,6 @@ help:
 	@echo "  make deploy-smoke    Deploy smoke test (2 vCPU, 2GB)"
 	@echo "  make deploy-medium   Deploy medium (4 vCPU, 8GB)"
 	@echo "  make deploy-large    Deploy large (8 vCPU, 16GB)"
-	@echo "  make update          Update save-api without redeploy"
 	@echo "  make teardown        Destroy infrastructure"
 	@echo ""
 	@echo "Monitoring:"
@@ -39,9 +38,6 @@ deploy-medium:
 
 deploy-large:
 	@$(SCRIPTS_DIR)/deploy.sh large
-
-update:
-	@$(SCRIPTS_DIR)/update.sh
 
 teardown:
 	@$(SCRIPTS_DIR)/teardown.sh
