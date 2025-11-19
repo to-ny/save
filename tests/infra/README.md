@@ -92,10 +92,18 @@ make deploy-medium  # Terraform detects changes and updates automatically
 
 ### Load Tests
 
+**Remote testing** (measures WAN + application performance):
 ```bash
 source tests/infra/.env.loadtest
 cargo test -p save-loadtest --features load_tests
 ```
+
+**Local testing** (measures pure storage + application performance):
+```bash
+make test-local  # Runs tests on server via SSH against localhost
+```
+
+Local testing eliminates WAN bottleneck by running tests directly on the server targeting `localhost:9000`. Results are saved with `-local` suffix. Typical improvement: 16-50x faster than remote testing.
 
 See [load tests' README](../loadtest/README.md) for more information.
 

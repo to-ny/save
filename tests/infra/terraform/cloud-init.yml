@@ -34,13 +34,14 @@ runcmd:
     DEVICE=$(ls /dev/disk/by-id/scsi-0HC_Volume_* | head -1)
     mkfs.ext4 -F $DEVICE || true
     mkdir -p /var/lib/save
-    mount $DEVICE /var/lib/save
-    echo "$DEVICE /var/lib/save ext4 defaults,nofail 0 2" >> /etc/fstab
+    mount -o noatime,nodiratime,commit=30 $DEVICE /var/lib/save
+    echo "$DEVICE /var/lib/save ext4 noatime,nodiratime,commit=30,nofail 0 2" >> /etc/fstab
     mkdir -p /var/lib/save/data /var/lib/save/metadata
     chmod -R 777 /var/lib/save
 %{ else ~}
   - mkdir -p /var/lib/save/data /var/lib/save/metadata
   - chmod -R 777 /var/lib/save
+  - mount -o remount,noatime,nodiratime /
 %{ endif ~}
   - mkdir -p /opt/save
 

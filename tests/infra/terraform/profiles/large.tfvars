@@ -2,8 +2,7 @@ profile      = "large"
 server_type  = "cpx41"
 location     = "nbg1"
 
-storage_type   = "volume"
-volume_size_gb = 100
+storage_type   = ""
 
 worker_threads       = 8
 write_buffer_size_mb = 256

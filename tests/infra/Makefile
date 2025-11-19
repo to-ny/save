@@ -1,7 +1,7 @@
 SCRIPTS_DIR := scripts
 TERRAFORM_DIR := terraform
 
-.PHONY: help check deploy-smoke deploy-medium deploy-large teardown status logs logs-follow cleanup cleanup-delete diagnose
+.PHONY: help check deploy-smoke deploy-medium deploy-large teardown status logs logs-follow cleanup cleanup-delete diagnose test-local
 
 .DEFAULT_GOAL := help
 
@@ -13,6 +13,9 @@ help:
 	@echo "  make deploy-medium   Deploy medium (4 vCPU, 8GB)"
 	@echo "  make deploy-large    Deploy large (8 vCPU, 16GB)"
 	@echo "  make teardown        Destroy infrastructure"
+	@echo ""
+	@echo "Testing:"
+	@echo "  make test-local      Run load tests on server (localhost, no WAN)"
 	@echo ""
 	@echo "Monitoring:"
 	@echo "  make status          Show server status"
@@ -59,3 +62,6 @@ cleanup-delete:
 
 diagnose:
 	@$(SCRIPTS_DIR)/diagnose.sh
+
+test-local:
+	@$(SCRIPTS_DIR)/ssh-test.sh

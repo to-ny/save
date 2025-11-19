@@ -205,10 +205,6 @@ impl BenchmarkRunner {
                     .unwrap_or(0);
 
                 let success = response.status().is_success();
-
-                if success && content_length == 0 {
-                    eprintln!("WARNING: GET returned 0 bytes for key: {}", key);
-                }
                 let error = if !success {
                     Some(format!("HTTP {}", response.status()))
                 } else {
