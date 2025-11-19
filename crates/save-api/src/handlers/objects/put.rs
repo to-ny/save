@@ -149,7 +149,14 @@ pub async fn put_object(
         duration, size, etag
     );
 
-    Ok((StatusCode::OK, [("etag", format!("\"{}\"", etag).as_str())]).into_response())
+    Ok((
+        StatusCode::OK,
+        [
+            ("etag", format!("\"{}\"", etag)),
+            ("x-storage-duration-ms", duration.as_millis().to_string()),
+        ],
+    )
+        .into_response())
 }
 
 #[cfg(test)]

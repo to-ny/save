@@ -1,7 +1,7 @@
 use axum::{
     body::Body,
     extract::{Path, State},
-    http::{StatusCode, header},
+    http::StatusCode,
     response::{IntoResponse, Response},
 };
 use save_common::{validate_bucket_name, validate_object_key};
@@ -76,10 +76,11 @@ pub async fn get_object(
     Ok((
         StatusCode::OK,
         [
-            (header::ETAG, format!("\"{}\"", metadata.etag)),
-            (header::CONTENT_LENGTH, metadata.size.to_string()),
-            (header::LAST_MODIFIED, last_modified),
-            (header::CONTENT_TYPE, content_type),
+            ("etag", format!("\"{}\"", metadata.etag)),
+            ("content-length", metadata.size.to_string()),
+            ("last-modified", last_modified),
+            ("content-type", content_type),
+            ("x-storage-duration-ms", duration.as_millis().to_string()),
         ],
         body,
     )

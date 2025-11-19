@@ -13,16 +13,11 @@ default = []
 load_tests = []
 
 [dependencies]
-# Load testing framework (loadtest-specific)
-goose = { version = "0.18.1", default-features = false, features = ["rustls-tls"] }
-
-# System metrics (loadtest-specific)
 sysinfo = "0.37.2"
 num_cpus = "1.16"
 sys-info = "0.9"
 rustc_version_runtime = "0.3"
 
-# Workspace dependencies
 tokio = { workspace = true }
 serde = { workspace = true }
 toml = { workspace = true }

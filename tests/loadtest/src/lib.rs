@@ -1,79 +1,96 @@
+pub mod aggregation;
+pub mod benchmark;
 pub mod bucket_setup;
 pub mod config;
 pub mod error;
 pub mod metrics;
 pub mod objects;
+pub mod report;
 pub mod reporting;
-pub mod scenarios;
 pub mod signing;
 pub mod system_metrics;
-pub mod transactions;
+pub mod workload;
 
-use goose::metrics::GooseMetrics;
-use goose::prelude::*;
+use chrono::Utc;
 use serde::Deserialize;
 use url::Url;
 
 pub type Result<T> = anyhow::Result<T>;
 
-pub async fn run_scenario(
-    scenario: Scenario,
+pub async fn run_benchmark(
+    workload_type: &str,
     config: &config::LoadTestConfig,
-) -> Result<GooseMetrics> {
-    let mut goose_config = goose::config::GooseConfiguration::default();
-    goose_config.host = config.target.endpoint.to_string();
-    goose_config.run_time = format!("{}s", config.workload.duration_secs);
-    goose_config.users = Some(config.workload.users.max);
-    goose_config.startup_time = format!(
-        "{}s",
-        (config.workload.users.max / config.workload.users.hatch_rate).max(1)
-    );
-    goose_config.no_metrics = false;
-    goose_config.no_reset_metrics = false;
-    goose_config.no_error_summary = false;
-    goose_config.timeout = Some("120".to_string());
-
-    let metrics = GooseAttack::initialize_with_config(goose_config)?
-        .register_scenario(scenario)
-        .execute()
-        .await?;
-
-    Ok(metrics)
-}
-
-pub async fn run_scenario_with_report(
-    scenario: Scenario,
-    config: &config::LoadTestConfig,
-    report_name: &str,
-) -> Result<reporting::TestReport> {
+) -> Result<report::BenchmarkReport> {
     bucket_setup::ensure_bucket_exists(config).await?;
 
-    let (prometheus_handle, system_handle, shutdown_tx) = start_metrics_collection(config).await;
+    let start_time = Utc::now();
+    let executor = workload::WorkloadExecutor::new(config.clone());
 
-    let metrics = run_scenario(scenario, config).await?;
+    let metrics = match workload_type {
+        "mixed" => executor.run_mixed_workload().await?,
+        "write-heavy" => executor.run_write_heavy_workload().await?,
+        "read-heavy" => executor.run_read_heavy_workload().await?,
+        _ => anyhow::bail!("Unknown workload type: {}", workload_type),
+    };
 
-    let (prometheus_samples, system_samples) =
-        stop_metrics_collection(prometheus_handle, system_handle, shutdown_tx).await;
+    workload::print_progress(&metrics, config.workload.duration_secs);
+
+    let aggregated =
+        aggregation::AggregatedMetrics::from_metrics(&metrics, config.workload.duration_secs);
 
     let target = reporting::TargetEnvironment::detect(config.target.endpoint.clone())?;
 
-    let report = reporting::TestReport::from_goose_metrics(
-        report_name,
-        &metrics,
-        target,
-        config,
-        prometheus_samples,
-        system_samples,
-    );
+    let report =
+        report::BenchmarkReport::new(workload_type, config, aggregated, target, start_time);
 
-    let writer = reporting::ReportWriter::new(config.reporting.output_dir.clone());
-    writer.save(&report)?;
+    let output_path = report.save(&config.reporting.output_dir)?;
+    println!("\nReport saved to: {}", output_path.display());
+
+    Ok(report)
+}
+
+pub async fn run_benchmark_with_metrics(
+    workload_type: &str,
+    config: &config::LoadTestConfig,
+    metrics_interval_secs: u64,
+) -> Result<report::BenchmarkReport> {
+    bucket_setup::ensure_bucket_exists(config).await?;
+
+    let (prometheus_handle, system_handle, shutdown_tx) =
+        start_metrics_collection(config, metrics_interval_secs).await;
+
+    let start_time = Utc::now();
+    let executor = workload::WorkloadExecutor::new(config.clone());
+
+    let metrics = match workload_type {
+        "mixed" => executor.run_mixed_workload().await?,
+        "write-heavy" => executor.run_write_heavy_workload().await?,
+        "read-heavy" => executor.run_read_heavy_workload().await?,
+        _ => anyhow::bail!("Unknown workload type: {}", workload_type),
+    };
+
+    let (_prometheus_samples, _system_samples) =
+        stop_metrics_collection(prometheus_handle, system_handle, shutdown_tx).await;
+
+    workload::print_progress(&metrics, config.workload.duration_secs);
+
+    let aggregated =
+        aggregation::AggregatedMetrics::from_metrics(&metrics, config.workload.duration_secs);
+
+    let target = reporting::TargetEnvironment::detect(config.target.endpoint.clone())?;
+
+    let report =
+        report::BenchmarkReport::new(workload_type, config, aggregated, target, start_time);
+
+    let output_path = report.save(&config.reporting.output_dir)?;
+    println!("\nReport saved to: {}", output_path.display());
 
     Ok(report)
 }
 
 async fn start_metrics_collection(
     config: &config::LoadTestConfig,
+    interval_secs: u64,
 ) -> (
     Option<tokio::task::JoinHandle<Vec<metrics::PrometheusSnapshot>>>,
     Option<tokio::task::JoinHandle<Vec<system_metrics::SystemMetrics>>>,
@@ -90,7 +107,7 @@ async fn start_metrics_collection(
                 Err(_) => return Vec::new(),
             };
             let mut samples = Vec::new();
-            let mut interval = tokio::time::interval(std::time::Duration::from_secs(5));
+            let mut interval = tokio::time::interval(std::time::Duration::from_secs(interval_secs));
 
             loop {
                 tokio::select! {
@@ -116,7 +133,7 @@ async fn start_metrics_collection(
             let pid = std::process::id();
             let mut collector = system_metrics::SystemCollector::new(pid);
             let mut samples = Vec::new();
-            let mut interval = tokio::time::interval(std::time::Duration::from_secs(5));
+            let mut interval = tokio::time::interval(std::time::Duration::from_secs(interval_secs));
 
             loop {
                 tokio::select! {
@@ -173,20 +190,6 @@ pub fn load_config() -> Result<config::LoadTestConfig> {
     } else {
         Ok(config::LoadTestConfig::load()?)
     }
-}
-
-pub fn build_scenario_by_name(name: &str, config: &config::LoadTestConfig) -> Result<Scenario> {
-    let scenario = match name.to_lowercase().as_str() {
-        "read-heavy" | "read_heavy" => scenarios::read_heavy::build_scenario(config),
-        "write-heavy" | "write_heavy" => scenarios::write_heavy::build_scenario(config),
-        "mixed" => scenarios::mixed::build_scenario(config),
-        "multipart" => scenarios::multipart::build_scenario(config),
-        _ => anyhow::bail!(
-            "Unknown scenario: {}. Valid options: read-heavy, write-heavy, mixed, multipart",
-            name
-        ),
-    };
-    Ok(scenario)
 }
 
 fn serialize_url<S>(url: &Url, serializer: S) -> std::result::Result<S::Ok, S::Error>

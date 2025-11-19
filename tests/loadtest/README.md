@@ -1,44 +1,24 @@
-# Load and Soak Tests
+# Load Tests
 
-Goose-based load testing with realistic S3 workloads (mixed, read-heavy, write-heavy, multipart).
+Custom S3 benchmark framework with server-side storage timing and latency breakdown.
 
-## Prerequisites
+## Running
 
 ```bash
 # Start server
 cargo run --release -p save-api
 
-# Create test bucket
-cargo run --release -p save-cli -- \
-  --endpoint http://localhost:9000 \
-  --access-key test-access-key \
-  --secret-key test-secret-key \
-  bucket create loadtest
-```
-
-## Running
-
-```bash
-# All tests
-cargo test -p save-loadtest --features load_tests
-
 # Quick smoke test
 cargo test -p save-loadtest --features load_tests test_quick_smoke
 
-# Specific scenario
+# Workload tests
 cargo test -p save-loadtest --features load_tests test_mixed_workload
+cargo test -p save-loadtest --features load_tests test_read_heavy_workload
+cargo test -p save-loadtest --features load_tests test_write_heavy_workload
 
-# Soak test (1 hour)
-cargo test -p save-loadtest --features load_tests test_soak
+# Soak tests
+cargo test -p save-loadtest --features load_tests test_soak_short  # 10 min
+LOADTEST_DURATION=3600 cargo test -p save-loadtest --features load_tests test_soak  # 1 hour
 ```
 
-## Configuration
-
-Environment variables:
-- `LOADTEST_CONFIG` - Config file path (default: `tests/loadtest/config.toml`)
-- `LOADTEST_DURATION` - Duration in seconds (soak tests)
-- `LOADTEST_USERS` - Concurrent users
-
-## Notes
-
-Tests are gated behind the `load_tests` feature flag. Results saved to `loadtest-results/`.
+Results saved to `loadtest-results/` as Markdown.

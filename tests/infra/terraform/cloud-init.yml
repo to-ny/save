@@ -37,9 +37,10 @@ runcmd:
     mount $DEVICE /var/lib/save
     echo "$DEVICE /var/lib/save ext4 defaults,nofail 0 2" >> /etc/fstab
     mkdir -p /var/lib/save/data /var/lib/save/metadata
-    chown -R root:root /var/lib/save
+    chmod -R 777 /var/lib/save
 %{ else ~}
   - mkdir -p /var/lib/save/data /var/lib/save/metadata
+  - chmod -R 777 /var/lib/save
 %{ endif ~}
   - mkdir -p /opt/save
 

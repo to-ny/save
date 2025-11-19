@@ -27,7 +27,6 @@ locals {
     managed-by  = "terraform"
     project     = "save"
     profile     = var.profile
-    created-at  = formatdate("YYYYMMDD-hhmmss", timestamp())
   }
 }
 

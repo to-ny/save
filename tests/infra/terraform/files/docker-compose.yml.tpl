@@ -6,8 +6,8 @@ services:
     ports:
       - "9000:9000"
     volumes:
-      - save-data:/var/lib/save/data
-      - save-metadata:/var/lib/save/metadata
+      - /var/lib/save/data:/var/lib/save/data
+      - /var/lib/save/metadata:/var/lib/save/metadata
       - ./save.toml:/app/save.toml:ro
     environment:
       - RUST_LOG=info
@@ -79,8 +79,6 @@ services:
       - loki
 
 volumes:
-  save-data:
-  save-metadata:
   prometheus-data:
   loki-data:
   grafana-data:
