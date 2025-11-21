@@ -121,6 +121,6 @@ Implement a local, single-node S3-compatible object storage system using RocksDB
 - [x] Dockerfile with multi-stage build
 - [x] `docker-compose.yml` for local development
 - [x] CLI tool `save-cli` for administration
-- [ ] Makefile or Justfile for common tasks (build, test, run, docker, clean)
+- [x] Makefile for common tasks (build, test, run, docker, clean)
 - [ ] Setup/teardown scripts in `scripts/` (setup.sh, teardown.sh, seed-data.sh)
 - [ ] Deployment documentation (systemd service, TLS termination, RocksDB backup, runbooks)

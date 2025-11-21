@@ -11,6 +11,7 @@ This directory contains Architecture Decision Records (ADRs) documenting key des
 | [003](003-per-object-locking.md) | Per-Object Locking Strategy | Accepted |
 | [004](004-commit-ordering.md) | Storage-Before-Metadata Commit Ordering | Accepted |
 | [005](005-s3-compatible-error-handling.md) | S3-Compatible Error Handling | Accepted |
+| [006](006-distributed-metadata-strategy.md) | Distributed Metadata Strategy | Proposed |
 
 ## ADR Format
 
