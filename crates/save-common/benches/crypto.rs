@@ -1,6 +1,7 @@
-use criterion::{BenchmarkId, Criterion, Throughput, black_box, criterion_group, criterion_main};
+use criterion::{BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
 use hmac::{Hmac, Mac};
 use sha2::{Digest, Sha256};
+use std::hint::black_box;
 
 type HmacSha256 = Hmac<Sha256>;
 

@@ -11,8 +11,8 @@ default = []
 concurrency_tests = []
 
 [dependencies]
-aws-config = "1.8"
-aws-sdk-s3 = "1.112"
+aws-config = { workspace = true }
+aws-sdk-s3 = { workspace = true }
 tokio = { workspace = true }
 anyhow = { workspace = true }
 tracing = { workspace = true }

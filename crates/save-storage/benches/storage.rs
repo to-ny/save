@@ -1,5 +1,6 @@
-use criterion::{BenchmarkId, Criterion, Throughput, black_box, criterion_group, criterion_main};
+use criterion::{BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
 use save_storage::ObjectStorage;
+use std::hint::black_box;
 use std::io::Cursor;
 use tempfile::TempDir;
 use tokio::runtime::Runtime;

@@ -15,15 +15,15 @@ quick-xml = { workspace = true }
 uuid = { workspace = true }
 tracing = { workspace = true }
 tokio = { workspace = true }
-dashmap = "6.1"
+dashmap = { workspace = true }
 
 [dev-dependencies]
 tempfile = { workspace = true }
 serde_json = { workspace = true }
-criterion = { version = "0.5", features = ["html_reports", "async_tokio"] }
-sha2 = "0.10"
-hmac = "0.12"
-rand = "0.9"
+criterion = { workspace = true }
+sha2 = { workspace = true }
+hmac = { workspace = true }
+rand = { workspace = true }
 hex = { workspace = true }
 
 [[bench]]

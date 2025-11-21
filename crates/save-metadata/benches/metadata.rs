@@ -1,6 +1,7 @@
 use chrono::Utc;
-use criterion::{BenchmarkId, Criterion, black_box, criterion_group, criterion_main};
+use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
 use save_metadata::{MetadataStore, ObjectMetadata};
+use std::hint::black_box;
 use tempfile::TempDir;
 use tokio::runtime::Runtime;
 

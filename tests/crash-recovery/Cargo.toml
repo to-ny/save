@@ -13,15 +13,15 @@ crash_tests = []
 
 [dependencies]
 save-metadata = { path = "../../crates/save-metadata" }
-aws-config = { version = "1", features = ["behavior-version-latest"] }
-aws-sdk-s3 = "1"
+aws-config = { workspace = true }
+aws-sdk-s3 = { workspace = true }
 tokio = { workspace = true }
 async-trait = { workspace = true }
 anyhow = { workspace = true }
 tempfile = { workspace = true }
 fail = { workspace = true }
 nix = { workspace = true }
-reqwest = { version = "0.12", features = ["json"] }
+reqwest = { workspace = true }
 serde = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }

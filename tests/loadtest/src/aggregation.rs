@@ -177,8 +177,9 @@ fn percentile(sorted_values: &[u64], p: f64) -> u64 {
     }
 
     let len = sorted_values.len();
-    let index = (p / 100.0 * (len - 1) as f64).round() as usize;
-    sorted_values[index.min(len - 1)]
+    let rank = (p / 100.0 * len as f64).ceil() as usize;
+    let index = (rank.saturating_sub(1)).min(len - 1);
+    sorted_values[index]
 }
 
 #[cfg(test)]
