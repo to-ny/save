@@ -1,0 +1,23 @@
+[sources.save_api_logs]
+type = "docker_logs"
+docker_host = "unix:///var/run/docker.sock"
+include_containers = ["save"]
+
+[transforms.parse_json]
+type = "remap"
+inputs = ["save_api_logs"]
+source = '''
+  . = parse_json!(.message)
+  .container_name = "save-api"
+'''
+
+[sinks.openobserve]
+type = "http"
+inputs = ["parse_json"]
+uri = "http://openobserve:5080/api/default/save-api/_json"
+encoding.codec = "json"
+auth.strategy = "basic"
+auth.user = "admin"
+auth.password = "admin"
+batch.max_bytes = 1048576
+batch.timeout_secs = 5

@@ -5,16 +5,9 @@ global:
     cluster: 'save-dev'
     replica: '0'
 
-# Load alerting rules
+# Load alerting rules (for visibility in Prometheus UI)
 rule_files:
   - '/etc/prometheus/alerts.yml'
-
-# Alertmanager configuration
-alerting:
-  alertmanagers:
-    - static_configs:
-        - targets:
-            - 'alertmanager:9093'
 
 # Scrape configurations
 scrape_configs:

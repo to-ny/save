@@ -12,8 +12,6 @@ fn init_tracing() {
     let env_filter = tracing_subscriber::EnvFilter::try_from_default_env()
         .unwrap_or_else(|_| "save_api=info,tower_http=info".into());
 
-    // Support both text and JSON logging based on LOG_FORMAT env var
-    // JSON is better for log aggregation tools like Loki, Datadog, etc.
     match std::env::var("LOG_FORMAT").as_deref() {
         Ok("json") => {
             tracing_subscriber::fmt()
@@ -24,7 +22,6 @@ fn init_tracing() {
                 .init();
         }
         _ => {
-            // Default to human-readable text format
             tracing_subscriber::fmt().with_env_filter(env_filter).init();
         }
     }

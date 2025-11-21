@@ -14,6 +14,9 @@ services:
       - SAVE_CONFIG=/app/save.toml
       - RUST_LOG=save_api=info,save_storage=info,save_metadata=info
       - LOG_FORMAT=json
+    labels:
+      service: "save-api"
+      environment: "docker-compose"
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:9000/health"]
       interval: 10s
@@ -27,8 +30,8 @@ services:
       driver: json-file
       options:
         max-size: "10m"
-        max-file: "3"
-        labels: "service,environment"
+        max-file: "5"
+        tag: "{{.Name}}/{{.ID}}"
 
   # Prometheus - Metrics collection and alerting
   prometheus:
@@ -54,22 +57,6 @@ services:
       save-api:
         condition: service_healthy
 
-  # Alertmanager - Alert routing and management
-  alertmanager:
-    image: prom/alertmanager
-    container_name: alertmanager
-    ports:
-      - "9093:9093"
-    volumes:
-      - ./docker/alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
-      - alertmanager-data:/alertmanager
-    command:
-      - '--config.file=/etc/alertmanager/alertmanager.yml'
-      - '--storage.path=/alertmanager'
-    networks:
-      - save-network
-    restart: unless-stopped
-
   # Grafana - Dashboards and visualization
   grafana:
     image: grafana/grafana
@@ -92,37 +79,39 @@ services:
     restart: unless-stopped
     depends_on:
       - prometheus
-      - loki
 
-  # TODO Review log monitoring/browsing solution
-  # Loki - Log aggregation
-  loki:
-    image: grafana/loki:3.0.0
-    container_name: loki
+  # OpenObserve - Log aggregation and observability
+  openobserve:
+    image: public.ecr.aws/zinclabs/openobserve:latest
+    container_name: openobserve
     ports:
-      - "3100:3100"
+      - "5080:5080"   # Web UI
+      - "5081:5081"   # gRPC for ingestion
+    environment:
+      - ZO_ROOT_USER_EMAIL=admin
+      - ZO_ROOT_USER_PASSWORD=admin
+      - ZO_DATA_DIR=/data
     volumes:
-      - ./docker/loki/loki-config.yml:/etc/loki/local-config.yaml:ro
-      - loki-data:/loki
-    command: -config.file=/etc/loki/local-config.yaml
+      - openobserve-data:/data
     networks:
       - save-network
     restart: unless-stopped
 
-  # Promtail - Log shipper for Loki
-  promtail:
-    image: grafana/promtail:3.0.0
-    container_name: promtail
+  # Vector - Log shipping to OpenObserve
+  vector:
+    image: timberio/vector:0.41.1-alpine
+    container_name: vector
+    user: "0:0"
+    command: ["--config", "/etc/vector/vector.toml"]
     volumes:
-      - ./docker/promtail/promtail-config.yml:/etc/promtail/config.yml:ro
-      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+      - ./docker/vector/vector.toml:/etc/vector/vector.toml:ro
       - /var/run/docker.sock:/var/run/docker.sock:ro
-    command: -config.file=/etc/promtail/config.yml
     networks:
       - save-network
     restart: unless-stopped
     depends_on:
-      - loki
+      - openobserve
+      - save-api
 
 networks:
   save-network:
@@ -132,6 +121,5 @@ volumes:
   save-data:
   save-metadata:
   prometheus-data:
-  alertmanager-data:
   grafana-data:
-  loki-data:
+  openobserve-data:
