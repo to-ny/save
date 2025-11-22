@@ -65,11 +65,10 @@ This file captures ongoing design decisions, experiments, and ideas for future r
 
 ### Storage Backend Abstraction
 - `StorageBackend` trait in `save-storage/src/backend.rs`
-- `LocalBackend`: Single-node implementation (Phase 1 compatibility)
-- Future: `ReplicatedBackend` for distributed writes
+- `LocalBackend`: Single-node implementation
+- `ReplicatedBackend`: Distributed storage implementation
 
 ### Cluster Configuration
-- `cluster.enabled` flag for backward compatibility
 - `node_id`, `peers[]` for cluster formation
 - Raft and gRPC ports (8081, 8082)
 - Validation: replication_factor <= cluster size

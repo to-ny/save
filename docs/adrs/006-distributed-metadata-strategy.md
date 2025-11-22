@@ -48,10 +48,7 @@ Use **embedded Raft consensus** (`openraft` crate) with RocksDB as state machine
 
 **Single-Node → Cluster**:
 1. Copy RocksDB to new nodes
-2. Enable `cluster.enabled = true`
-3. Bootstrap Raft from config
-
-**Backward Compatibility**: Single-node mode supported (Raft cluster of 1)
+2. Bootstrap Raft from config
 
 **Deployment Models**:
 - Small (1-3 nodes): Single Raft group, all metadata replicated

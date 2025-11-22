@@ -49,7 +49,7 @@ Transform the single-node S3-compatible store into a distributed, replicated sys
 
 ## Storage Backend
 - [ ] Create StorageBackend trait abstraction (Location: `save-storage/src/backend.rs`)
-- [ ] Implement LocalBackend wrapper for Phase 1 compatibility (Location: `save-storage/src/local_backend.rs`)
+- [ ] Implement LocalBackend wrapper (Location: `save-storage/src/local_backend.rs`)
 - [ ] Create ReplicatedBackend implementation (Location: `save-storage/src/replicated_backend.rs`)
 - [ ] Integrate ReplicationCoordinator with ReplicatedBackend
 - [ ] Add storage backend factory based on cluster config

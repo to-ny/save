@@ -34,10 +34,3 @@ cargo test
 cargo build
 cargo run
 ```
-
-### Interact
-
-```bash
-aws --endpoint-url http://localhost:9000 s3 mb s3://demo
-aws --endpoint-url http://localhost:9000 s3 cp file.txt s3://demo/
-```
