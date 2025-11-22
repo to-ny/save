@@ -2,6 +2,7 @@ mod bucket;
 mod error;
 mod multipart;
 mod object;
+pub mod raft;
 
 #[cfg(test)]
 mod tests;

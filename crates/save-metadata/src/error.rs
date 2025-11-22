@@ -28,6 +28,9 @@ pub enum MetadataError {
 
     #[error("Task cancelled: {0}")]
     TaskCancelled(String),
+
+    #[error("Raft error: {0}")]
+    Raft(String),
 }
 
 pub type Result<T> = std::result::Result<T, MetadataError>;
