@@ -14,8 +14,8 @@ Transform the single-node S3-compatible store into a distributed, replicated sys
 ---
 
 ## Raft Consensus Layer
-- [ ] Add cluster configuration to SaveConfig (Location: `save-common/src/config.rs`)
-- [ ] Add openraft dependency to workspace `Cargo.toml`
+- [x] Add cluster configuration to SaveConfig (Location: `save-common/src/config.rs`)
+- [x] Add openraft dependency to workspace `Cargo.toml`
 - [ ] Create Raft node module in `save-metadata` crate
 - [ ] Implement RaftStateMachine trait wrapping RocksDB
 - [ ] Add Raft log storage using RocksDB column family

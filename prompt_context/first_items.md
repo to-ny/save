@@ -13,10 +13,10 @@ Recommended starting tasks from `tasks/phase2.md`.
 ```
 
 **Dependencies needed**:
-- `openraft = "0.9"`
-- `tonic = "0.12"` (gRPC)
-- `prost = "0.13"` (protobuf)
-- `tonic-build = "0.12"` (build dependency)
+- `openraft`
+- `tonic` (gRPC)
+- `prost` (protobuf)
+- `tonic-build` (build dependency)
 
 ---
 

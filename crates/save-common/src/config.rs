@@ -14,6 +14,8 @@ pub struct SaveConfig {
     pub limits: LimitsConfig,
     #[serde(default)]
     pub shutdown: ShutdownConfig,
+    #[serde(default)]
+    pub cluster: ClusterConfig,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -157,8 +159,8 @@ pub struct LimitsConfig {
     pub requests_per_second: u64,
     #[serde(default = "default_request_timeout_secs")]
     pub request_timeout_secs: u64,
-    // NOTE: Phase 1 validates but doesn't enforce these limits
-    // Phase 2 will wire up Tower middleware for actual enforcement
+    // TODO Phase 1 validates but doesn't enforce these limits
+    //  Phase 2 will wire up Tower middleware for actual enforcement
 }
 
 fn default_max_concurrent_requests() -> usize {
@@ -197,6 +199,65 @@ impl Default for ShutdownConfig {
     fn default() -> Self {
         Self {
             drain_timeout_secs: default_drain_timeout_secs(),
+        }
+    }
+}
+
+/// Consistency mode for cluster reads
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "lowercase")]
+pub enum ConsistencyMode {
+    /// Read from Raft leader (linearizable, higher latency)
+    Strong,
+    /// Read from local RocksDB (may be stale, lower latency)
+    Eventual,
+}
+
+impl Default for ConsistencyMode {
+    fn default() -> Self {
+        Self::Strong
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct ClusterConfig {
+    // TODO Remove once cluster mode is fully supported (-> Should be the only option)
+    /// Enable cluster mode (default: false)
+    #[serde(default)]
+    pub enabled: bool,
+
+    /// Unique node ID in the cluster (required if enabled)
+    /// Must be unique across all nodes in the cluster
+    #[serde(default)]
+    pub node_id: u64,
+
+    /// Raft gRPC bind address (e.g., "0.0.0.0:9001")
+    #[serde(default = "default_raft_bind_addr")]
+    pub raft_bind_addr: String,
+
+    /// List of peer node addresses for cluster formation
+    /// Format: ["node_id:host:port", "node_id:host:port"]
+    /// Example: ["1:192.168.1.10:9001", "2:192.168.1.11:9001"]
+    #[serde(default)]
+    pub peers: Vec<String>,
+
+    /// Consistency mode for read operations
+    #[serde(default)]
+    pub consistency_mode: ConsistencyMode,
+}
+
+fn default_raft_bind_addr() -> String {
+    "0.0.0.0:9001".to_string()
+}
+
+impl Default for ClusterConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            node_id: 0,
+            raft_bind_addr: default_raft_bind_addr(),
+            peers: vec![],
+            consistency_mode: ConsistencyMode::default(),
         }
     }
 }
@@ -253,6 +314,44 @@ impl SaveConfig {
             return Err(Error::validation("drain_timeout_secs must be > 0"));
         }
 
+        // Cluster validation
+        if self.cluster.enabled {
+            if self.cluster.node_id == 0 {
+                return Err(Error::validation("node_id must be > 0 when cluster is enabled"));
+            }
+
+            if self.cluster.raft_bind_addr.is_empty() {
+                return Err(Error::validation("raft_bind_addr cannot be empty when cluster is enabled"));
+            }
+
+            // Validate peer format: "node_id:host:port"
+            for peer in &self.cluster.peers {
+                let parts: Vec<&str> = peer.split(':').collect();
+                if parts.len() != 3 {
+                    return Err(Error::validation(format!(
+                        "Invalid peer format '{}'. Expected 'node_id:host:port'",
+                        peer
+                    )));
+                }
+
+                // Validate node_id is a valid u64
+                if parts[0].parse::<u64>().is_err() {
+                    return Err(Error::validation(format!(
+                        "Invalid node_id in peer '{}'. Expected numeric value",
+                        peer
+                    )));
+                }
+
+                // Validate port is a valid u16
+                if parts[2].parse::<u16>().is_err() {
+                    return Err(Error::validation(format!(
+                        "Invalid port in peer '{}'. Expected numeric value 1-65535",
+                        peer
+                    )));
+                }
+            }
+        }
+
         Ok(())
     }
 
@@ -287,6 +386,7 @@ impl Default for SaveConfig {
             },
             limits: LimitsConfig::default(),
             shutdown: ShutdownConfig::default(),
+            cluster: ClusterConfig::default(),
         }
     }
 }
@@ -407,5 +507,115 @@ secret_key = "secret123"
                 .to_string()
                 .contains("drain_timeout_secs")
         );
+    }
+
+    #[test]
+    fn test_cluster_config_disabled_by_default() {
+        let config = SaveConfig::test_default();
+        assert!(!config.cluster.enabled);
+        assert_eq!(config.cluster.node_id, 0);
+        assert_eq!(config.cluster.raft_bind_addr, "0.0.0.0:9001");
+        assert!(config.cluster.peers.is_empty());
+        assert_eq!(config.cluster.consistency_mode, ConsistencyMode::Strong);
+    }
+
+    #[test]
+    fn test_cluster_config_validation_enabled_without_node_id() {
+        let mut config = SaveConfig::test_default();
+        config.cluster.enabled = true;
+        config.cluster.node_id = 0; // Invalid
+        let result = config.validate();
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("node_id"));
+    }
+
+    #[test]
+    fn test_cluster_config_validation_enabled_with_empty_raft_addr() {
+        let mut config = SaveConfig::test_default();
+        config.cluster.enabled = true;
+        config.cluster.node_id = 1;
+        config.cluster.raft_bind_addr = String::new();
+        let result = config.validate();
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("raft_bind_addr"));
+    }
+
+    #[test]
+    fn test_cluster_config_validation_invalid_peer_format() {
+        let mut config = SaveConfig::test_default();
+        config.cluster.enabled = true;
+        config.cluster.node_id = 1;
+        config.cluster.peers = vec!["invalid-format".to_string()];
+        let result = config.validate();
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("Invalid peer format"));
+    }
+
+    #[test]
+    fn test_cluster_config_validation_invalid_peer_node_id() {
+        let mut config = SaveConfig::test_default();
+        config.cluster.enabled = true;
+        config.cluster.node_id = 1;
+        config.cluster.peers = vec!["abc:192.168.1.10:9001".to_string()];
+        let result = config.validate();
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("Invalid node_id"));
+    }
+
+    #[test]
+    fn test_cluster_config_validation_invalid_peer_port() {
+        let mut config = SaveConfig::test_default();
+        config.cluster.enabled = true;
+        config.cluster.node_id = 1;
+        config.cluster.peers = vec!["2:192.168.1.10:99999".to_string()];
+        let result = config.validate();
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("Invalid port"));
+    }
+
+    #[test]
+    fn test_cluster_config_validation_valid() {
+        let mut config = SaveConfig::test_default();
+        config.cluster.enabled = true;
+        config.cluster.node_id = 1;
+        config.cluster.raft_bind_addr = "0.0.0.0:9001".to_string();
+        config.cluster.peers = vec![
+            "2:192.168.1.11:9001".to_string(),
+            "3:192.168.1.12:9001".to_string(),
+        ];
+        config.cluster.consistency_mode = ConsistencyMode::Eventual;
+        let result = config.validate();
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_cluster_config_serialization() {
+        let mut config = SaveConfig::test_default();
+        config.cluster.enabled = true;
+        config.cluster.node_id = 1;
+        config.cluster.peers = vec!["2:192.168.1.11:9001".to_string()];
+        config.cluster.consistency_mode = ConsistencyMode::Eventual;
+
+        let toml_str = toml::to_string(&config).unwrap();
+        let deserialized: SaveConfig = toml::from_str(&toml_str).unwrap();
+        assert_eq!(config, deserialized);
+    }
+
+    #[test]
+    fn test_consistency_mode_serialization() {
+        let strong = ConsistencyMode::Strong;
+        let eventual = ConsistencyMode::Eventual;
+
+        let strong_json = serde_json::to_string(&strong).unwrap();
+        let eventual_json = serde_json::to_string(&eventual).unwrap();
+
+        assert_eq!(strong_json, "\"strong\"");
+        assert_eq!(eventual_json, "\"eventual\"");
+
+        let strong_de: ConsistencyMode = serde_json::from_str(&strong_json).unwrap();
+        let eventual_de: ConsistencyMode = serde_json::from_str(&eventual_json).unwrap();
+
+        assert_eq!(strong_de, ConsistencyMode::Strong);
+        assert_eq!(eventual_de, ConsistencyMode::Eventual);
     }
 }
