@@ -42,6 +42,7 @@ impl MetadataStore {
     ) -> Result<Self> {
         let mut opts = rocksdb::Options::default();
         opts.create_if_missing(true);
+        opts.create_missing_column_families(true);
 
         // Performance optimizations for high-throughput workloads
 
@@ -70,7 +71,14 @@ impl MetadataStore {
         opts.enable_statistics();
         opts.set_stats_dump_period_sec(300); // Dump stats every 5 minutes
 
-        let db = rocksdb::DB::open(&opts, path)?;
+        // Define column families for Raft consensus
+        let cf_names = ["default", "raft_log", "raft_state", "raft_snapshot"];
+        let cf_opts = rocksdb::Options::default();
+        let cfs = cf_names
+            .iter()
+            .map(|name| rocksdb::ColumnFamilyDescriptor::new(*name, cf_opts.clone()));
+
+        let db = rocksdb::DB::open_cf_descriptors(&opts, path, cfs)?;
         Ok(Self { db: Arc::new(db) })
     }
 

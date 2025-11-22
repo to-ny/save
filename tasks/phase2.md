@@ -110,7 +110,7 @@ Transform the single-node S3-compatible store into a distributed, replicated sys
 ---
 
 ## Testing
-- [ ] Unit tests for Raft state machine integration
+- [x] Unit tests for Raft state machine integration
 - [ ] Unit tests for ReplicationCoordinator quorum logic
 - [ ] Unit tests for replica placement strategy
 - [ ] Integration test: 3-node cluster formation
