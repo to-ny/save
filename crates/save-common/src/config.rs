@@ -204,19 +204,14 @@ impl Default for ShutdownConfig {
 }
 
 /// Consistency mode for cluster reads
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum ConsistencyMode {
     /// Read from Raft leader (linearizable, higher latency)
+    #[default]
     Strong,
     /// Read from local RocksDB (may be stale, lower latency)
     Eventual,
-}
-
-impl Default for ConsistencyMode {
-    fn default() -> Self {
-        Self::Strong
-    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -317,11 +312,15 @@ impl SaveConfig {
         // Cluster validation
         if self.cluster.enabled {
             if self.cluster.node_id == 0 {
-                return Err(Error::validation("node_id must be > 0 when cluster is enabled"));
+                return Err(Error::validation(
+                    "node_id must be > 0 when cluster is enabled",
+                ));
             }
 
             if self.cluster.raft_bind_addr.is_empty() {
-                return Err(Error::validation("raft_bind_addr cannot be empty when cluster is enabled"));
+                return Err(Error::validation(
+                    "raft_bind_addr cannot be empty when cluster is enabled",
+                ));
             }
 
             // Validate peer format: "node_id:host:port"
@@ -548,7 +547,12 @@ secret_key = "secret123"
         config.cluster.peers = vec!["invalid-format".to_string()];
         let result = config.validate();
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("Invalid peer format"));
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("Invalid peer format")
+        );
     }
 
     #[test]

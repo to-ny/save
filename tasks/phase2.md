@@ -30,8 +30,8 @@ Transform the single-node S3-compatible store into a distributed, replicated sys
 ---
 
 ## Replication Infrastructure
-- [ ] Create gRPC service definition `proto/replication.proto`
-- [ ] Generate Rust code from protobuf (tonic-build in build.rs)
+- [x] Create gRPC service definition `proto/replication.proto`
+- [x] Generate Rust code from protobuf (tonic-build in build.rs)
 - [ ] Implement ReplicationService gRPC server
 - [ ] Add WriteReplica RPC handler (streaming writes)
 - [ ] Add ReadReplica RPC handler (streaming reads)
@@ -48,8 +48,8 @@ Transform the single-node S3-compatible store into a distributed, replicated sys
 ---
 
 ## Storage Backend
-- [ ] Create StorageBackend trait abstraction (Location: `save-storage/src/backend.rs`)
-- [ ] Implement LocalBackend wrapper (Location: `save-storage/src/local_backend.rs`)
+- [x] Create StorageBackend trait abstraction (Location: `save-storage/src/backend.rs`)
+- [x] Implement LocalBackend wrapper (Location: `save-storage/src/local_backend.rs`)
 - [ ] Create ReplicatedBackend implementation (Location: `save-storage/src/replicated_backend.rs`)
 - [ ] Integrate ReplicationCoordinator with ReplicatedBackend
 - [ ] Add storage backend factory based on cluster config

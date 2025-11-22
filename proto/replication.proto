@@ -1,0 +1,140 @@
+syntax = "proto3";
+
+package replication;
+
+// Object replication between cluster nodes.
+
+service WriteReplica {
+  // Write object data to this replica
+  rpc WriteObject(WriteObjectRequest) returns (WriteObjectResponse);
+
+  // Prepare a temporary object on this replica (2PC phase 1)
+  rpc PrepareObject(PrepareObjectRequest) returns (PrepareObjectResponse);
+
+  // Commit a prepared object to final location (2PC phase 2)
+  rpc CommitObject(CommitObjectRequest) returns (CommitObjectResponse);
+
+  // Abort a prepared object (2PC rollback)
+  rpc AbortObject(AbortObjectRequest) returns (AbortObjectResponse);
+}
+
+service ReadReplica {
+  // Read object data from this replica
+  rpc ReadObject(ReadObjectRequest) returns (stream ReadObjectResponse);
+
+  // Check if object exists on this replica
+  rpc ObjectExists(ObjectExistsRequest) returns (ObjectExistsResponse);
+}
+
+service DeleteReplica {
+  rpc DeleteObject(DeleteObjectRequest) returns (DeleteObjectResponse);
+}
+
+service ReplicationHealth {
+  rpc HealthCheck(HealthCheckRequest) returns (HealthCheckResponse);
+  rpc GetStats(GetStatsRequest) returns (GetStatsResponse);
+}
+
+message WriteObjectRequest {
+  string key = 1;              // Object key
+  bytes data = 2;              // Object data
+  string checksum = 3;         // SHA256 checksum for verification
+  uint64 request_id = 4;       // Unique request identifier for idempotency
+}
+
+message WriteObjectResponse {
+  bool success = 1;
+  string error_message = 2;
+  uint64 bytes_written = 3;
+}
+
+message PrepareObjectRequest {
+  string key = 1;
+  bytes data = 2;
+  string checksum = 3;
+  uint64 request_id = 4;
+}
+
+message PrepareObjectResponse {
+  bool success = 1;
+  string error_message = 2;
+  string temp_id = 3;          // Temporary object identifier for commit
+}
+
+message CommitObjectRequest {
+  string key = 1;
+  string temp_id = 2;          // From PrepareObjectResponse
+  uint64 request_id = 3;
+}
+
+message CommitObjectResponse {
+  bool success = 1;
+  string error_message = 2;
+}
+
+message AbortObjectRequest {
+  string key = 1;
+  string temp_id = 2;
+  uint64 request_id = 3;
+}
+
+message AbortObjectResponse {
+  bool success = 1;
+  string error_message = 2;
+}
+
+message ReadObjectRequest {
+  string key = 1;
+  uint64 offset = 2;           // Optional: byte offset to start reading
+  uint64 length = 3;           // Optional: number of bytes to read (0 = all)
+}
+
+message ReadObjectResponse {
+  bytes chunk = 1;             // Chunk of object data
+  bool is_last = 2;            // True if this is the last chunk
+  uint64 total_size = 3;       // Total object size (sent in first chunk)
+}
+
+message ObjectExistsRequest {
+  string key = 1;
+}
+
+message ObjectExistsResponse {
+  bool exists = 1;
+  uint64 size = 2;             // Object size if it exists
+  string checksum = 3;         // SHA256 checksum if it exists
+}
+
+message DeleteObjectRequest {
+  string key = 1;
+  uint64 request_id = 2;       // For idempotency
+}
+
+message DeleteObjectResponse {
+  bool success = 1;
+  string error_message = 2;
+  bool was_present = 3;        // True if object existed before deletion
+}
+
+message HealthCheckRequest {}
+
+message HealthCheckResponse {
+  enum Status {
+    HEALTHY = 0;
+    DEGRADED = 1;
+    UNHEALTHY = 2;
+  }
+
+  Status status = 1;
+  string message = 2;
+  uint64 uptime_seconds = 3;
+}
+
+message GetStatsRequest {}
+
+message GetStatsResponse {
+  uint64 total_objects = 1;
+  uint64 total_bytes = 2;
+  uint64 temp_objects = 3;
+  double disk_usage_percent = 4;
+}

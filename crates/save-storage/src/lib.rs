@@ -1,10 +1,14 @@
+mod backend;
 mod error;
 mod layout;
+mod local_backend;
 
 #[cfg(test)]
 mod tests;
 
+pub use backend::{HealthStatus, StorageBackend, TempHandle};
 pub use error::{Result, StorageError};
+pub use local_backend::LocalBackend;
 
 use layout::StorageLayout;
 use std::path::{Path, PathBuf};
@@ -14,6 +18,7 @@ use tokio::io::{AsyncRead, AsyncWriteExt};
 use tracing::{debug, instrument, warn};
 
 /// Opaque handle to a temporary object with automatic cleanup on drop.
+#[derive(Debug)]
 pub struct TempObject {
     temp_path: PathBuf,
     final_path: PathBuf,
@@ -108,6 +113,7 @@ pub async fn fsync_dir<P: AsRef<Path>>(path: P) -> Result<()> {
     .map_err(|e| StorageError::Io(std::io::Error::other(e)))?
 }
 
+#[derive(Debug)]
 pub struct ObjectStorage {
     layout: StorageLayout,
     fsync_mode: String,

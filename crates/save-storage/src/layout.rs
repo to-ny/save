@@ -3,6 +3,7 @@ use save_common::validate_object_key;
 use sha2::{Digest, Sha256};
 use std::path::{Path, PathBuf};
 
+#[derive(Debug)]
 pub(crate) struct StorageLayout {
     base_path: PathBuf,
 }

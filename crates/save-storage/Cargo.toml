@@ -13,6 +13,7 @@ thiserror = { workspace = true }
 sha2 = { workspace = true }
 tracing = { workspace = true }
 fail = { workspace = true, optional = true }
+async-trait = { workspace = true }
 
 [dev-dependencies]
 tempfile = { workspace = true }
