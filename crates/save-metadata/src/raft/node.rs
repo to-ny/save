@@ -6,11 +6,11 @@ use super::types::{NodeId, Raft};
 use crate::error::Result;
 use openraft::storage::Adaptor;
 use openraft::{BasicNode, ChangeMembers, Config, ServerState};
-use std::collections::BTreeSet;
 use save_common::cluster::parse_peer;
 use save_common::config::ClusterConfig;
 use serde::Serialize;
 use std::collections::BTreeMap;
+use std::collections::BTreeSet;
 use std::sync::Arc;
 use std::time::Duration;
 

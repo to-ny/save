@@ -3,9 +3,11 @@
 use super::rpc::RaftRpcServer;
 use super::types::Raft;
 use save_proto::raft as proto;
+use socket2::{Domain, Socket, Type};
 use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::sync::broadcast;
+use tokio_stream::wrappers::TcpListenerStream;
 use tonic::transport::Server;
 use tonic::{Request, Response, Status};
 use tracing::info;
@@ -24,24 +26,43 @@ pub async fn run_server(
     raft: Arc<Raft>,
     addr: SocketAddr,
     mut shutdown_rx: Option<broadcast::Receiver<()>>,
-) -> Result<(), tonic::transport::Error> {
+) -> anyhow::Result<()> {
     let service = RaftRpcService::new(raft);
 
     info!("Starting Raft gRPC server on {}", addr);
+
+    // Create socket with SO_REUSEADDR for faster restart after crash
+    let domain = if addr.is_ipv4() {
+        Domain::IPV4
+    } else {
+        Domain::IPV6
+    };
+    let socket = Socket::new(domain, Type::STREAM, None)?;
+    socket.set_reuse_address(true)?;
+    socket.bind(&addr.into())?;
+    socket.listen(1024)?;
+    socket.set_nonblocking(true)?;
+
+    let std_listener: std::net::TcpListener = socket.into();
+    let listener = tokio::net::TcpListener::from_std(std_listener)?;
+
+    let incoming = TcpListenerStream::new(listener);
 
     let server = Server::builder().add_service(RaftRpcServiceServer::new(service));
 
     match shutdown_rx.take() {
         Some(mut rx) => {
             server
-                .serve_with_shutdown(addr, async move {
+                .serve_with_incoming_shutdown(incoming, async move {
                     let _ = rx.recv().await;
                     info!("Raft gRPC server shutting down");
                 })
-                .await
+                .await?
         }
-        None => server.serve(addr).await,
+        None => server.serve_with_incoming(incoming).await?,
     }
+
+    Ok(())
 }
 
 /// Raft RPC service implementation for tonic.

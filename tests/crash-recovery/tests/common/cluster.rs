@@ -1,12 +1,17 @@
 //! Cluster test environment for multi-node Raft testing.
+//!
+//! This is the canonical test environment for both cluster tests and crash tests.
+//! Even single-node crash tests use `ClusterEnv::new(1)` to test with Raft enabled.
 
+use super::environment::TestEnvironment;
+use super::verify::{verify_no_orphans_or_gc_pending, verify_no_phantom_objects};
 use anyhow::{Context, Result};
 use aws_config::BehaviorVersion;
 use aws_sdk_s3::Client;
 use aws_sdk_s3::config::{Credentials, Region};
 use nix::sys::signal::{Signal, kill};
 use nix::unistd::Pid;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command};
@@ -34,6 +39,20 @@ pub struct MembershipResponse {
     pub message: String,
 }
 
+/// Request for configuring a failpoint.
+#[derive(Debug, Serialize)]
+struct ConfigureFailpointRequest {
+    name: String,
+    action: String,
+}
+
+/// Response from failpoint configuration.
+#[derive(Debug, Deserialize)]
+struct ConfigureFailpointResponse {
+    success: bool,
+    message: String,
+}
+
 /// Configuration for a single node in the cluster.
 #[derive(Debug, Clone)]
 pub struct NodeConfig {
@@ -47,6 +66,8 @@ pub struct ClusterNode {
     pub config: NodeConfig,
     pub child: Option<Child>,
     pub data_dir: TempDir,
+    pub data_path: PathBuf,
+    pub metadata_path: PathBuf,
     pub config_path: PathBuf,
     pub client: Client,
 }
@@ -73,14 +94,6 @@ impl ClusterNode {
 
     pub fn pid(&self) -> Option<i32> {
         self.child.as_ref().map(|c| c.id() as i32)
-    }
-
-    pub fn data_path(&self) -> PathBuf {
-        self.data_dir.path().join("data")
-    }
-
-    pub fn metadata_path(&self) -> PathBuf {
-        self.data_dir.path().join("metadata")
     }
 }
 
@@ -316,7 +329,10 @@ impl ClusterEnv {
     /// Add a learner node to the cluster via the leader.
     pub async fn add_learner(&self, node_id: u64, raft_addr: &str) -> Result<MembershipResponse> {
         let leader_id = self.get_leader().await.context("No leader available")?;
-        let node = self.nodes.get(&leader_id).context("Leader node not found")?;
+        let node = self
+            .nodes
+            .get(&leader_id)
+            .context("Leader node not found")?;
 
         let url = format!("http://127.0.0.1:{}/cluster/members", node.config.api_port);
         let node_spec = format!("{}:{}", node_id, raft_addr);
@@ -336,7 +352,10 @@ impl ClusterEnv {
     /// Promote learner nodes to voters via the leader.
     pub async fn promote_voters(&self, node_ids: Vec<u64>) -> Result<MembershipResponse> {
         let leader_id = self.get_leader().await.context("No leader available")?;
-        let node = self.nodes.get(&leader_id).context("Leader node not found")?;
+        let node = self
+            .nodes
+            .get(&leader_id)
+            .context("Leader node not found")?;
 
         let url = format!(
             "http://127.0.0.1:{}/cluster/members/promote",
@@ -358,7 +377,10 @@ impl ClusterEnv {
     /// Remove a node from the cluster via the leader.
     pub async fn remove_node(&self, node_id: u64) -> Result<MembershipResponse> {
         let leader_id = self.get_leader().await.context("No leader available")?;
-        let node = self.nodes.get(&leader_id).context("Leader node not found")?;
+        let node = self
+            .nodes
+            .get(&leader_id)
+            .context("Leader node not found")?;
 
         let url = format!(
             "http://127.0.0.1:{}/cluster/members/{}",
@@ -418,6 +440,108 @@ impl ClusterEnv {
     /// Get the Raft port for a node.
     pub fn raft_port(&self, node_id: u64) -> Option<u16> {
         self.nodes.get(&node_id).map(|n| n.config.raft_port)
+    }
+}
+
+/// TestEnvironment implementation for single-node crash tests.
+///
+/// Uses `ClusterEnv::new(1)` to run crash tests with Raft enabled.
+/// This ensures crash tests verify the actual production code path.
+#[async_trait::async_trait]
+impl TestEnvironment for ClusterEnv {
+    async fn setup() -> Result<Self> {
+        // Build binary with failpoints enabled for crash testing
+        ensure_binary_built_with_failpoints()?;
+
+        // Use a single-node cluster for crash tests
+        Self::new(1).await
+    }
+
+    async fn configure_failpoint(&self, name: &str, action: &str) -> Result<()> {
+        // For single-node crash tests, always use node 1
+        let node = self.nodes.get(&1).context("Node 1 not found")?;
+        let url = format!(
+            "http://127.0.0.1:{}/_failpoint/configure",
+            node.config.api_port
+        );
+
+        let req = ConfigureFailpointRequest {
+            name: name.to_string(),
+            action: action.to_string(),
+        };
+
+        let client = reqwest::Client::new();
+        let response = client
+            .post(&url)
+            .json(&req)
+            .send()
+            .await
+            .context("Failed to send failpoint configuration")?;
+
+        let status = response.status();
+        let body: ConfigureFailpointResponse = response
+            .json()
+            .await
+            .context("Failed to parse failpoint response")?;
+
+        if !status.is_success() || !body.success {
+            anyhow::bail!("Failed to configure failpoint: {}", body.message);
+        }
+
+        Ok(())
+    }
+
+    async fn wait_for_failpoint(&self, _name: &str) -> Result<()> {
+        // When using "pause" action, the failpoint blocks the request thread.
+        // Wait for the request to reach the failpoint and block.
+        tokio::time::sleep(Duration::from_secs(2)).await;
+        Ok(())
+    }
+
+    async fn crash_at_failpoint(&mut self, name: &str) -> Result<()> {
+        // Kill node 1 with SIGKILL to simulate crash
+        self.kill_node(1)?;
+
+        // Remove the failpoint
+        fail::remove(name);
+
+        Ok(())
+    }
+
+    async fn restart(&mut self) -> Result<()> {
+        self.restart_node(1).await
+    }
+
+    fn client(&self) -> &Client {
+        // For single-node crash tests, always use node 1's client
+        self.nodes
+            .get(&1)
+            .map(|n| &n.client)
+            .expect("Node 1 not found")
+    }
+
+    async fn verify_consistency(&self) -> Result<()> {
+        let node = self.nodes.get(&1).context("Node 1 not found")?;
+
+        // Stop the node to avoid RocksDB lock conflicts during verification
+        if let Some(ref child) = node.child {
+            let pid = Pid::from_raw(child.id() as i32);
+            kill(pid, Signal::SIGTERM).ok();
+            // Wait for graceful shutdown
+            tokio::time::sleep(Duration::from_millis(500)).await;
+        }
+
+        verify_no_phantom_objects(&node.data_path, &node.metadata_path).await?;
+        verify_no_orphans_or_gc_pending(&node.data_path, &node.metadata_path).await?;
+        Ok(())
+    }
+
+    fn data_dir(&self) -> &Path {
+        &self.nodes.get(&1).expect("Node 1 not found").data_path
+    }
+
+    fn metadata_dir(&self) -> &Path {
+        &self.nodes.get(&1).expect("Node 1 not found").metadata_path
     }
 }
 
@@ -491,10 +615,15 @@ peers = {peers}
 
     let client = create_client(config.api_port).await;
 
+    let data_path = data_dir.path().join("data");
+    let metadata_path = data_dir.path().join("metadata");
+
     let node = ClusterNode {
         config: config.clone(),
         child: Some(child),
         data_dir,
+        data_path,
+        metadata_path,
         config_path,
         client,
     };
@@ -536,6 +665,21 @@ fn ensure_binary_built() -> Result<()> {
 
     if !status.success() {
         anyhow::bail!("Failed to build save-api");
+    }
+
+    Ok(())
+}
+
+/// Build binary with failpoints enabled (used by crash tests).
+fn ensure_binary_built_with_failpoints() -> Result<()> {
+    let status = Command::new("cargo")
+        .args(["build", "-p", "save-api", "--features", "failpoints"])
+        .stdout(std::process::Stdio::null())
+        .status()
+        .context("Failed to run cargo build with failpoints")?;
+
+    if !status.success() {
+        anyhow::bail!("Failed to build save-api with failpoints");
     }
 
     Ok(())

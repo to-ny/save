@@ -2,6 +2,7 @@ use save_common::config::SaveConfig;
 use save_metadata::MetadataStore;
 use save_metadata::raft::{RaftNode, run_server as run_raft_server};
 use save_storage::LocalBackend;
+use socket2::{Domain, Socket, Type};
 use std::net::SocketAddr;
 use std::path::Path;
 use std::sync::Arc;
@@ -205,7 +206,18 @@ async fn async_main_with_config(config: SaveConfig) -> anyhow::Result<()> {
 
     info!("Starting save-api server on {}", addr);
 
-    let listener = tokio::net::TcpListener::bind(addr).await?;
+    // Create socket with SO_REUSEADDR for faster restart after crash
+    let domain = if addr.is_ipv4() {
+        Domain::IPV4
+    } else {
+        Domain::IPV6
+    };
+    let socket = Socket::new(domain, Type::STREAM, None)?;
+    socket.set_reuse_address(true)?;
+    socket.bind(&addr.into())?;
+    socket.listen(1024)?;
+    socket.set_nonblocking(true)?;
+    let listener = tokio::net::TcpListener::from_std(socket.into())?;
 
     info!("Server listening on http://{}", addr);
 

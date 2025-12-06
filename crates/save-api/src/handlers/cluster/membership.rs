@@ -1,4 +1,9 @@
-use axum::{Json, extract::{Path, State}, http::StatusCode, response::IntoResponse};
+use axum::{
+    Json,
+    extract::{Path, State},
+    http::StatusCode,
+    response::IntoResponse,
+};
 use save_common::cluster::parse_peer;
 use tracing::{error, info};
 
@@ -90,7 +95,11 @@ pub async fn promote_voters(
             .into_response();
     }
 
-    match state.raft_node.promote_voters(request.node_ids.clone()).await {
+    match state
+        .raft_node
+        .promote_voters(request.node_ids.clone())
+        .await
+    {
         Ok(()) => {
             info!("Nodes {:?} promoted to voters", request.node_ids);
             (

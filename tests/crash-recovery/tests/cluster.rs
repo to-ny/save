@@ -309,14 +309,22 @@ async fn test_remove_node_from_cluster() {
         .get_node_status(leader)
         .await
         .expect("Failed to get status");
-    assert_eq!(status_before.voters.len(), 3, "Should have 3 voters initially");
+    assert_eq!(
+        status_before.voters.len(),
+        3,
+        "Should have 3 voters initially"
+    );
 
     // Remove the follower
     let response = cluster
         .remove_node(follower_to_remove)
         .await
         .expect("Failed to call remove_node");
-    assert!(response.success, "Remove should succeed: {}", response.message);
+    assert!(
+        response.success,
+        "Remove should succeed: {}",
+        response.message
+    );
 
     // Wait for membership change to propagate
     tokio::time::sleep(Duration::from_secs(2)).await;
@@ -326,7 +334,11 @@ async fn test_remove_node_from_cluster() {
         .get_node_status(leader)
         .await
         .expect("Failed to get status");
-    assert_eq!(status_after.voters.len(), 2, "Should have 2 voters after removal");
+    assert_eq!(
+        status_after.voters.len(),
+        2,
+        "Should have 2 voters after removal"
+    );
     assert!(
         !status_after.voters.contains(&follower_to_remove),
         "Removed node should not be in voters"
@@ -334,7 +346,10 @@ async fn test_remove_node_from_cluster() {
 
     // Verify cluster still has a leader
     let current_leader = cluster.get_leader().await;
-    assert!(current_leader.is_some(), "Cluster should still have a leader");
+    assert!(
+        current_leader.is_some(),
+        "Cluster should still have a leader"
+    );
 
     tracing::info!("Test passed: node removal successful");
 }
@@ -436,7 +451,9 @@ async fn test_snapshot_transfer_to_new_node() {
         .put_object()
         .bucket("test-bucket")
         .key("test-key")
-        .body(aws_sdk_s3::primitives::ByteStream::from_static(b"test-data"))
+        .body(aws_sdk_s3::primitives::ByteStream::from_static(
+            b"test-data",
+        ))
         .send()
         .await
         .expect("Failed to put object");
@@ -468,7 +485,11 @@ async fn test_snapshot_transfer_to_new_node() {
         .promote_voters(vec![new_node_id])
         .await
         .expect("Failed to promote");
-    assert!(response.success, "Promote should succeed: {}", response.message);
+    assert!(
+        response.success,
+        "Promote should succeed: {}",
+        response.message
+    );
 
     // Wait for promotion to complete
     tokio::time::sleep(Duration::from_secs(2)).await;

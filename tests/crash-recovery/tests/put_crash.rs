@@ -3,7 +3,7 @@
 mod common;
 
 use anyhow::Result;
-use common::{SingleNodeEnv, TestEnvironment};
+use common::{ClusterEnv, TestEnvironment};
 use std::time::Duration;
 
 #[tokio::test]
@@ -17,7 +17,7 @@ async fn test_put_crash_after_storage_before_metadata() -> Result<()> {
         .try_init()
         .ok();
 
-    let mut env = SingleNodeEnv::setup().await?;
+    let mut env = ClusterEnv::setup().await?;
 
     // Create bucket
     env.client().create_bucket().bucket("test").send().await?;
@@ -96,7 +96,7 @@ async fn test_put_crash_after_complete() -> Result<()> {
         .try_init()
         .ok();
 
-    let mut env = SingleNodeEnv::setup().await?;
+    let mut env = ClusterEnv::setup().await?;
 
     env.client().create_bucket().bucket("test").send().await?;
 
@@ -146,7 +146,7 @@ async fn test_put_crash_before_rename_temp_cleanup() -> Result<()> {
         .try_init()
         .ok();
 
-    let mut env = SingleNodeEnv::setup().await?;
+    let mut env = ClusterEnv::setup().await?;
 
     // Create bucket
     env.client().create_bucket().bucket("test").send().await?;

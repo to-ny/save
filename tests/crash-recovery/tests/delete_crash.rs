@@ -3,7 +3,7 @@
 mod common;
 
 use anyhow::Result;
-use common::{SingleNodeEnv, TestEnvironment};
+use common::{ClusterEnv, TestEnvironment};
 
 #[tokio::test]
 #[cfg(feature = "crash_tests")]
@@ -16,7 +16,7 @@ async fn test_delete_crash_after_metadata() -> Result<()> {
         .try_init()
         .ok();
 
-    let mut env = SingleNodeEnv::setup().await?;
+    let mut env = ClusterEnv::setup().await?;
 
     env.client().create_bucket().bucket("test").send().await?;
 

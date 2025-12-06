@@ -104,9 +104,11 @@ mod tests {
 
         let body = response.into_body().collect().await.unwrap().to_bytes();
         let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
-        assert!(json["message"]
-            .as_str()
-            .unwrap()
-            .contains("Cannot remove the leader"));
+        assert!(
+            json["message"]
+                .as_str()
+                .unwrap()
+                .contains("Cannot remove the leader")
+        );
     }
 }

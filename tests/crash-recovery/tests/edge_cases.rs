@@ -3,7 +3,7 @@
 mod common;
 
 use anyhow::Result;
-use common::{SingleNodeEnv, TestEnvironment};
+use common::{ClusterEnv, TestEnvironment};
 
 #[tokio::test]
 #[cfg(feature = "crash_tests")]
@@ -16,7 +16,7 @@ async fn test_partial_multipart_wrong_etags() -> Result<()> {
         .try_init()
         .ok();
 
-    let env = SingleNodeEnv::setup().await?;
+    let env = ClusterEnv::setup().await?;
 
     env.client().create_bucket().bucket("test").send().await?;
 

@@ -102,3 +102,6 @@ aws-sdk-s3 = "1"
 
 # Concurrent data structures
 dashmap = "6.1"
+
+# Socket utilities
+socket2 = "0.5"
