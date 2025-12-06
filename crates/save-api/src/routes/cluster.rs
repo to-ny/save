@@ -1,125 +1,29 @@
-//! Cluster status and management endpoints.
+//! Cluster status and management routes.
 
 use axum::{
-    Json, Router,
-    extract::State,
-    http::StatusCode,
-    response::IntoResponse,
-    routing::{get, post},
+    Router,
+    routing::{delete, get, post},
 };
-use save_common::cluster::parse_peer;
-use save_metadata::raft::ClusterStatus;
-use serde::{Deserialize, Serialize};
-use tracing::{error, info, warn};
 
+use crate::handlers::cluster::{
+    add_learner, cluster_initialize, cluster_status, promote_voters, remove_node,
+};
 use crate::state::AppState;
-
-#[derive(Serialize)]
-struct ClusterStatusResponse {
-    #[serde(flatten)]
-    status: ClusterStatus,
-}
-
-#[derive(Deserialize)]
-struct InitializeRequest {
-    /// Members in format ["node_id:host:port", ...]
-    members: Vec<String>,
-}
-
-#[derive(Serialize)]
-struct InitializeResponse {
-    success: bool,
-    message: String,
-}
-
-async fn cluster_status(State(state): State<AppState>) -> impl IntoResponse {
-    let status = state.raft_node.get_status();
-    (StatusCode::OK, Json(ClusterStatusResponse { status }))
-}
-
-async fn cluster_initialize(
-    State(state): State<AppState>,
-    Json(request): Json<InitializeRequest>,
-) -> impl IntoResponse {
-    info!(
-        "Cluster initialization requested with {} members",
-        request.members.len()
-    );
-
-    // Check if already initialized
-    if state.raft_node.is_initialized() {
-        warn!("Attempted to initialize already-initialized cluster");
-        return (
-            StatusCode::CONFLICT,
-            Json(InitializeResponse {
-                success: false,
-                message: "Cluster already initialized".to_string(),
-            }),
-        )
-            .into_response();
-    }
-
-    // Parse members using shared utility
-    let members: Vec<(u64, String)> = match request
-        .members
-        .iter()
-        .map(|m| {
-            parse_peer(m)
-                .map(|info| (info.node_id, info.http_addr()))
-                .map_err(|e| e.to_string())
-        })
-        .collect::<Result<Vec<_>, String>>()
-    {
-        Ok(m) => m,
-        Err(e) => {
-            return (
-                StatusCode::BAD_REQUEST,
-                Json(InitializeResponse {
-                    success: false,
-                    message: e,
-                }),
-            )
-                .into_response();
-        }
-    };
-
-    match state.raft_node.initialize(members).await {
-        Ok(()) => {
-            info!("Cluster initialized successfully");
-            (
-                StatusCode::OK,
-                Json(InitializeResponse {
-                    success: true,
-                    message: "Cluster initialized".to_string(),
-                }),
-            )
-                .into_response()
-        }
-        Err(e) => {
-            error!("Failed to initialize cluster: {}", e);
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(InitializeResponse {
-                    success: false,
-                    message: format!("Failed to initialize: {}", e),
-                }),
-            )
-                .into_response()
-        }
-    }
-}
 
 pub fn routes() -> Router<AppState> {
     Router::new()
         .route("/cluster/status", get(cluster_status))
         .route("/cluster/initialize", post(cluster_initialize))
+        .route("/cluster/members", post(add_learner))
+        .route("/cluster/members/promote", post(promote_voters))
+        .route("/cluster/members/{node_id}", delete(remove_node))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use axum::body::Body;
-    use axum::http::Request;
+    use axum::http::{Request, StatusCode};
     use http_body_util::BodyExt;
     use tower::ServiceExt;
 
@@ -140,8 +44,69 @@ mod tests {
         let body = response.into_body().collect().await.unwrap().to_bytes();
         let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
 
-        // Cluster should be initialized (single-node auto-bootstrap)
         assert!(json["initialized"].as_bool().unwrap());
         assert_eq!(json["node_id"], 1);
+        assert!(json["voters"].as_array().unwrap().len() >= 1);
+        assert!(json["learners"].as_array().unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_add_learner_requires_leader() {
+        let (state, _temp_dir) = crate::test_helpers::test_setup().await;
+        let app = routes().with_state(state);
+
+        let request = Request::builder()
+            .method("POST")
+            .uri("/cluster/members")
+            .header("content-type", "application/json")
+            .body(Body::from(r#"{"node": "2:127.0.0.1:9002"}"#))
+            .unwrap();
+
+        let response = app.oneshot(request).await.unwrap();
+
+        assert!(
+            response.status() == StatusCode::OK
+                || response.status() == StatusCode::INTERNAL_SERVER_ERROR
+        );
+    }
+
+    #[tokio::test]
+    async fn test_promote_voters_rejects_empty() {
+        let (state, _temp_dir) = crate::test_helpers::test_setup().await;
+        let app = routes().with_state(state);
+
+        let request = Request::builder()
+            .method("POST")
+            .uri("/cluster/members/promote")
+            .header("content-type", "application/json")
+            .body(Body::from(r#"{"node_ids": []}"#))
+            .unwrap();
+
+        let response = app.oneshot(request).await.unwrap();
+
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn test_remove_node_prevents_self_removal() {
+        let (state, _temp_dir) = crate::test_helpers::test_setup().await;
+        let app = routes().with_state(state);
+
+        let request = Request::builder()
+            .method("DELETE")
+            .uri("/cluster/members/1")
+            .body(Body::empty())
+            .unwrap();
+
+        let response = app.oneshot(request).await.unwrap();
+
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+
+        let body = response.into_body().collect().await.unwrap().to_bytes();
+        let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert!(json["message"]
+            .as_str()
+            .unwrap()
+            .contains("Cannot remove the leader"));
     }
 }

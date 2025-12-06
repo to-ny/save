@@ -5,7 +5,8 @@ use super::storage::Storage;
 use super::types::{NodeId, Raft};
 use crate::error::Result;
 use openraft::storage::Adaptor;
-use openraft::{BasicNode, Config, ServerState};
+use openraft::{BasicNode, ChangeMembers, Config, ServerState};
+use std::collections::BTreeSet;
 use save_common::cluster::parse_peer;
 use save_common::config::ClusterConfig;
 use serde::Serialize;
@@ -56,9 +57,11 @@ pub struct ClusterStatus {
     pub last_applied_index: Option<u64>,
     /// Last log index.
     pub last_log_index: Option<u64>,
-    /// IDs of nodes in the cluster.
-    pub members: Vec<NodeId>,
-    /// Number of nodes in the cluster.
+    /// IDs of voting members in the cluster.
+    pub voters: Vec<NodeId>,
+    /// IDs of learner (non-voting) members.
+    pub learners: Vec<NodeId>,
+    /// Total number of nodes (voters + learners).
     pub member_count: usize,
     /// Whether the cluster has been initialized.
     pub initialized: bool,
@@ -195,8 +198,13 @@ impl RaftNode {
     /// Returns the current cluster status for monitoring.
     pub fn get_status(&self) -> ClusterStatus {
         let metrics = self.raft.metrics().borrow().clone();
-        let members: Vec<NodeId> = metrics.membership_config.membership().voter_ids().collect();
-        let initialized = !members.is_empty();
+        let voters: Vec<NodeId> = metrics.membership_config.membership().voter_ids().collect();
+        let learners: Vec<NodeId> = metrics
+            .membership_config
+            .membership()
+            .learner_ids()
+            .collect();
+        let initialized = !voters.is_empty();
 
         ClusterStatus {
             node_id: self.node_id,
@@ -205,10 +213,68 @@ impl RaftNode {
             current_leader: metrics.current_leader,
             last_applied_index: metrics.last_applied.map(|id| id.index),
             last_log_index: metrics.last_log_index,
-            member_count: members.len(),
-            members,
+            member_count: voters.len() + learners.len(),
+            voters,
+            learners,
             initialized,
         }
+    }
+
+    /// Adds a node as a non-voting learner.
+    /// The learner will receive log replication but cannot vote.
+    /// Must be called on the leader node.
+    pub async fn add_learner(&self, node_id: NodeId, addr: String) -> Result<()> {
+        let node = BasicNode { addr };
+        self.raft
+            .add_learner(node_id, node, true)
+            .await
+            .map_err(|e| crate::error::MetadataError::Raft(e.to_string()))?;
+        Ok(())
+    }
+
+    /// Promotes learners to voting members.
+    /// The nodes must already be learners in the cluster.
+    /// Must be called on the leader node.
+    pub async fn promote_voters(&self, node_ids: Vec<NodeId>) -> Result<()> {
+        let members: BTreeSet<NodeId> = node_ids.into_iter().collect();
+        self.raft
+            .change_membership(ChangeMembers::AddVoterIds(members), false)
+            .await
+            .map_err(|e| crate::error::MetadataError::Raft(e.to_string()))?;
+        Ok(())
+    }
+
+    /// Removes voters from the cluster (demotes to learner).
+    /// Must be called on the leader node.
+    pub async fn remove_voters(&self, node_ids: Vec<NodeId>) -> Result<()> {
+        let members: BTreeSet<NodeId> = node_ids.into_iter().collect();
+        self.raft
+            .change_membership(ChangeMembers::RemoveVoters(members), false)
+            .await
+            .map_err(|e| crate::error::MetadataError::Raft(e.to_string()))?;
+        Ok(())
+    }
+
+    /// Removes a node entirely from the cluster (voter and learner).
+    /// Must be called on the leader node.
+    pub async fn remove_node(&self, node_id: NodeId) -> Result<()> {
+        let members: BTreeSet<NodeId> = [node_id].into_iter().collect();
+        self.raft
+            .change_membership(ChangeMembers::RemoveNodes(members), false)
+            .await
+            .map_err(|e| crate::error::MetadataError::Raft(e.to_string()))?;
+        Ok(())
+    }
+
+    /// Returns the list of current learner node IDs.
+    pub fn learners(&self) -> Vec<NodeId> {
+        let binding = self.raft.metrics();
+        let metrics = binding.borrow();
+        metrics
+            .membership_config
+            .membership()
+            .learner_ids()
+            .collect()
     }
 }
 

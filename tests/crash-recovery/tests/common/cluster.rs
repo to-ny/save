@@ -22,9 +22,16 @@ pub struct ClusterStatusResponse {
     pub current_leader: Option<u64>,
     pub last_applied_index: Option<u64>,
     pub last_log_index: Option<u64>,
-    pub commit_index: Option<u64>,
-    pub members: Vec<u64>,
+    pub voters: Vec<u64>,
+    pub learners: Vec<u64>,
     pub member_count: usize,
+}
+
+/// Response from membership operations.
+#[derive(Debug, Deserialize)]
+pub struct MembershipResponse {
+    pub success: bool,
+    pub message: String,
 }
 
 /// Configuration for a single node in the cluster.
@@ -300,6 +307,118 @@ impl ClusterEnv {
     pub fn data_dir(&self, node_id: u64) -> Option<&Path> {
         self.nodes.get(&node_id).map(|n| n.data_dir.path())
     }
+
+    /// Get the API port for a node.
+    pub fn api_port(&self, node_id: u64) -> Option<u16> {
+        self.nodes.get(&node_id).map(|n| n.config.api_port)
+    }
+
+    /// Add a learner node to the cluster via the leader.
+    pub async fn add_learner(&self, node_id: u64, raft_addr: &str) -> Result<MembershipResponse> {
+        let leader_id = self.get_leader().await.context("No leader available")?;
+        let node = self.nodes.get(&leader_id).context("Leader node not found")?;
+
+        let url = format!("http://127.0.0.1:{}/cluster/members", node.config.api_port);
+        let node_spec = format!("{}:{}", node_id, raft_addr);
+
+        let client = reqwest::Client::new();
+        let response = client
+            .post(&url)
+            .json(&serde_json::json!({ "node": node_spec }))
+            .send()
+            .await
+            .context("Failed to send add_learner request")?;
+
+        let resp: MembershipResponse = response.json().await?;
+        Ok(resp)
+    }
+
+    /// Promote learner nodes to voters via the leader.
+    pub async fn promote_voters(&self, node_ids: Vec<u64>) -> Result<MembershipResponse> {
+        let leader_id = self.get_leader().await.context("No leader available")?;
+        let node = self.nodes.get(&leader_id).context("Leader node not found")?;
+
+        let url = format!(
+            "http://127.0.0.1:{}/cluster/members/promote",
+            node.config.api_port
+        );
+
+        let client = reqwest::Client::new();
+        let response = client
+            .post(&url)
+            .json(&serde_json::json!({ "node_ids": node_ids }))
+            .send()
+            .await
+            .context("Failed to send promote_voters request")?;
+
+        let resp: MembershipResponse = response.json().await?;
+        Ok(resp)
+    }
+
+    /// Remove a node from the cluster via the leader.
+    pub async fn remove_node(&self, node_id: u64) -> Result<MembershipResponse> {
+        let leader_id = self.get_leader().await.context("No leader available")?;
+        let node = self.nodes.get(&leader_id).context("Leader node not found")?;
+
+        let url = format!(
+            "http://127.0.0.1:{}/cluster/members/{}",
+            node.config.api_port, node_id
+        );
+
+        let client = reqwest::Client::new();
+        let response = client
+            .delete(&url)
+            .send()
+            .await
+            .context("Failed to send remove_node request")?;
+
+        let resp: MembershipResponse = response.json().await?;
+        Ok(resp)
+    }
+
+    /// Start and add a new node to the cluster dynamically.
+    /// The node starts as a learner and can be promoted to voter.
+    pub async fn add_new_node(&mut self) -> Result<u64> {
+        // Find max existing node_id and add 1
+        let new_node_id = self.nodes.keys().max().unwrap_or(&0) + 1;
+
+        // Allocate ports
+        let api_port = find_free_port()?;
+        let raft_port = find_free_port()?;
+
+        let config = NodeConfig {
+            node_id: new_node_id,
+            api_port,
+            raft_port,
+        };
+
+        // Build peer list from existing nodes
+        let peers: Vec<String> = self
+            .nodes
+            .values()
+            .map(|n| format!("{}:127.0.0.1:{}", n.config.node_id, n.config.raft_port))
+            .collect();
+
+        // Start the new node
+        let node = start_node(&config, &peers).await?;
+        let raft_addr = format!("127.0.0.1:{}", raft_port);
+
+        self.nodes.insert(new_node_id, node);
+
+        // Add it as a learner via the leader
+        let response = self.add_learner(new_node_id, &raft_addr).await?;
+        if !response.success {
+            anyhow::bail!("Failed to add learner: {}", response.message);
+        }
+
+        tracing::info!("Added new node {} as learner", new_node_id);
+        Ok(new_node_id)
+    }
+
+    /// Get the Raft port for a node.
+    pub fn raft_port(&self, node_id: u64) -> Option<u16> {
+        self.nodes.get(&node_id).map(|n| n.config.raft_port)
+    }
 }
 
 impl Drop for ClusterEnv {
@@ -439,12 +558,11 @@ async fn create_client(port: u16) -> Client {
     Client::from_conf(s3_config)
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "cluster_tests"))]
 mod tests {
     use super::*;
 
     #[tokio::test]
-    #[ignore = "requires cluster_tests feature"]
     async fn test_cluster_env_setup() {
         let cluster = ClusterEnv::new_3_node().await.unwrap();
         assert_eq!(cluster.node_count(), 3);

@@ -1,7 +1,9 @@
 pub mod bucket;
+pub mod cluster;
 mod error;
 #[cfg(feature = "failpoints")]
 pub mod failpoint;
+pub mod health;
 pub mod multipart;
 pub mod objects;
 

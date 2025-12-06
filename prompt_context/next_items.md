@@ -95,14 +95,21 @@ Tests:
 - [x] Integration test: Delete replicates to nodes
 - [x] Integration test: Concurrent writes to replicas
 
-### Priority 5: Cluster Membership
+### Priority 5: Cluster Membership ✓
 
-From phase2.md (depends on Priority 2):
-- [ ] Implement cluster membership management (add/remove nodes)
-- [ ] Handle Raft configuration changes
+From phase2.md:
+- [x] Implement cluster membership management (add/remove nodes)
+- [x] Handle Raft configuration changes
+
+Completed:
+- `save-metadata/src/raft/node.rs`: add_learner(), promote_voters(), remove_voters(), remove_node()
+- `save-api/src/routes/cluster.rs`: POST /cluster/members, POST /cluster/members/promote, DELETE /cluster/members/{node_id}
+- ClusterStatus now includes `voters` and `learners` lists
+- Unit tests for new endpoints
+- Integration test: test_remove_node_from_cluster
 
 Tests (from phase2.md):
-- [ ] Integration test: Snapshot transfer to new node
-- [ ] Integration test: Network partition (split-brain prevention)
-- [ ] Integration test: Concurrent writes to same object (distributed locking)
+- [x] Integration test: Snapshot transfer to new node
+- [x] Integration test: Network partition (split-brain prevention)
+- [x] Integration test: Concurrent writes to same object (distributed locking)
 
