@@ -24,7 +24,7 @@ Transform the single-node S3-compatible store into a distributed, replicated sys
 - [x] Implement Raft snapshot generation for state machine
 - [x] Add snapshot transfer mechanism for new/recovering nodes
 - [ ] Implement cluster membership management (add/remove nodes)
-- [ ] Add leader election monitoring and status tracking
+- [x] Add leader election monitoring and status tracking
 - [ ] Handle Raft configuration changes (dynamic cluster membership)
 
 ---
@@ -80,7 +80,7 @@ Transform the single-node S3-compatible store into a distributed, replicated sys
 - [ ] Handle network partition detection and recovery
 - [ ] Implement split-brain prevention logic
 - [ ] Add cluster topology management
-- [ ] Create cluster status API endpoint `/cluster/status`
+- [x] Create cluster status API endpoint `/cluster/status`
 
 ---
 
@@ -113,12 +113,12 @@ Transform the single-node S3-compatible store into a distributed, replicated sys
 - [x] Unit tests for Raft state machine integration
 - [ ] Unit tests for ReplicationCoordinator quorum logic
 - [ ] Unit tests for replica placement strategy
-- [ ] Integration test: 3-node cluster formation
-- [ ] Integration test: Leader election after leader crash
+- [x] Integration test: 3-node cluster formation
+- [x] Integration test: Leader election after leader crash
 - [ ] Integration test: Write with node failure (quorum still met)
 - [ ] Integration test: Write with quorum failure
 - [ ] Integration test: Network partition (split-brain prevention)
-- [ ] Integration test: Node recovery and catch-up
+- [x] Integration test: Node recovery and catch-up
 - [ ] Integration test: Snapshot transfer to new node
 - [ ] Integration test: Concurrent writes to same object (distributed locking)
 - [ ] Integration test: Read-after-write consistency

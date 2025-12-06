@@ -5,22 +5,43 @@ use super::types::Raft;
 use save_proto::raft as proto;
 use std::net::SocketAddr;
 use std::sync::Arc;
+use tokio::sync::broadcast;
 use tonic::transport::Server;
 use tonic::{Request, Response, Status};
 use tracing::info;
 
 type BoxBody = http_body_util::combinators::UnsyncBoxBody<bytes::Bytes, Status>;
 
-/// Runs the Raft gRPC server.
-pub async fn run_server(raft: Arc<Raft>, addr: SocketAddr) -> Result<(), tonic::transport::Error> {
+/// Runs the Raft gRPC server with graceful shutdown support.
+///
+/// # Arguments
+/// * `raft` - The Raft instance to handle RPCs for
+/// * `addr` - The address to bind to
+/// * `shutdown_rx` - Optional broadcast receiver for shutdown signal
+///
+/// Returns early error if binding fails, allowing caller to handle startup failures.
+pub async fn run_server(
+    raft: Arc<Raft>,
+    addr: SocketAddr,
+    mut shutdown_rx: Option<broadcast::Receiver<()>>,
+) -> Result<(), tonic::transport::Error> {
     let service = RaftRpcService::new(raft);
 
     info!("Starting Raft gRPC server on {}", addr);
 
-    Server::builder()
-        .add_service(RaftRpcServiceServer::new(service))
-        .serve(addr)
-        .await
+    let server = Server::builder().add_service(RaftRpcServiceServer::new(service));
+
+    match shutdown_rx.take() {
+        Some(mut rx) => {
+            server
+                .serve_with_shutdown(addr, async move {
+                    let _ = rx.recv().await;
+                    info!("Raft gRPC server shutting down");
+                })
+                .await
+        }
+        None => server.serve(addr).await,
+    }
 }
 
 /// Raft RPC service implementation for tonic.

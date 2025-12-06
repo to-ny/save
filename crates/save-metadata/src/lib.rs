@@ -83,6 +83,12 @@ impl MetadataStore {
         Ok(Self { db: Arc::new(db) })
     }
 
+    /// Returns a shared reference to the underlying RocksDB database.
+    /// Used by Raft consensus layer to share the same database instance.
+    pub fn db(&self) -> Arc<rocksdb::DB> {
+        Arc::clone(&self.db)
+    }
+
     pub fn get_stats(&self) -> DatabaseStats {
         DatabaseStats {
             block_cache_hits: self

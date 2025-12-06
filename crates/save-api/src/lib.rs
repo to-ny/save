@@ -42,7 +42,9 @@ pub fn app(state: AppState) -> Router {
         .with_state(state.clone());
 
     #[cfg_attr(not(feature = "failpoints"), allow(unused_mut))]
-    let mut router = Router::new().merge(routes::health::routes().with_state(state.clone()));
+    let mut router = Router::new()
+        .merge(routes::health::routes().with_state(state.clone()))
+        .merge(routes::cluster::routes().with_state(state.clone()));
 
     #[cfg(feature = "failpoints")]
     {

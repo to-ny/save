@@ -3,6 +3,7 @@ use dashmap::DashMap;
 use save_common::ObjectLockManager;
 use save_common::config::SaveConfig;
 use save_metadata::MetadataStore;
+use save_metadata::raft::RaftNode;
 use save_storage::ObjectStorage;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -53,6 +54,7 @@ pub struct AppState {
     pub request_tracker: Arc<RequestTracker>,
     pub bucket_cache: Arc<BucketCache>,
     pub start_time: Instant,
+    pub raft_node: Option<Arc<RaftNode>>,
 }
 
 impl AppState {
@@ -68,7 +70,13 @@ impl AppState {
             request_tracker: Arc::new(RequestTracker::new()),
             bucket_cache: Arc::new(bucket_cache),
             start_time: Instant::now(),
+            raft_node: None,
         }
+    }
+
+    pub fn with_raft_node(mut self, raft_node: RaftNode) -> Self {
+        self.raft_node = Some(Arc::new(raft_node));
+        self
     }
 }
 

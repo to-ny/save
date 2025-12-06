@@ -1,0 +1,462 @@
+//! Cluster test environment for multi-node Raft testing.
+
+use anyhow::{Context, Result};
+use aws_config::BehaviorVersion;
+use aws_sdk_s3::Client;
+use aws_sdk_s3::config::{Credentials, Region};
+use nix::sys::signal::{Signal, kill};
+use nix::unistd::Pid;
+use serde::Deserialize;
+use std::collections::HashMap;
+use std::path::{Path, PathBuf};
+use std::process::{Child, Command};
+use std::time::{Duration, Instant};
+use tempfile::TempDir;
+
+/// Status response from /cluster/status endpoint.
+#[derive(Debug, Deserialize)]
+pub struct ClusterStatusResponse {
+    pub node_id: u64,
+    pub state: String,
+    pub current_term: u64,
+    pub current_leader: Option<u64>,
+    pub last_applied_index: Option<u64>,
+    pub last_log_index: Option<u64>,
+    pub commit_index: Option<u64>,
+    pub members: Vec<u64>,
+    pub member_count: usize,
+}
+
+/// Configuration for a single node in the cluster.
+#[derive(Debug, Clone)]
+pub struct NodeConfig {
+    pub node_id: u64,
+    pub api_port: u16,
+    pub raft_port: u16,
+}
+
+/// A single node in the cluster.
+pub struct ClusterNode {
+    pub config: NodeConfig,
+    pub child: Option<Child>,
+    pub data_dir: TempDir,
+    pub config_path: PathBuf,
+    pub client: Client,
+}
+
+impl ClusterNode {
+    async fn wait_ready(&self) -> Result<()> {
+        let url = format!("http://127.0.0.1:{}/health", self.config.api_port);
+        let start = Instant::now();
+
+        loop {
+            if start.elapsed() > Duration::from_secs(30) {
+                anyhow::bail!(
+                    "Node {} failed to start within 30 seconds",
+                    self.config.node_id
+                );
+            }
+
+            match reqwest::get(&url).await {
+                Ok(resp) if resp.status().is_success() => return Ok(()),
+                _ => tokio::time::sleep(Duration::from_millis(100)).await,
+            }
+        }
+    }
+
+    pub fn pid(&self) -> Option<i32> {
+        self.child.as_ref().map(|c| c.id() as i32)
+    }
+
+    pub fn data_path(&self) -> PathBuf {
+        self.data_dir.path().join("data")
+    }
+
+    pub fn metadata_path(&self) -> PathBuf {
+        self.data_dir.path().join("metadata")
+    }
+}
+
+/// Multi-node cluster environment for testing Raft consensus.
+pub struct ClusterEnv {
+    nodes: HashMap<u64, ClusterNode>,
+    node_count: usize,
+}
+
+impl ClusterEnv {
+    /// Creates and starts a new 3-node cluster.
+    pub async fn new_3_node() -> Result<Self> {
+        Self::new(3).await
+    }
+
+    /// Creates and starts a cluster with the specified number of nodes.
+    pub async fn new(node_count: usize) -> Result<Self> {
+        assert!(node_count >= 1, "Must have at least 1 node");
+
+        // Build binary first
+        ensure_binary_built()?;
+
+        // Allocate ports for all nodes
+        let mut configs = Vec::with_capacity(node_count);
+        for i in 0..node_count {
+            let node_id = (i + 1) as u64;
+            let api_port = find_free_port()?;
+            let raft_port = find_free_port()?;
+            configs.push(NodeConfig {
+                node_id,
+                api_port,
+                raft_port,
+            });
+        }
+
+        // Generate peer strings for cluster configuration
+        let peer_strings: Vec<String> = configs
+            .iter()
+            .map(|c| format!("{}:127.0.0.1:{}", c.node_id, c.raft_port))
+            .collect();
+
+        // Start all nodes
+        let mut nodes = HashMap::new();
+        for config in &configs {
+            let node = start_node(config, &peer_strings).await?;
+            nodes.insert(config.node_id, node);
+        }
+
+        let cluster = Self { nodes, node_count };
+
+        // Initialize cluster on node 1 (bootstrap)
+        cluster.initialize_cluster().await?;
+
+        // Wait for leader election
+        cluster.wait_for_leader(Duration::from_secs(30)).await?;
+
+        Ok(cluster)
+    }
+
+    /// Initialize the cluster by calling /cluster/initialize on node 1.
+    async fn initialize_cluster(&self) -> Result<()> {
+        let node = self.nodes.get(&1).context("Node 1 not found")?;
+
+        // Give nodes time to start their Raft servers
+        tokio::time::sleep(Duration::from_millis(500)).await;
+
+        // Build members list for initialization
+        let members: Vec<String> = self
+            .nodes
+            .values()
+            .map(|n| format!("{}:127.0.0.1:{}", n.config.node_id, n.config.raft_port))
+            .collect();
+
+        // Call /cluster/initialize on node 1 to bootstrap the cluster
+        let url = format!(
+            "http://127.0.0.1:{}/cluster/initialize",
+            node.config.api_port
+        );
+
+        let client = reqwest::Client::new();
+        let response = client
+            .post(&url)
+            .json(&serde_json::json!({ "members": members }))
+            .send()
+            .await
+            .context("Failed to send initialize request")?;
+
+        if !response.status().is_success() {
+            let status = response.status();
+            let body = response.text().await.unwrap_or_default();
+            anyhow::bail!("Failed to initialize cluster: {} - {}", status, body);
+        }
+
+        tracing::info!(
+            "Cluster initialized with {} nodes, waiting for leader election",
+            members.len()
+        );
+
+        Ok(())
+    }
+
+    /// Wait for a leader to be elected.
+    pub async fn wait_for_leader(&self, timeout: Duration) -> Result<u64> {
+        let start = Instant::now();
+
+        loop {
+            if start.elapsed() > timeout {
+                anyhow::bail!("Timeout waiting for leader election");
+            }
+
+            for node in self.nodes.values() {
+                if let Ok(status) = self.get_node_status(node.config.node_id).await
+                    && let Some(leader_id) = status.current_leader
+                {
+                    tracing::info!("Leader elected: node {}", leader_id);
+                    return Ok(leader_id);
+                }
+            }
+
+            tokio::time::sleep(Duration::from_millis(200)).await;
+        }
+    }
+
+    /// Get the status of a specific node.
+    pub async fn get_node_status(&self, node_id: u64) -> Result<ClusterStatusResponse> {
+        let node = self.nodes.get(&node_id).context("Node not found")?;
+        let url = format!("http://127.0.0.1:{}/cluster/status", node.config.api_port);
+
+        let response = reqwest::get(&url)
+            .await
+            .context("Failed to get cluster status")?;
+
+        if !response.status().is_success() {
+            anyhow::bail!("Cluster status request failed: {}", response.status());
+        }
+
+        let status: ClusterStatusResponse = response.json().await?;
+        Ok(status)
+    }
+
+    /// Get the current leader ID, if known.
+    pub async fn get_leader(&self) -> Option<u64> {
+        for node in self.nodes.values() {
+            if let Ok(status) = self.get_node_status(node.config.node_id).await
+                && status.current_leader.is_some()
+            {
+                return status.current_leader;
+            }
+        }
+        None
+    }
+
+    /// Kill a specific node (simulating crash).
+    pub fn kill_node(&mut self, node_id: u64) -> Result<()> {
+        let node = self.nodes.get_mut(&node_id).context("Node not found")?;
+
+        if let Some(ref mut child) = node.child {
+            let pid = Pid::from_raw(child.id() as i32);
+            kill(pid, Signal::SIGKILL).context("Failed to send SIGKILL")?;
+            child.wait().context("Failed to wait for child process")?;
+        }
+        node.child = None;
+
+        tracing::info!("Killed node {}", node_id);
+        Ok(())
+    }
+
+    /// Restart a previously killed node.
+    pub async fn restart_node(&mut self, node_id: u64) -> Result<()> {
+        let node = self.nodes.get_mut(&node_id).context("Node not found")?;
+
+        if node.child.is_some() {
+            anyhow::bail!("Node {} is already running", node_id);
+        }
+
+        let child = Command::new(get_binary_path())
+            .env("SAVE_CONFIG", &node.config_path)
+            .env("RUST_LOG", "info")
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+            .context("Failed to restart node")?;
+
+        node.child = Some(child);
+        node.wait_ready().await?;
+
+        tracing::info!("Restarted node {}", node_id);
+        Ok(())
+    }
+
+    /// Get a client for a specific node.
+    pub fn client(&self, node_id: u64) -> Option<&Client> {
+        self.nodes.get(&node_id).map(|n| &n.client)
+    }
+
+    /// Get a client for the current leader.
+    pub async fn leader_client(&self) -> Result<&Client> {
+        let leader_id = self.get_leader().await.context("No leader available")?;
+        self.nodes
+            .get(&leader_id)
+            .map(|n| &n.client)
+            .context("Leader node not found")
+    }
+
+    /// Get all node IDs in the cluster.
+    pub fn node_ids(&self) -> Vec<u64> {
+        self.nodes.keys().copied().collect()
+    }
+
+    /// Get the number of nodes in the cluster.
+    pub fn node_count(&self) -> usize {
+        self.node_count
+    }
+
+    /// Check if a node is running.
+    pub fn is_node_running(&self, node_id: u64) -> bool {
+        self.nodes
+            .get(&node_id)
+            .map(|n| n.child.is_some())
+            .unwrap_or(false)
+    }
+
+    /// Get data directory path for a node.
+    pub fn data_dir(&self, node_id: u64) -> Option<&Path> {
+        self.nodes.get(&node_id).map(|n| n.data_dir.path())
+    }
+}
+
+impl Drop for ClusterEnv {
+    fn drop(&mut self) {
+        for (node_id, node) in self.nodes.iter_mut() {
+            if let Some(ref mut child) = node.child {
+                tracing::debug!("Cleaning up node {}", node_id);
+                let _ = child.kill();
+                let _ = child.wait();
+            }
+        }
+    }
+}
+
+async fn start_node(config: &NodeConfig, peers: &[String]) -> Result<ClusterNode> {
+    let data_dir = tempfile::tempdir()?;
+
+    // Filter out this node from peers list
+    let other_peers: Vec<String> = peers
+        .iter()
+        .filter(|p| !p.starts_with(&format!("{}:", config.node_id)))
+        .cloned()
+        .collect();
+
+    let peers_toml = if other_peers.is_empty() {
+        "[]".to_string()
+    } else {
+        format!("[\"{}\"]", other_peers.join("\", \""))
+    };
+
+    // Create config file
+    let config_content = format!(
+        r#"
+[server]
+bind_address = "127.0.0.1:{api_port}"
+
+[storage]
+data_path = "{data_path}/data"
+metadata_path = "{data_path}/metadata"
+gc_interval_secs = 10
+gc_temp_file_max_age_secs = 60
+
+[credentials]
+access_key = "test-access-key"
+secret_key = "test-secret-key"
+
+[cluster]
+enabled = true
+node_id = {node_id}
+raft_bind_addr = "127.0.0.1:{raft_port}"
+peers = {peers}
+"#,
+        api_port = config.api_port,
+        data_path = data_dir.path().display(),
+        node_id = config.node_id,
+        raft_port = config.raft_port,
+        peers = peers_toml,
+    );
+
+    let config_path = data_dir.path().join("config.toml");
+    std::fs::write(&config_path, config_content)?;
+
+    // Spawn server
+    let child = Command::new(get_binary_path())
+        .env("SAVE_CONFIG", &config_path)
+        .env("RUST_LOG", "info,save_metadata::raft=debug")
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .context("Failed to spawn save-api")?;
+
+    let client = create_client(config.api_port).await;
+
+    let node = ClusterNode {
+        config: config.clone(),
+        child: Some(child),
+        data_dir,
+        config_path,
+        client,
+    };
+
+    node.wait_ready().await?;
+
+    tracing::info!(
+        "Started node {} on api_port={}, raft_port={}",
+        config.node_id,
+        config.api_port,
+        config.raft_port
+    );
+
+    Ok(node)
+}
+
+fn find_free_port() -> Result<u16> {
+    use std::net::TcpListener;
+    let listener = TcpListener::bind("127.0.0.1:0")?;
+    Ok(listener.local_addr()?.port())
+}
+
+fn get_binary_path() -> PathBuf {
+    let manifest_dir = env!("CARGO_MANIFEST_DIR");
+    PathBuf::from(manifest_dir)
+        .parent()
+        .unwrap()
+        .parent()
+        .unwrap()
+        .join("target/debug/save-api")
+}
+
+fn ensure_binary_built() -> Result<()> {
+    let status = Command::new("cargo")
+        .args(["build", "-p", "save-api"])
+        .stdout(std::process::Stdio::null())
+        .status()
+        .context("Failed to run cargo build")?;
+
+    if !status.success() {
+        anyhow::bail!("Failed to build save-api");
+    }
+
+    Ok(())
+}
+
+async fn create_client(port: u16) -> Client {
+    let credentials = Credentials::new("test-access-key", "test-secret-key", None, None, "static");
+
+    let config = aws_config::defaults(BehaviorVersion::latest())
+        .region(Region::new("us-east-1"))
+        .credentials_provider(credentials)
+        .load()
+        .await;
+
+    let s3_config = aws_sdk_s3::config::Builder::from(&config)
+        .endpoint_url(format!("http://127.0.0.1:{}", port))
+        .force_path_style(true)
+        .build();
+
+    Client::from_conf(s3_config)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    #[ignore = "requires cluster_tests feature"]
+    async fn test_cluster_env_setup() {
+        let cluster = ClusterEnv::new_3_node().await.unwrap();
+        assert_eq!(cluster.node_count(), 3);
+
+        // Check all nodes are running
+        for node_id in cluster.node_ids() {
+            assert!(cluster.is_node_running(node_id));
+        }
+
+        // Verify leader was elected
+        let leader = cluster.get_leader().await;
+        assert!(leader.is_some());
+    }
+}

@@ -1,5 +1,6 @@
 use save_common::config::SaveConfig;
 use save_metadata::MetadataStore;
+use save_metadata::raft::{RaftNode, run_server as run_raft_server};
 use save_storage::ObjectStorage;
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
@@ -71,10 +72,60 @@ async fn async_main_with_config(config: SaveConfig) -> anyhow::Result<()> {
     );
     let metadata = MetadataStore::new_with_config(&config.storage.metadata_path, &config.metadata)?;
 
-    let bind_addr = config.server.bind_address.clone();
-    let state = save_api::AppState::new(storage, metadata, config.clone());
+    // Shutdown channel - we'll subscribe workers to this
+    let (shutdown_tx, _shutdown_rx) = tokio::sync::broadcast::channel(1);
 
-    let (shutdown_tx, shutdown_rx) = tokio::sync::broadcast::channel(1);
+    // Initialize Raft if cluster mode is enabled
+    let (raft_node, raft_handle) = if config.cluster.enabled {
+        info!(
+            "Cluster mode enabled - node_id: {}, raft_bind_addr: {}",
+            config.cluster.node_id, config.cluster.raft_bind_addr
+        );
+
+        let raft_node = RaftNode::from_cluster_config(metadata.db(), &config.cluster).await?;
+
+        // Start Raft gRPC server with shutdown support
+        let raft_addr: SocketAddr = config.cluster.raft_bind_addr.parse()?;
+        let raft = raft_node.raft().clone();
+        let raft_shutdown_rx = shutdown_tx.subscribe();
+        let handle = tokio::spawn(async move {
+            if let Err(e) = run_raft_server(raft, raft_addr, Some(raft_shutdown_rx)).await {
+                error!("Raft server failed: {}", e);
+                Err(e)
+            } else {
+                Ok(())
+            }
+        });
+
+        // Give the Raft server a moment to bind and verify it started
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        if handle.is_finished() {
+            // Server failed to start - get the error
+            let result = handle.await;
+            match result {
+                Ok(Err(e)) => {
+                    return Err(anyhow::anyhow!("Raft server failed to start: {}", e));
+                }
+                Err(e) => {
+                    return Err(anyhow::anyhow!("Raft server task panicked: {}", e));
+                }
+                Ok(Ok(())) => {
+                    return Err(anyhow::anyhow!("Raft server exited unexpectedly"));
+                }
+            }
+        }
+
+        info!("Raft gRPC server started successfully on {}", raft_addr);
+        (Some(raft_node), Some(handle))
+    } else {
+        (None, None)
+    };
+
+    let bind_addr = config.server.bind_address.clone();
+    let mut state = save_api::AppState::new(storage, metadata, config.clone());
+    if let Some(raft_node) = raft_node {
+        state = state.with_raft_node(raft_node);
+    }
 
     let gc_config = save_api::GcConfig {
         interval: Duration::from_secs(config.storage.gc_interval_secs),
@@ -90,8 +141,10 @@ async fn async_main_with_config(config: SaveConfig) -> anyhow::Result<()> {
         "Starting GC worker"
     );
 
+    let gc_shutdown_rx = shutdown_tx.subscribe();
     let gc_handle = tokio::spawn(async move {
-        if let Err(e) = save_api::run_gc_worker(gc_metadata, temp_dir, gc_config, shutdown_rx).await
+        if let Err(e) =
+            save_api::run_gc_worker(gc_metadata, temp_dir, gc_config, gc_shutdown_rx).await
         {
             error!("GC worker failed: {}", e);
         }
@@ -192,6 +245,10 @@ async fn async_main_with_config(config: SaveConfig) -> anyhow::Result<()> {
             let _ = gc_handle.await;
             let _ = metrics_handle.await;
             let _ = cache_cleanup_handle.await;
+            if let Some(handle) = raft_handle {
+                info!("Waiting for Raft server to shutdown");
+                let _ = handle.await;
+            }
             Ok(())
         }
         Err(e) => {

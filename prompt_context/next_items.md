@@ -33,20 +33,26 @@ Completed:
 - Streaming snapshot RPC wired in server.rs
 - 5 unit tests for snapshot operations
 
-### Priority 2: Leader Election Monitoring + Cluster Tests
+### Priority 2: Leader Election Monitoring + Cluster Tests ✓
 
 From phase2.md:
-- [ ] Add leader election monitoring and status tracking
+- [x] Add leader election monitoring and status tracking
 
-Work:
-- Expose Raft metrics (current leader, term, role)
-- Add `/cluster/status` endpoint
-- Add `ClusterEnv` to `tests/crash-recovery/tests/common/`
+Completed:
+- `ClusterStatus` struct in save-metadata/src/raft/node.rs
+- `/cluster/status` endpoint in save-api (GET)
+- `/cluster/initialize` endpoint in save-api (POST)
+- `ClusterEnv` test infrastructure in tests/crash-recovery/tests/common/cluster.rs
+- Main.rs now initializes Raft when cluster mode is enabled
+- MetadataStore exposes `db()` method for Raft sharing
 
 Tests (from phase2.md):
-- [ ] Integration test: 3-node cluster formation
-- [ ] Integration test: Leader election after leader crash
-- [ ] Integration test: Node recovery and catch-up
+- [x] Integration test: 3-node cluster formation
+- [x] Integration test: Leader election after leader crash
+- [x] Integration test: Node recovery and catch-up
+- [x] Integration test: Cluster survives minority failure (bonus)
+
+Run tests with: `cargo test -p crash-recovery-tests --features cluster_tests cluster --ignored`
 
 ### Priority 3: Replication Service
 

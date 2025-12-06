@@ -323,31 +323,9 @@ impl SaveConfig {
                 ));
             }
 
-            // Validate peer format: "node_id:host:port"
+            // Validate peer format using shared utility
             for peer in &self.cluster.peers {
-                let parts: Vec<&str> = peer.split(':').collect();
-                if parts.len() != 3 {
-                    return Err(Error::validation(format!(
-                        "Invalid peer format '{}'. Expected 'node_id:host:port'",
-                        peer
-                    )));
-                }
-
-                // Validate node_id is a valid u64
-                if parts[0].parse::<u64>().is_err() {
-                    return Err(Error::validation(format!(
-                        "Invalid node_id in peer '{}'. Expected numeric value",
-                        peer
-                    )));
-                }
-
-                // Validate port is a valid u16
-                if parts[2].parse::<u16>().is_err() {
-                    return Err(Error::validation(format!(
-                        "Invalid port in peer '{}'. Expected numeric value 1-65535",
-                        peer
-                    )));
-                }
+                crate::cluster::parse_peer(peer)?;
             }
         }
 
