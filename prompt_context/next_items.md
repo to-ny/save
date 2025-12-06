@@ -23,36 +23,53 @@
 
 ### Priority 1: Raft Snapshots
 
-From phase2.md (blocking membership changes):
+From phase2.md:
 - [ ] Implement Raft snapshot generation for state machine
 - [ ] Add snapshot transfer mechanism for new/recovering nodes
 
-Work needed:
+Work:
 - Implement `snapshot.rs` (RocksDB checkpoint, packaging)
-- Implement `install_snapshot` in storage.rs
 - Wire streaming snapshot RPC in server.rs
 
-### Priority 2: Leader Election Monitoring
+Tests (from phase2.md):
+- [ ] Integration test: Snapshot transfer to new node
+
+### Priority 2: Leader Election Monitoring + Cluster Tests
 
 From phase2.md:
 - [ ] Add leader election monitoring and status tracking
 
-Work needed:
+Work:
 - Expose Raft metrics (current leader, term, role)
 - Add `/cluster/status` endpoint
+- Add `ClusterEnv` to `tests/crash-recovery/tests/common/`
+
+Tests (from phase2.md):
+- [ ] Integration test: 3-node cluster formation
+- [ ] Integration test: Leader election after leader crash
+- [ ] Integration test: Node recovery and catch-up
 
 ### Priority 3: Replication Service
 
-From phase2.md (can be parallel with Priority 1-2):
+From phase2.md:
 - [ ] Implement ReplicationService gRPC server
 - [ ] Add WriteReplica/ReadReplica/DeleteReplica RPC handlers
 - [ ] Create ReplicationCoordinator for quorum writes
 
+Tests (from phase2.md):
+- [ ] Unit tests for ReplicationCoordinator quorum logic
+- [ ] Unit tests for replica placement strategy
+
 ### Priority 4: ReplicatedBackend
 
-From phase2.md (depends on Priority 3):
+From phase2.md:
 - [ ] Create ReplicatedBackend implementation
 - [ ] Update API handlers to use StorageBackend trait
+
+Tests (from phase2.md):
+- [ ] Integration test: Write with node failure (quorum still met)
+- [ ] Integration test: Write with quorum failure
+- [ ] Integration test: Read-after-write consistency
 
 ### Priority 5: Cluster Membership
 
@@ -60,14 +77,7 @@ From phase2.md (depends on Priority 1):
 - [ ] Implement cluster membership management (add/remove nodes)
 - [ ] Handle Raft configuration changes
 
----
+Tests (from phase2.md):
+- [ ] Integration test: Network partition (split-brain prevention)
+- [ ] Integration test: Concurrent writes to same object (distributed locking)
 
-## Testing Milestones
-
-After Priority 2:
-- Integration test: 3-node cluster formation
-- Integration test: Leader election after leader crash
-
-After Priority 4:
-- Integration test: Write with node failure (quorum still met)
-- Integration test: Read-after-write consistency
