@@ -1,0 +1,80 @@
+syntax = "proto3";
+
+package raft;
+
+// Raft consensus RPCs between cluster nodes.
+
+service RaftRpc {
+  // AppendEntries RPC (leader -> follower)
+  rpc AppendEntries(AppendEntriesRequest) returns (AppendEntriesResponse);
+
+  // RequestVote RPC (candidate -> all nodes)
+  rpc Vote(VoteRequest) returns (VoteResponse);
+
+  // InstallSnapshot RPC (leader -> follower)
+  rpc InstallSnapshot(stream InstallSnapshotRequest) returns (InstallSnapshotResponse);
+}
+
+message LogId {
+  uint64 term = 1;
+  uint64 node_id = 2;
+  uint64 index = 3;
+}
+
+message Vote {
+  uint64 term = 1;
+  uint64 node_id = 2;
+  bool committed = 3;
+}
+
+message LogEntry {
+  LogId log_id = 1;
+  bytes payload = 2;
+}
+
+message Membership {
+  // JSON-encoded membership configuration
+  bytes config = 1;
+}
+
+message AppendEntriesRequest {
+  Vote vote = 1;
+  optional LogId prev_log_id = 2;
+  repeated LogEntry entries = 3;
+  optional LogId leader_commit = 4;
+}
+
+message AppendEntriesResponse {
+  Vote vote = 1;
+  bool success = 2;
+  optional LogId conflict = 3;
+}
+
+message VoteRequest {
+  Vote vote = 1;
+  optional LogId last_log_id = 2;
+}
+
+message VoteResponse {
+  Vote vote = 1;
+  bool vote_granted = 2;
+  optional LogId last_log_id = 3;
+}
+
+message SnapshotMeta {
+  optional LogId last_log_id = 1;
+  Membership last_membership = 2;
+  string snapshot_id = 3;
+}
+
+message InstallSnapshotRequest {
+  Vote vote = 1;
+  SnapshotMeta meta = 2;
+  uint64 offset = 3;
+  bytes data = 4;
+  bool done = 5;
+}
+
+message InstallSnapshotResponse {
+  Vote vote = 1;
+}

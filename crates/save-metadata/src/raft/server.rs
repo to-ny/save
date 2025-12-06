@@ -1,0 +1,246 @@
+//! Raft gRPC server for handling incoming Raft RPCs.
+
+use super::rpc::RaftRpcServer;
+use super::types::Raft;
+use save_proto::raft as proto;
+use std::net::SocketAddr;
+use std::sync::Arc;
+use tonic::transport::Server;
+use tonic::{Request, Response, Status};
+use tracing::info;
+
+type BoxBody = http_body_util::combinators::UnsyncBoxBody<bytes::Bytes, Status>;
+
+/// Runs the Raft gRPC server.
+pub async fn run_server(raft: Arc<Raft>, addr: SocketAddr) -> Result<(), tonic::transport::Error> {
+    let service = RaftRpcService::new(raft);
+
+    info!("Starting Raft gRPC server on {}", addr);
+
+    Server::builder()
+        .add_service(RaftRpcServiceServer::new(service))
+        .serve(addr)
+        .await
+}
+
+/// Raft RPC service implementation for tonic.
+#[derive(Clone)]
+struct RaftRpcService {
+    raft: Arc<Raft>,
+}
+
+impl RaftRpcService {
+    fn new(raft: Arc<Raft>) -> Self {
+        Self { raft }
+    }
+
+    async fn append_entries(
+        &self,
+        request: Request<proto::AppendEntriesRequest>,
+    ) -> Result<Response<proto::AppendEntriesResponse>, Status> {
+        let inner = RaftRpcServer::new(self.raft.clone());
+        inner.append_entries(request).await
+    }
+
+    async fn vote(
+        &self,
+        request: Request<proto::VoteRequest>,
+    ) -> Result<Response<proto::VoteResponse>, Status> {
+        let inner = RaftRpcServer::new(self.raft.clone());
+        inner.vote(request).await
+    }
+
+    #[allow(dead_code)] // Will be used when streaming snapshot RPC is routed
+    async fn install_snapshot(
+        &self,
+        request: Request<tonic::Streaming<proto::InstallSnapshotRequest>>,
+    ) -> Result<Response<proto::InstallSnapshotResponse>, Status> {
+        let inner = RaftRpcServer::new(self.raft.clone());
+        inner.install_snapshot(request).await
+    }
+}
+
+// Manual tonic service implementation since we're not using codegen
+
+#[derive(Clone)]
+struct RaftRpcServiceServer<T: Clone> {
+    inner: T,
+}
+
+impl<T: Clone> RaftRpcServiceServer<T> {
+    fn new(inner: T) -> Self {
+        Self { inner }
+    }
+}
+
+impl<T: Clone> tonic::server::NamedService for RaftRpcServiceServer<T> {
+    const NAME: &'static str = "raft.RaftRpc";
+}
+
+impl<T, B> tower::Service<http::Request<B>> for RaftRpcServiceServer<T>
+where
+    T: Clone + Send + Sync + 'static,
+    T: RaftRpcTrait,
+    B: http_body::Body + Send + 'static,
+    B::Data: Send,
+    B::Error: Into<Box<dyn std::error::Error + Send + Sync>> + Send,
+{
+    type Response = http::Response<BoxBody>;
+    type Error = std::convert::Infallible;
+    type Future = std::pin::Pin<
+        Box<dyn std::future::Future<Output = Result<Self::Response, Self::Error>> + Send>,
+    >;
+
+    fn poll_ready(
+        &mut self,
+        _cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Result<(), Self::Error>> {
+        std::task::Poll::Ready(Ok(()))
+    }
+
+    fn call(&mut self, req: http::Request<B>) -> Self::Future {
+        let inner = self.inner.clone();
+        let path = req.uri().path().to_string();
+
+        Box::pin(async move {
+            let (_parts, body) = req.into_parts();
+            let body = match http_body_util::BodyExt::collect(body).await {
+                Ok(collected) => collected.to_bytes(),
+                Err(_) => {
+                    return Ok(create_error_response(Status::internal(
+                        "failed to read body",
+                    )));
+                }
+            };
+
+            let response = match path.as_str() {
+                "/raft.RaftRpc/AppendEntries" => handle_append_entries(&inner, body.to_vec()).await,
+                "/raft.RaftRpc/Vote" => handle_vote(&inner, body.to_vec()).await,
+                "/raft.RaftRpc/InstallSnapshot" => {
+                    // Streaming snapshots need special handling - for now return unimplemented
+                    create_error_response(Status::unimplemented(
+                        "streaming install_snapshot not yet implemented",
+                    ))
+                }
+                _ => create_error_response(Status::unimplemented("unknown method")),
+            };
+
+            Ok(response)
+        })
+    }
+}
+
+trait RaftRpcTrait: Clone + Send + Sync + 'static {
+    fn append_entries(
+        &self,
+        req: Request<proto::AppendEntriesRequest>,
+    ) -> impl std::future::Future<Output = Result<Response<proto::AppendEntriesResponse>, Status>> + Send;
+
+    fn vote(
+        &self,
+        req: Request<proto::VoteRequest>,
+    ) -> impl std::future::Future<Output = Result<Response<proto::VoteResponse>, Status>> + Send;
+}
+
+impl RaftRpcTrait for RaftRpcService {
+    async fn append_entries(
+        &self,
+        req: Request<proto::AppendEntriesRequest>,
+    ) -> Result<Response<proto::AppendEntriesResponse>, Status> {
+        RaftRpcService::append_entries(self, req).await
+    }
+
+    async fn vote(
+        &self,
+        req: Request<proto::VoteRequest>,
+    ) -> Result<Response<proto::VoteResponse>, Status> {
+        RaftRpcService::vote(self, req).await
+    }
+}
+
+/// Parses gRPC frame: 1-byte compression flag + 4-byte big-endian length + message.
+fn parse_grpc_frame(body: &[u8]) -> Result<&[u8], Status> {
+    const HEADER_LEN: usize = 5;
+    if body.len() < HEADER_LEN {
+        return Err(Status::invalid_argument("incomplete grpc frame header"));
+    }
+
+    let _compression = body[0];
+    let len = u32::from_be_bytes([body[1], body[2], body[3], body[4]]) as usize;
+
+    if body.len() < HEADER_LEN + len {
+        return Err(Status::invalid_argument("incomplete grpc frame body"));
+    }
+
+    Ok(&body[HEADER_LEN..HEADER_LEN + len])
+}
+
+async fn handle_append_entries<T: RaftRpcTrait>(
+    service: &T,
+    body: Vec<u8>,
+) -> http::Response<BoxBody> {
+    let data = match parse_grpc_frame(&body) {
+        Ok(d) => d,
+        Err(status) => return create_error_response(status),
+    };
+
+    match prost::Message::decode(data) {
+        Ok(req) => match service.append_entries(Request::new(req)).await {
+            Ok(resp) => create_response(resp.into_inner()),
+            Err(status) => create_error_response(status),
+        },
+        Err(e) => create_error_response(Status::invalid_argument(e.to_string())),
+    }
+}
+
+async fn handle_vote<T: RaftRpcTrait>(service: &T, body: Vec<u8>) -> http::Response<BoxBody> {
+    let data = match parse_grpc_frame(&body) {
+        Ok(d) => d,
+        Err(status) => return create_error_response(status),
+    };
+
+    match prost::Message::decode(data) {
+        Ok(req) => match service.vote(Request::new(req)).await {
+            Ok(resp) => create_response(resp.into_inner()),
+            Err(status) => create_error_response(status),
+        },
+        Err(e) => create_error_response(Status::invalid_argument(e.to_string())),
+    }
+}
+
+fn create_response<T: prost::Message>(msg: T) -> http::Response<BoxBody> {
+    use http_body_util::BodyExt;
+
+    let mut buf = Vec::with_capacity(msg.encoded_len() + 5);
+    buf.push(0); // compression flag
+    let len = msg.encoded_len() as u32;
+    buf.extend_from_slice(&len.to_be_bytes());
+    msg.encode(&mut buf).unwrap();
+
+    let body = http_body_util::Full::new(bytes::Bytes::from(buf))
+        .map_err(|_: std::convert::Infallible| Status::internal("body error"))
+        .boxed_unsync();
+
+    http::Response::builder()
+        .status(200)
+        .header("content-type", "application/grpc")
+        .header("grpc-status", "0")
+        .body(body)
+        .unwrap()
+}
+
+fn create_error_response(status: Status) -> http::Response<BoxBody> {
+    use http_body_util::BodyExt;
+
+    let body = http_body_util::Empty::new()
+        .map_err(|_: std::convert::Infallible| Status::internal("body error"))
+        .boxed_unsync();
+
+    http::Response::builder()
+        .status(200)
+        .header("content-type", "application/grpc")
+        .header("grpc-status", status.code() as i32)
+        .header("grpc-message", status.message())
+        .body(body)
+        .unwrap()
+}

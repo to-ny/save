@@ -2,48 +2,72 @@
 
 ## Current Status
 
-Priority 1 completed. RocksDB storage implementation done:
-- Column families added: raft_log, raft_state, raft_snapshot
-- Log persistence implemented (append, read, truncate, purge)
-- State persistence implemented (vote, last_applied, last_log_id)
-- Command application implemented (executes bucket/object operations)
-- Using serde_json for serialization (OpenRaft types with serde feature)
+**Raft Consensus Layer** - Core implementation complete:
+- RocksDB storage with column families (raft_log, raft_state, raft_snapshot)
+- Log persistence, state persistence, command application
+- gRPC client/server for Raft RPCs (proto/raft.proto)
+- Network layer (RaftNetworkFactory trait)
+- ClusterConfig integration
 
-From `tasks/phase2.md`, remaining tasks:
+**Replication Infrastructure** - Proto defined, implementation pending:
+- proto/replication.proto exists
+- No service implementation yet
 
-## Priority 2: Raft Configuration
+**Storage Backend** - Trait abstraction complete:
+- StorageBackend trait and LocalBackend wrapper done
+- ReplicatedBackend not started
 
-Tasks from phase2.md:
-- Add Raft configuration from cluster config (heartbeat, election timeout)
+---
 
-Actual work needed:
-- Wire ClusterConfig to RaftNode.new()
-- Convert cluster config to OpenRaft Config
-- Initialize with peer list
+## Next Priorities
 
-## Priority 3: Snapshots
+### Priority 1: Raft Snapshots
 
-Tasks from phase2.md:
-- Implement Raft snapshot generation for state machine
-- Add snapshot transfer mechanism for new/recovering nodes
+From phase2.md (blocking membership changes):
+- [ ] Implement Raft snapshot generation for state machine
+- [ ] Add snapshot transfer mechanism for new/recovering nodes
 
-Actual work needed:
-- Implement snapshot.rs (RocksDB checkpoint, tar.gz packaging)
-- Implement install_snapshot in storage.rs
+Work needed:
+- Implement `snapshot.rs` (RocksDB checkpoint, packaging)
+- Implement `install_snapshot` in storage.rs
+- Wire streaming snapshot RPC in server.rs
 
-## Priority 4: Network Layer
+### Priority 2: Leader Election Monitoring
 
-Tasks from phase2.md:
-- Implement Raft network layer (node-to-node communication)
+From phase2.md:
+- [ ] Add leader election monitoring and status tracking
 
-Actual work needed:
-- Define Raft RPC proto (AppendEntries, Vote, InstallSnapshot)
-- Implement gRPC server in network.rs
-- Implement gRPC client in network.rs
+Work needed:
+- Expose Raft metrics (current leader, term, role)
+- Add `/cluster/status` endpoint
 
-## Deferred
+### Priority 3: Replication Service
 
-Tasks from phase2.md (defer until core Raft works):
-- Implement cluster membership management (add/remove nodes)
-- Add leader election monitoring and status tracking
-- Handle Raft configuration changes (dynamic cluster membership)
+From phase2.md (can be parallel with Priority 1-2):
+- [ ] Implement ReplicationService gRPC server
+- [ ] Add WriteReplica/ReadReplica/DeleteReplica RPC handlers
+- [ ] Create ReplicationCoordinator for quorum writes
+
+### Priority 4: ReplicatedBackend
+
+From phase2.md (depends on Priority 3):
+- [ ] Create ReplicatedBackend implementation
+- [ ] Update API handlers to use StorageBackend trait
+
+### Priority 5: Cluster Membership
+
+From phase2.md (depends on Priority 1):
+- [ ] Implement cluster membership management (add/remove nodes)
+- [ ] Handle Raft configuration changes
+
+---
+
+## Testing Milestones
+
+After Priority 2:
+- Integration test: 3-node cluster formation
+- Integration test: Leader election after leader crash
+
+After Priority 4:
+- Integration test: Write with node failure (quorum still met)
+- Integration test: Read-after-write consistency
