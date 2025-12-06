@@ -31,6 +31,27 @@ pub enum MetadataError {
 
     #[error("Raft error: {0}")]
     Raft(String),
+
+    #[error("Storage error: {0}")]
+    Storage(String),
+}
+
+impl MetadataError {
+    /// Returns true if this error indicates corrupted Raft state that may be recoverable
+    /// by clearing Raft data and re-initializing.
+    pub fn is_recoverable_raft_corruption(&self) -> bool {
+        match self {
+            // JSON deserialization errors in Raft state are recoverable
+            MetadataError::Raft(msg) => {
+                msg.contains("missing field")
+                    || msg.contains("invalid type")
+                    || msg.contains("expected")
+                    || msg.contains("JSON")
+                    || msg.contains("deserialize")
+            }
+            _ => false,
+        }
+    }
 }
 
 pub type Result<T> = std::result::Result<T, MetadataError>;

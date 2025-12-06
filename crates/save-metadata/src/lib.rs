@@ -8,6 +8,25 @@ pub mod raft;
 #[cfg(test)]
 mod tests;
 
+/// Column family names used by the metadata store.
+/// These are shared between the store and any external tools that need to open the database.
+pub mod column_families {
+    /// Default column family for object/bucket metadata
+    pub const DEFAULT: &str = "default";
+    /// Raft log entries
+    pub const RAFT_LOG: &str = "raft_log";
+    /// Raft hard state (term, vote, commit index)
+    pub const RAFT_STATE: &str = "raft_state";
+    /// Raft snapshots
+    pub const RAFT_SNAPSHOT: &str = "raft_snapshot";
+
+    /// All column families used by the metadata store
+    pub const ALL: &[&str] = &[DEFAULT, RAFT_LOG, RAFT_STATE, RAFT_SNAPSHOT];
+
+    /// Raft-specific column families (excludes default)
+    pub const RAFT_ONLY: &[&str] = &[RAFT_LOG, RAFT_STATE, RAFT_SNAPSHOT];
+}
+
 pub use error::{MetadataError, Result};
 pub use multipart::{MultipartPart, MultipartUpload};
 pub use object::ObjectMetadata;
@@ -73,9 +92,8 @@ impl MetadataStore {
         opts.set_stats_dump_period_sec(300); // Dump stats every 5 minutes
 
         // Define column families for Raft consensus
-        let cf_names = ["default", "raft_log", "raft_state", "raft_snapshot"];
         let cf_opts = rocksdb::Options::default();
-        let cfs = cf_names
+        let cfs = column_families::ALL
             .iter()
             .map(|name| rocksdb::ColumnFamilyDescriptor::new(*name, cf_opts.clone()));
 
@@ -298,5 +316,41 @@ impl MetadataStore {
         tokio::task::spawn_blocking(move || multipart::list_all_multipart_uploads(&db))
             .await
             .map_err(|e| MetadataError::TaskCancelled(e.to_string()))?
+    }
+
+    /// Clears all Raft state from the database.
+    ///
+    /// # Warning
+    ///
+    /// This is destructive and should only be used for recovery from corrupted state.
+    /// After clearing, the node will need to be re-initialized and will lose any
+    /// uncommitted log entries.
+    ///
+    /// In a multi-node cluster, prefer recovering via snapshot transfer from healthy
+    /// peers instead of clearing state.
+    pub fn clear_raft_state(&self) -> Result<()> {
+        for cf_name in column_families::RAFT_ONLY {
+            if let Some(cf) = self.db.cf_handle(cf_name) {
+                // Get all keys in the column family and delete them
+                let mut iter = self.db.raw_iterator_cf(&cf);
+                iter.seek_to_first();
+
+                let mut keys_to_delete = Vec::new();
+                while iter.valid() {
+                    if let Some(key) = iter.key() {
+                        keys_to_delete.push(key.to_vec());
+                    }
+                    iter.next();
+                }
+
+                for key in keys_to_delete {
+                    self.db
+                        .delete_cf(&cf, &key)
+                        .map_err(|e| MetadataError::Storage(e.to_string()))?;
+                }
+            }
+        }
+
+        Ok(())
     }
 }

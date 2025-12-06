@@ -82,7 +82,41 @@ async fn async_main_with_config(config: SaveConfig) -> anyhow::Result<()> {
         config.cluster.node_id, config.cluster.raft_bind_addr
     );
 
-    let raft_node = RaftNode::from_cluster_config(metadata.db(), &config.cluster).await?;
+    let raft_node = match RaftNode::from_cluster_config(metadata.db(), &config.cluster).await {
+        Ok(node) => node,
+        Err(e) => {
+            // Check if this is a recoverable corruption error
+            let is_recoverable = e.is_recoverable_raft_corruption();
+            let auto_recovery_enabled = config.cluster.allow_auto_recovery;
+
+            if is_recoverable && auto_recovery_enabled {
+                error!(
+                    "Raft initialization failed with recoverable error: {}. \
+                     Auto-recovery is enabled, clearing corrupted state...",
+                    e
+                );
+
+                if let Err(clear_err) = metadata.clear_raft_state() {
+                    error!("Failed to clear Raft state: {}", clear_err);
+                    return Err(e.into());
+                }
+
+                info!("Cleared corrupted Raft state, retrying initialization...");
+                RaftNode::from_cluster_config(metadata.db(), &config.cluster).await?
+            } else if is_recoverable {
+                error!(
+                    "Raft initialization failed with recoverable corruption: {}. \
+                     Set cluster.allow_auto_recovery = true in config to enable \
+                     automatic recovery (WARNING: may lose uncommitted entries).",
+                    e
+                );
+                return Err(e.into());
+            } else {
+                error!("Raft initialization failed: {}", e);
+                return Err(e.into());
+            }
+        }
+    };
 
     // Auto-bootstrap single-node clusters
     if config.cluster.peers.is_empty() && !raft_node.is_initialized() {

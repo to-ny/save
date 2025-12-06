@@ -439,7 +439,7 @@ async fn test_snapshot_transfer_to_new_node() {
     tracing::info!("Initial leader: node {}", leader);
 
     // Write some data via S3 API to create state
-    let client = cluster.client(leader).expect("Should have client");
+    let client = cluster.node_client(leader).expect("Should have client");
     client
         .create_bucket()
         .bucket("test-bucket")
@@ -505,7 +505,9 @@ async fn test_snapshot_transfer_to_new_node() {
     );
 
     // Verify the new node can see the data (state was transferred)
-    let new_client = cluster.client(new_node_id).expect("Should have client");
+    let new_client = cluster
+        .node_client(new_node_id)
+        .expect("Should have client");
     let result = new_client
         .head_object()
         .bucket("test-bucket")
@@ -572,7 +574,7 @@ async fn test_network_partition_split_brain_prevention() {
     // The remaining node should not be able to function as leader
     // (it cannot commit new entries without quorum)
     // Check that writes fail or the node steps down
-    let client = cluster.client(leader).expect("Should have client");
+    let client = cluster.node_client(leader).expect("Should have client");
 
     // Try to create a bucket - this should fail or timeout without quorum
     let start = std::time::Instant::now();
@@ -615,7 +617,7 @@ async fn test_network_partition_split_brain_prevention() {
     tracing::info!("Leader after quorum restored: node {}", new_leader);
 
     // Now writes should succeed
-    let leader_client = cluster.client(new_leader).expect("Should have client");
+    let leader_client = cluster.node_client(new_leader).expect("Should have client");
     let result = leader_client
         .create_bucket()
         .bucket("quorum-restored")
@@ -652,7 +654,7 @@ async fn test_concurrent_writes_to_same_object() {
     tracing::info!("Leader: node {}", leader);
 
     // Create a test bucket
-    let client = cluster.client(leader).expect("Should have client");
+    let client = cluster.node_client(leader).expect("Should have client");
     client
         .create_bucket()
         .bucket("concurrent-test")
@@ -757,7 +759,7 @@ async fn test_concurrent_writes_to_same_object() {
 
     // Verify all nodes see the same value (consistency)
     for node_id in cluster.node_ids() {
-        let node_client = cluster.client(node_id).expect("Should have client");
+        let node_client = cluster.node_client(node_id).expect("Should have client");
 
         // Give time for replication
         tokio::time::sleep(Duration::from_millis(100)).await;

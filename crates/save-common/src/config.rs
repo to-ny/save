@@ -243,6 +243,18 @@ pub struct ClusterConfig {
     /// RPC timeout for individual requests in seconds (default: 30)
     #[serde(default = "default_rpc_timeout_secs")]
     pub rpc_timeout_secs: u64,
+
+    /// Allow automatic recovery from corrupted Raft state (default: false)
+    ///
+    /// When enabled, the node will automatically clear corrupted Raft state
+    /// (e.g., from serialization incompatibilities after upgrades) and
+    /// re-initialize. This may cause data loss of uncommitted entries.
+    ///
+    /// WARNING: In multi-node clusters, prefer manual recovery via snapshot
+    /// transfer from healthy peers. Only enable this for single-node deployments
+    /// or when you understand the implications.
+    #[serde(default)]
+    pub allow_auto_recovery: bool,
 }
 
 fn default_connect_timeout_secs() -> u64 {
@@ -270,6 +282,7 @@ impl Default for ClusterConfig {
             consistency_mode: ConsistencyMode::default(),
             connect_timeout_secs: default_connect_timeout_secs(),
             rpc_timeout_secs: default_rpc_timeout_secs(),
+            allow_auto_recovery: false,
         }
     }
 }

@@ -1,16 +1,31 @@
 use anyhow::{Context, Result};
-use rocksdb::DB;
-use save_metadata::ObjectMetadata;
+use rocksdb::{DB, Options};
+use save_metadata::{ObjectMetadata, column_families};
 use sha2::{Digest, Sha256};
 use std::path::{Path, PathBuf};
 use tokio::fs;
+
+/// Open RocksDB with all column families including Raft CFs
+fn open_db_with_all_cfs(path: &Path) -> Result<DB> {
+    let mut opts = Options::default();
+    opts.create_if_missing(false);
+    opts.create_missing_column_families(false);
+
+    let cf_opts = Options::default();
+    let cfs: Vec<_> = column_families::ALL
+        .iter()
+        .map(|name| rocksdb::ColumnFamilyDescriptor::new(*name, cf_opts.clone()))
+        .collect();
+
+    DB::open_cf_descriptors(&opts, path, cfs).context("Failed to open metadata database")
+}
 
 /// Verify no phantom objects (metadata pointing to missing storage)
 pub async fn verify_no_phantom_objects(data_dir: &Path, metadata_dir: &Path) -> Result<()> {
     let storage_dir = data_dir.join("objects");
 
-    // Open RocksDB metadata store
-    let db = DB::open_default(metadata_dir)
+    // Open RocksDB metadata store with all CFs
+    let db = open_db_with_all_cfs(metadata_dir)
         .context("Failed to open metadata database for verification")?;
 
     let iter = db.iterator(rocksdb::IteratorMode::Start);
@@ -59,7 +74,7 @@ pub async fn verify_no_orphans_or_gc_pending(data_dir: &Path, metadata_dir: &Pat
     let storage_files = collect_storage_files(&storage_dir).await?;
 
     // Open metadata to get all known objects
-    let db = DB::open_default(metadata_dir)
+    let db = open_db_with_all_cfs(metadata_dir)
         .context("Failed to open metadata database for verification")?;
 
     let mut metadata_hashes = std::collections::HashSet::new();

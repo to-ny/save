@@ -18,6 +18,9 @@ use std::process::{Child, Command};
 use std::time::{Duration, Instant};
 use tempfile::TempDir;
 
+/// Time to wait for Raft servers to start before initializing cluster
+const RAFT_STARTUP_DELAY: Duration = Duration::from_millis(500);
+
 /// Status response from /cluster/status endpoint.
 #[derive(Debug, Deserialize)]
 pub struct ClusterStatusResponse {
@@ -111,10 +114,15 @@ impl ClusterEnv {
 
     /// Creates and starts a cluster with the specified number of nodes.
     pub async fn new(node_count: usize) -> Result<Self> {
-        assert!(node_count >= 1, "Must have at least 1 node");
-
-        // Build binary first
+        // Build binary first (without failpoints)
         ensure_binary_built()?;
+        Self::new_without_build(node_count).await
+    }
+
+    /// Creates and starts a cluster assuming binary is already built.
+    /// Use this when you've already built with specific features (e.g., failpoints).
+    pub async fn new_without_build(node_count: usize) -> Result<Self> {
+        assert!(node_count >= 1, "Must have at least 1 node");
 
         // Allocate ports for all nodes
         let mut configs = Vec::with_capacity(node_count);
@@ -158,7 +166,15 @@ impl ClusterEnv {
         let node = self.nodes.get(&1).context("Node 1 not found")?;
 
         // Give nodes time to start their Raft servers
-        tokio::time::sleep(Duration::from_millis(500)).await;
+        tokio::time::sleep(RAFT_STARTUP_DELAY).await;
+
+        // Check if cluster is already initialized (single-node clusters auto-initialize)
+        if let Ok(status) = self.get_node_status(1).await {
+            if let Some(leader_id) = status.current_leader {
+                tracing::info!("Cluster already initialized with leader {}", leader_id);
+                return Ok(());
+            }
+        }
 
         // Build members list for initialization
         let members: Vec<String> = self
@@ -180,6 +196,12 @@ impl ClusterEnv {
             .send()
             .await
             .context("Failed to send initialize request")?;
+
+        // 409 Conflict means already initialized - that's ok
+        if response.status() == reqwest::StatusCode::CONFLICT {
+            tracing::info!("Cluster already initialized (409 response)");
+            return Ok(());
+        }
 
         if !response.status().is_success() {
             let status = response.status();
@@ -269,23 +291,39 @@ impl ClusterEnv {
             anyhow::bail!("Node {} is already running", node_id);
         }
 
+        // Capture stderr to a file for debugging restart failures
+        let stderr_path = node.data_dir.path().join("restart_stderr.log");
+        let stderr_file =
+            std::fs::File::create(&stderr_path).context("Failed to create stderr log file")?;
+
         let child = Command::new(get_binary_path())
             .env("SAVE_CONFIG", &node.config_path)
-            .env("RUST_LOG", "info")
+            .env("RUST_LOG", "info,save_metadata::raft=debug")
             .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null())
+            .stderr(std::process::Stdio::from(stderr_file))
             .spawn()
             .context("Failed to restart node")?;
 
         node.child = Some(child);
-        node.wait_ready().await?;
 
-        tracing::info!("Restarted node {}", node_id);
-        Ok(())
+        // Try to wait for ready, but if it fails, show the stderr log
+        match node.wait_ready().await {
+            Ok(()) => {
+                tracing::info!("Restarted node {}", node_id);
+                Ok(())
+            }
+            Err(e) => {
+                // Read and log stderr for debugging
+                if let Ok(stderr_content) = std::fs::read_to_string(&stderr_path) {
+                    tracing::error!("Server stderr on restart failure:\n{}", stderr_content);
+                }
+                Err(e)
+            }
+        }
     }
 
-    /// Get a client for a specific node.
-    pub fn client(&self, node_id: u64) -> Option<&Client> {
+    /// Get a client for a specific node by ID.
+    pub fn node_client(&self, node_id: u64) -> Option<&Client> {
         self.nodes.get(&node_id).map(|n| &n.client)
     }
 
@@ -453,8 +491,8 @@ impl TestEnvironment for ClusterEnv {
         // Build binary with failpoints enabled for crash testing
         ensure_binary_built_with_failpoints()?;
 
-        // Use a single-node cluster for crash tests
-        Self::new(1).await
+        // Use a single-node cluster for crash tests (skip rebuild to keep failpoints)
+        Self::new_without_build(1).await
     }
 
     async fn configure_failpoint(&self, name: &str, action: &str) -> Result<()> {
@@ -479,10 +517,21 @@ impl TestEnvironment for ClusterEnv {
             .context("Failed to send failpoint configuration")?;
 
         let status = response.status();
-        let body: ConfigureFailpointResponse = response
-            .json()
+
+        // Check for 404 - means binary wasn't built with failpoints feature
+        if status == reqwest::StatusCode::NOT_FOUND {
+            anyhow::bail!(
+                "Failpoint endpoint not found. Make sure save-api is built with --features failpoints"
+            );
+        }
+
+        let body_text = response
+            .text()
             .await
-            .context("Failed to parse failpoint response")?;
+            .context("Failed to read response body")?;
+
+        let body: ConfigureFailpointResponse = serde_json::from_str(&body_text)
+            .with_context(|| format!("Failed to parse failpoint response: '{}'", body_text))?;
 
         if !status.is_success() || !body.success {
             anyhow::bail!("Failed to configure failpoint: {}", body.message);
@@ -574,6 +623,8 @@ async fn start_node(config: &NodeConfig, peers: &[String]) -> Result<ClusterNode
     };
 
     // Create config file
+    // Note: allow_auto_recovery = true enables automatic recovery from corrupted Raft state
+    // after crash tests. This is safe for single-node test environments.
     let config_content = format!(
         r#"
 [server]
@@ -593,6 +644,7 @@ secret_key = "test-secret-key"
 node_id = {node_id}
 raft_bind_addr = "127.0.0.1:{raft_port}"
 peers = {peers}
+allow_auto_recovery = true
 "#,
         api_port = config.api_port,
         data_path = data_dir.path().display(),
