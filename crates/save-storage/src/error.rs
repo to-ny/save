@@ -13,6 +13,9 @@ pub enum StorageError {
 
     #[error("Invalid path: {0}")]
     InvalidPath(String),
+
+    #[error("Quorum not achieved: {achieved} of {required} nodes")]
+    QuorumNotAchieved { achieved: usize, required: usize },
 }
 
 pub type Result<T> = std::result::Result<T, StorageError>;

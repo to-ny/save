@@ -6,6 +6,7 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::sync::broadcast;
 use tonic::Status;
+use tonic::server::NamedService;
 use tonic::transport::Server;
 use tracing::info;
 
@@ -19,8 +20,17 @@ pub async fn run_server(
 ) -> Result<(), tonic::transport::Error> {
     info!("Starting replication gRPC server on {}", addr);
 
-    let server =
-        Server::builder().add_service(ReplicationServiceServer::new(ServiceWrapper { service }));
+    let inner = ServiceWrapper {
+        service: service.clone(),
+    };
+
+    // Add services for all gRPC paths we handle
+    // Each service type has a different NamedService::NAME to route correctly
+    let server = Server::builder()
+        .add_service(WriteReplicaServer::new(inner.clone()))
+        .add_service(ReadReplicaServer::new(inner.clone()))
+        .add_service(DeleteReplicaServer::new(inner.clone()))
+        .add_service(ReplicationHealthServer::new(inner));
 
     match shutdown_rx.take() {
         Some(mut rx) => {
@@ -40,94 +50,119 @@ struct ServiceWrapper {
     service: Arc<ReplicationService>,
 }
 
-// Manual tonic service implementation
+// Macro to generate gRPC service servers with different NamedService::NAME values
+macro_rules! define_grpc_server {
+    ($name:ident, $service_name:expr) => {
+        #[derive(Clone)]
+        struct $name<T: Clone> {
+            inner: T,
+        }
 
+        impl<T: Clone> $name<T> {
+            fn new(inner: T) -> Self {
+                Self { inner }
+            }
+        }
+
+        impl<T: Clone> NamedService for $name<T> {
+            const NAME: &'static str = $service_name;
+        }
+
+        impl<T, B> tower::Service<http::Request<B>> for $name<T>
+        where
+            T: Clone + Send + Sync + 'static,
+            T: ReplicationTrait,
+            B: http_body::Body + Send + 'static,
+            B::Data: Send,
+            B::Error: Into<Box<dyn std::error::Error + Send + Sync>> + Send,
+        {
+            type Response = http::Response<BoxBody>;
+            type Error = std::convert::Infallible;
+            type Future = std::pin::Pin<
+                Box<dyn std::future::Future<Output = Result<Self::Response, Self::Error>> + Send>,
+            >;
+
+            fn poll_ready(
+                &mut self,
+                _cx: &mut std::task::Context<'_>,
+            ) -> std::task::Poll<Result<(), Self::Error>> {
+                std::task::Poll::Ready(Ok(()))
+            }
+
+            fn call(&mut self, req: http::Request<B>) -> Self::Future {
+                let inner = self.inner.clone();
+                let path = req.uri().path().to_string();
+
+                Box::pin(async move {
+                    let (_parts, body) = req.into_parts();
+                    let body = match http_body_util::BodyExt::collect(body).await {
+                        Ok(collected) => collected.to_bytes(),
+                        Err(_) => {
+                            return Ok(create_error_response(Status::internal(
+                                "failed to read body",
+                            )));
+                        }
+                    };
+
+                    let response = match path.as_str() {
+                        // WriteReplica
+                        "/replication.WriteReplica/WriteObject" => {
+                            handle_write_object(&inner, body.to_vec()).await
+                        }
+                        "/replication.WriteReplica/PrepareObject" => {
+                            handle_prepare_object(&inner, body.to_vec()).await
+                        }
+                        "/replication.WriteReplica/CommitObject" => {
+                            handle_commit_object(&inner, body.to_vec()).await
+                        }
+                        "/replication.WriteReplica/AbortObject" => {
+                            handle_abort_object(&inner, body.to_vec()).await
+                        }
+                        // ReadReplica
+                        "/replication.ReadReplica/ReadObject" => {
+                            handle_read_object(&inner, body.to_vec()).await
+                        }
+                        "/replication.ReadReplica/ObjectExists" => {
+                            handle_object_exists(&inner, body.to_vec()).await
+                        }
+                        // DeleteReplica
+                        "/replication.DeleteReplica/DeleteObject" => {
+                            handle_delete_object(&inner, body.to_vec()).await
+                        }
+                        // ReplicationHealth
+                        "/replication.ReplicationHealth/HealthCheck" => {
+                            handle_health_check(&inner).await
+                        }
+                        "/replication.ReplicationHealth/GetStats" => {
+                            handle_get_stats(&inner, body.to_vec()).await
+                        }
+                        _ => create_error_response(Status::unimplemented("unknown method")),
+                    };
+
+                    Ok(response)
+                })
+            }
+        }
+    };
+}
+
+// Generate server types for each gRPC service
+define_grpc_server!(WriteReplicaServer, "replication.WriteReplica");
+define_grpc_server!(ReadReplicaServer, "replication.ReadReplica");
+define_grpc_server!(DeleteReplicaServer, "replication.DeleteReplica");
+define_grpc_server!(ReplicationHealthServer, "replication.ReplicationHealth");
+
+// Keep the original for backwards compatibility (used by existing code)
 #[derive(Clone)]
+#[allow(dead_code)]
 struct ReplicationServiceServer<T: Clone> {
     inner: T,
 }
 
+#[allow(dead_code)]
 impl<T: Clone> ReplicationServiceServer<T> {
     fn new(inner: T) -> Self {
         Self { inner }
-    }
-}
-
-impl<T: Clone> tonic::server::NamedService for ReplicationServiceServer<T> {
-    const NAME: &'static str = "replication";
-}
-
-impl<T, B> tower::Service<http::Request<B>> for ReplicationServiceServer<T>
-where
-    T: Clone + Send + Sync + 'static,
-    T: ReplicationTrait,
-    B: http_body::Body + Send + 'static,
-    B::Data: Send,
-    B::Error: Into<Box<dyn std::error::Error + Send + Sync>> + Send,
-{
-    type Response = http::Response<BoxBody>;
-    type Error = std::convert::Infallible;
-    type Future = std::pin::Pin<
-        Box<dyn std::future::Future<Output = Result<Self::Response, Self::Error>> + Send>,
-    >;
-
-    fn poll_ready(
-        &mut self,
-        _cx: &mut std::task::Context<'_>,
-    ) -> std::task::Poll<Result<(), Self::Error>> {
-        std::task::Poll::Ready(Ok(()))
-    }
-
-    fn call(&mut self, req: http::Request<B>) -> Self::Future {
-        let inner = self.inner.clone();
-        let path = req.uri().path().to_string();
-
-        Box::pin(async move {
-            let (_parts, body) = req.into_parts();
-            let body = match http_body_util::BodyExt::collect(body).await {
-                Ok(collected) => collected.to_bytes(),
-                Err(_) => {
-                    return Ok(create_error_response(Status::internal(
-                        "failed to read body",
-                    )));
-                }
-            };
-
-            let response = match path.as_str() {
-                // WriteReplica
-                "/replication.WriteReplica/WriteObject" => {
-                    handle_write_object(&inner, body.to_vec()).await
-                }
-                "/replication.WriteReplica/PrepareObject" => {
-                    handle_prepare_object(&inner, body.to_vec()).await
-                }
-                "/replication.WriteReplica/CommitObject" => {
-                    handle_commit_object(&inner, body.to_vec()).await
-                }
-                "/replication.WriteReplica/AbortObject" => {
-                    handle_abort_object(&inner, body.to_vec()).await
-                }
-                // ReadReplica
-                "/replication.ReadReplica/ReadObject" => {
-                    handle_read_object(&inner, body.to_vec()).await
-                }
-                "/replication.ReadReplica/ObjectExists" => {
-                    handle_object_exists(&inner, body.to_vec()).await
-                }
-                // DeleteReplica
-                "/replication.DeleteReplica/DeleteObject" => {
-                    handle_delete_object(&inner, body.to_vec()).await
-                }
-                // ReplicationHealth
-                "/replication.ReplicationHealth/HealthCheck" => handle_health_check(&inner).await,
-                "/replication.ReplicationHealth/GetStats" => {
-                    handle_get_stats(&inner, body.to_vec()).await
-                }
-                _ => create_error_response(Status::unimplemented("unknown method")),
-            };
-
-            Ok(response)
-        })
     }
 }
 

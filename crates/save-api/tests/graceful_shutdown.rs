@@ -4,7 +4,7 @@ use save_api::AppState;
 use save_common::config::SaveConfig;
 use save_metadata::MetadataStore;
 use save_metadata::raft::RaftNode;
-use save_storage::ObjectStorage;
+use save_storage::LocalBackend;
 use std::sync::atomic::{AtomicU16, Ordering};
 use std::time::Duration;
 use tempfile::TempDir;
@@ -23,7 +23,7 @@ async fn setup() -> (AppState, TempDir, TempDir) {
     let data_dir = TempDir::new().unwrap();
     let metadata_dir = TempDir::new().unwrap();
 
-    let storage = ObjectStorage::new(data_dir.path().to_str().unwrap())
+    let storage = LocalBackend::new(data_dir.path().to_str().unwrap())
         .await
         .unwrap();
     let metadata = MetadataStore::new(metadata_dir.path().to_str().unwrap()).unwrap();

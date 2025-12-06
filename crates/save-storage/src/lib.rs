@@ -2,6 +2,7 @@ mod backend;
 mod error;
 mod layout;
 mod local_backend;
+mod replicated_backend;
 pub mod replication;
 
 #[cfg(test)]
@@ -10,6 +11,7 @@ mod tests;
 pub use backend::{HealthStatus, StorageBackend, TempHandle};
 pub use error::{Result, StorageError};
 pub use local_backend::LocalBackend;
+pub use replicated_backend::ReplicatedBackend;
 
 use layout::StorageLayout;
 use std::path::{Path, PathBuf};

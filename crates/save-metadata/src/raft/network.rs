@@ -80,28 +80,18 @@ impl RaftNetworkFactory<NodeTypeConfig> for Network {
 
 /// Network connection to a specific peer.
 pub struct NetworkConnection {
-    _target: NodeId,
     client: RaftRpcClient,
 }
 
 impl NetworkConnection {
-    /// Create a new connection with default timeouts.
-    pub fn new(target: NodeId, endpoint: String) -> Self {
-        Self {
-            _target: target,
-            client: RaftRpcClient::new(endpoint),
-        }
-    }
-
     /// Create a new connection with custom timeouts.
     pub fn with_timeouts(
-        target: NodeId,
+        _target: NodeId,
         endpoint: String,
         connect_timeout: Duration,
         rpc_timeout: Duration,
     ) -> Self {
         Self {
-            _target: target,
             client: RaftRpcClient::with_timeouts(endpoint, connect_timeout, rpc_timeout),
         }
     }

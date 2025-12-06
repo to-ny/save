@@ -1,9 +1,9 @@
 use save_common::config::SaveConfig;
 use save_metadata::MetadataStore;
 use save_metadata::raft::{RaftNode, run_server as run_raft_server};
-use save_storage::ObjectStorage;
+use save_storage::LocalBackend;
 use std::net::SocketAddr;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::signal;
@@ -60,7 +60,7 @@ async fn async_main_with_config(config: SaveConfig) -> anyhow::Result<()> {
 
     info!("Initializing storage at: {}", config.storage.data_path);
     let storage =
-        ObjectStorage::new_with_fsync_mode(&config.storage.data_path, &config.storage.fsync_mode)
+        LocalBackend::new_with_fsync_mode(&config.storage.data_path, &config.storage.fsync_mode)
             .await?;
 
     info!("Initializing metadata at: {}", config.storage.metadata_path);
@@ -126,14 +126,14 @@ async fn async_main_with_config(config: SaveConfig) -> anyhow::Result<()> {
     info!("Raft gRPC server started successfully on {}", raft_addr);
 
     let bind_addr = config.server.bind_address.clone();
+    let temp_dir = storage.temp_dir();
+
     let state = save_api::AppState::new(storage, metadata, config.clone(), raft_node);
 
     let gc_config = save_api::GcConfig {
         interval: Duration::from_secs(config.storage.gc_interval_secs),
         temp_file_max_age: Duration::from_secs(config.storage.gc_temp_file_max_age_secs),
     };
-
-    let temp_dir = PathBuf::from(&config.storage.data_path).join("temp");
     let gc_metadata = Arc::clone(&state.metadata);
 
     info!(

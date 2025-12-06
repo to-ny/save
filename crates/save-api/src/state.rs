@@ -4,7 +4,7 @@ use save_common::ObjectLockManager;
 use save_common::config::SaveConfig;
 use save_metadata::MetadataStore;
 use save_metadata::raft::RaftNode;
-use save_storage::ObjectStorage;
+use save_storage::StorageBackend;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -47,7 +47,7 @@ impl BucketCache {
 
 #[derive(Clone)]
 pub struct AppState {
-    pub storage: Arc<ObjectStorage>,
+    pub storage: Arc<dyn StorageBackend>,
     pub metadata: Arc<MetadataStore>,
     pub config: Arc<SaveConfig>,
     pub lock_manager: Arc<ObjectLockManager>,
@@ -59,7 +59,7 @@ pub struct AppState {
 
 impl AppState {
     pub fn new(
-        storage: ObjectStorage,
+        storage: impl StorageBackend + 'static,
         metadata: MetadataStore,
         config: SaveConfig,
         raft_node: RaftNode,

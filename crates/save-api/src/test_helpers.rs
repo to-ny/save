@@ -3,7 +3,7 @@ use axum::http::Request;
 use save_common::config::SaveConfig;
 use save_metadata::MetadataStore;
 use save_metadata::raft::RaftNode;
-use save_storage::ObjectStorage;
+use save_storage::LocalBackend;
 use std::sync::atomic::{AtomicU16, Ordering};
 use tempfile::TempDir;
 
@@ -29,7 +29,7 @@ pub async fn test_setup_empty() -> (AppState, TempDir) {
     config.cluster.node_id = 1;
     config.cluster.raft_bind_addr = format!("127.0.0.1:{}", raft_port);
 
-    let storage = ObjectStorage::new(&config.storage.data_path).await.unwrap();
+    let storage = LocalBackend::new(&config.storage.data_path).await.unwrap();
     let metadata = MetadataStore::new(&config.storage.metadata_path).unwrap();
 
     // Create RaftNode and auto-bootstrap as single-node cluster

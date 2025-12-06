@@ -10,13 +10,16 @@
 - ClusterConfig integration
 - Snapshot generation (RocksDB checkpoint) and streaming RPC
 
-**Replication Infrastructure** - Proto defined, implementation pending:
-- proto/replication.proto exists
-- No service implementation yet
+**Replication Infrastructure** - Complete:
+- proto/replication.proto with WriteReplica/ReadReplica/DeleteReplica/ReplicationHealth services
+- ReplicationService, ReplicationClient, ReplicationCoordinator implemented
+- 2PC (PrepareObject/CommitObject/AbortObject) for quorum writes
 
-**Storage Backend** - Trait abstraction complete:
-- StorageBackend trait and LocalBackend wrapper done
-- ReplicatedBackend not started
+**Storage Backend** - Complete:
+- StorageBackend trait with dyn-compatible interface
+- LocalBackend wrapper for single-node
+- ReplicatedBackend with 2PC quorum writes
+- API handlers use `Arc<dyn StorageBackend>`
 
 ---
 
@@ -71,16 +74,26 @@ Tests (from phase2.md):
 - [x] Unit tests for ReplicationCoordinator quorum logic
 - [x] Unit tests for replica placement strategy (basic round-robin)
 
-### Priority 4: ReplicatedBackend
+### Priority 4: ReplicatedBackend ✓
 
 From phase2.md:
-- [ ] Create ReplicatedBackend implementation
-- [ ] Update API handlers to use StorageBackend trait
+- [x] Create ReplicatedBackend implementation
+- [x] Update API handlers to use StorageBackend trait
 
-Tests (from phase2.md):
-- [ ] Integration test: Write with node failure (quorum still met)
-- [ ] Integration test: Write with quorum failure
-- [ ] Integration test: Read-after-write consistency
+Completed:
+- `save-storage/src/replicated_backend.rs`: ReplicatedBackend with 2PC via ReplicationCoordinator
+- `save-storage/src/error.rs`: Added `QuorumNotAchieved` error variant
+- `save-storage/src/backend.rs`: TempHandle contract documented
+- `save-api/src/state.rs`: AppState uses `Arc<dyn StorageBackend>`
+- `save-api/src/main.rs`: Uses LocalBackend (ReplicatedBackend via config TBD)
+
+Tests:
+- [x] Integration test: Write with all replicas healthy
+- [x] Integration test: Write with node failure (quorum still met)
+- [x] Integration test: Write with quorum failure
+- [x] Integration test: Read-after-write consistency
+- [x] Integration test: Delete replicates to nodes
+- [x] Integration test: Concurrent writes to replicas
 
 ### Priority 5: Cluster Membership
 

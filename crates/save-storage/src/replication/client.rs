@@ -280,11 +280,11 @@ impl ReplicationClient {
         let result = self.do_call_unary(path, req).await;
 
         // Reset connection on transport errors for automatic reconnect
-        if let Err(ref e) = result {
-            if Self::is_transport_error(e) {
-                warn!(node_id = %self.node_id, "Transport error, resetting connection");
-                self.reset_connection().await;
-            }
+        if let Err(ref e) = result
+            && Self::is_transport_error(e)
+        {
+            warn!(node_id = %self.node_id, "Transport error, resetting connection");
+            self.reset_connection().await;
         }
 
         result

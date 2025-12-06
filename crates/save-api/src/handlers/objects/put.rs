@@ -260,11 +260,12 @@ mod tests {
 
         let data = b"test data for RAII cleanup";
         let storage_key_val = storage_key("test-bucket", "test-object.txt");
+        let mut reader = &data[..];
 
         let temp_path = {
             let temp_object = state
                 .storage
-                .write_temp_object(&storage_key_val, &data[..])
+                .write_temp_object(&storage_key_val, &mut reader)
                 .await
                 .unwrap();
 

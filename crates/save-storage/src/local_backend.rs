@@ -62,10 +62,11 @@ impl LocalBackend {
 
 #[async_trait]
 impl StorageBackend for LocalBackend {
-    async fn put_object<R>(&self, key: &str, reader: R) -> Result<()>
-    where
-        R: AsyncRead + Send + Unpin,
-    {
+    async fn put_object(
+        &self,
+        key: &str,
+        reader: &mut (dyn AsyncRead + Send + Unpin),
+    ) -> Result<()> {
         self.storage.put_object(key, reader).await
     }
 
@@ -78,10 +79,11 @@ impl StorageBackend for LocalBackend {
         self.storage.delete_object(key).await
     }
 
-    async fn write_temp_object<R>(&self, key: &str, reader: R) -> Result<Box<dyn TempHandle>>
-    where
-        R: AsyncRead + Send + Unpin,
-    {
+    async fn write_temp_object(
+        &self,
+        key: &str,
+        reader: &mut (dyn AsyncRead + Send + Unpin),
+    ) -> Result<Box<dyn TempHandle>> {
         let temp_object = self.storage.write_temp_object(key, reader).await?;
         Ok(Box::new(LocalTempHandle::new(temp_object)) as Box<dyn TempHandle>)
     }
@@ -139,13 +141,13 @@ mod tests {
 
         let key = "test/object.txt";
         let data = b"Hello, World!";
-        let reader = &data[..];
+        let mut reader = &data[..];
 
-        backend.put_object(key, reader).await.unwrap();
+        backend.put_object(key, &mut reader).await.unwrap();
 
-        let mut reader = backend.get_object(key).await.unwrap();
+        let mut file = backend.get_object(key).await.unwrap();
         let mut buf = Vec::new();
-        reader.read_to_end(&mut buf).await.unwrap();
+        file.read_to_end(&mut buf).await.unwrap();
 
         assert_eq!(buf, data);
     }
@@ -157,8 +159,9 @@ mod tests {
 
         let key = "test/object.txt";
         let data = b"test data";
+        let mut reader = &data[..];
 
-        backend.put_object(key, &data[..]).await.unwrap();
+        backend.put_object(key, &mut reader).await.unwrap();
         backend.delete_object(key).await.unwrap();
 
         let result = backend.get_object(key).await;

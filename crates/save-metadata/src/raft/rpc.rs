@@ -424,11 +424,11 @@ impl RaftRpcClient {
     }
 
     async fn handle_result<T>(&self, result: Result<T, tonic::Status>) -> Result<T, tonic::Status> {
-        if let Err(ref e) = result {
-            if Self::is_transport_error(e) {
-                warn!(endpoint = %self.endpoint, "Transport error, resetting connection");
-                self.reset_connection().await;
-            }
+        if let Err(ref e) = result
+            && Self::is_transport_error(e)
+        {
+            warn!(endpoint = %self.endpoint, "Transport error, resetting connection");
+            self.reset_connection().await;
         }
         result
     }
