@@ -11,20 +11,41 @@ use openraft::raft::{
 };
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
+use std::time::Duration;
 
 /// Raft network factory that creates connections to peers.
 pub struct Network {
     #[allow(dead_code)] // Used for cluster membership management
     node_id: NodeId,
     peers: Arc<RwLock<HashMap<NodeId, String>>>,
+    connect_timeout: Duration,
+    rpc_timeout: Duration,
 }
 
 impl Network {
+    /// Create a new network with default timeouts.
     pub fn with_peers(node_id: NodeId, peers: Vec<(NodeId, String)>) -> Self {
+        Self::with_peers_and_timeouts(
+            node_id,
+            peers,
+            Duration::from_secs(5),
+            Duration::from_secs(10),
+        )
+    }
+
+    /// Create a new network with custom timeouts.
+    pub fn with_peers_and_timeouts(
+        node_id: NodeId,
+        peers: Vec<(NodeId, String)>,
+        connect_timeout: Duration,
+        rpc_timeout: Duration,
+    ) -> Self {
         let peer_map: HashMap<NodeId, String> = peers.into_iter().collect();
         Self {
             node_id,
             peers: Arc::new(RwLock::new(peer_map)),
+            connect_timeout,
+            rpc_timeout,
         }
     }
 
@@ -53,7 +74,7 @@ impl RaftNetworkFactory<NodeTypeConfig> for Network {
         };
 
         let endpoint = addr.unwrap_or_else(|| format!("http://{}", node.addr));
-        NetworkConnection::new(target, endpoint)
+        NetworkConnection::with_timeouts(target, endpoint, self.connect_timeout, self.rpc_timeout)
     }
 }
 
@@ -64,10 +85,24 @@ pub struct NetworkConnection {
 }
 
 impl NetworkConnection {
+    /// Create a new connection with default timeouts.
     pub fn new(target: NodeId, endpoint: String) -> Self {
         Self {
             _target: target,
             client: RaftRpcClient::new(endpoint),
+        }
+    }
+
+    /// Create a new connection with custom timeouts.
+    pub fn with_timeouts(
+        target: NodeId,
+        endpoint: String,
+        connect_timeout: Duration,
+        rpc_timeout: Duration,
+    ) -> Self {
+        Self {
+            _target: target,
+            client: RaftRpcClient::with_timeouts(endpoint, connect_timeout, rpc_timeout),
         }
     }
 }

@@ -1,6 +1,7 @@
 pub mod cluster;
 pub mod config;
 pub mod error;
+pub mod grpc;
 pub mod lock;
 pub mod s3_error;
 pub mod s3_responses;

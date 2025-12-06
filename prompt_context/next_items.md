@@ -54,16 +54,22 @@ Tests (from phase2.md):
 
 Run tests with: `cargo test -p crash-recovery-tests --features cluster_tests cluster --ignored`
 
-### Priority 3: Replication Service
+### Priority 3: Replication Service ✓
 
 From phase2.md:
-- [ ] Implement ReplicationService gRPC server
-- [ ] Add WriteReplica/ReadReplica/DeleteReplica RPC handlers
-- [ ] Create ReplicationCoordinator for quorum writes
+- [x] Implement ReplicationService gRPC server
+- [x] Add WriteReplica/ReadReplica/DeleteReplica RPC handlers
+- [x] Create ReplicationCoordinator for quorum writes
+
+Completed:
+- `save-storage/src/replication/service.rs`: ReplicationService handling 2PC (PrepareObject/CommitObject/AbortObject), direct writes, reads, deletes
+- `save-storage/src/replication/client.rs`: ReplicationClient with tonic gRPC codec
+- `save-storage/src/replication/coordinator.rs`: ReplicationCoordinator with QuorumConfig, parallel writes, 2PC orchestration
+- `save-storage/src/replication/server.rs`: gRPC server with graceful shutdown
 
 Tests (from phase2.md):
-- [ ] Unit tests for ReplicationCoordinator quorum logic
-- [ ] Unit tests for replica placement strategy
+- [x] Unit tests for ReplicationCoordinator quorum logic
+- [x] Unit tests for replica placement strategy (basic round-robin)
 
 ### Priority 4: ReplicatedBackend
 

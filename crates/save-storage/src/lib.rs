@@ -2,6 +2,7 @@ mod backend;
 mod error;
 mod layout;
 mod local_backend;
+pub mod replication;
 
 #[cfg(test)]
 mod tests;
@@ -251,6 +252,40 @@ impl ObjectStorage {
 
     pub fn temp_dir(&self) -> PathBuf {
         self.layout.temp_dir()
+    }
+
+    /// Get object info (size, checksum) without buffering entire file in memory.
+    pub async fn object_info(&self, key: &str) -> Result<(u64, String)> {
+        use sha2::{Digest, Sha256};
+        use tokio::io::AsyncReadExt;
+
+        let path = self.layout.object_path(key)?;
+
+        let metadata = fs::metadata(&path).await.map_err(|e| {
+            if e.kind() == std::io::ErrorKind::NotFound {
+                StorageError::NotFound(key.to_string())
+            } else {
+                StorageError::Io(e)
+            }
+        })?;
+
+        let size = metadata.len();
+
+        // Stream-compute checksum to avoid buffering large files
+        let mut file = fs::File::open(&path).await.map_err(StorageError::Io)?;
+        let mut hasher = Sha256::new();
+        let mut buf = [0u8; 64 * 1024];
+
+        loop {
+            let n = file.read(&mut buf).await.map_err(StorageError::Io)?;
+            if n == 0 {
+                break;
+            }
+            hasher.update(&buf[..n]);
+        }
+
+        let checksum = hex::encode(hasher.finalize());
+        Ok((size, checksum))
     }
 }
 

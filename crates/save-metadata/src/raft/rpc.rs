@@ -255,27 +255,40 @@ fn convert_install_snapshot_response(
 // --- gRPC client for outgoing Raft RPCs ---
 
 use std::time::Duration;
-use tokio::sync::OnceCell;
+use tokio::sync::RwLock;
+use tracing::warn;
 
-/// Connection timeout for establishing new connections.
-const CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
+/// Default connection timeout for establishing new connections.
+const DEFAULT_CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
 
-/// RPC timeout for individual requests.
-const RPC_TIMEOUT: Duration = Duration::from_secs(10);
+/// Default RPC timeout for individual requests.
+const DEFAULT_RPC_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// Raft RPC client for making outbound requests to peers.
-/// Caches the gRPC channel for connection reuse.
+/// Caches the gRPC channel for connection reuse with automatic reconnection.
 #[derive(Clone)]
 pub struct RaftRpcClient {
     endpoint: String,
-    channel: std::sync::Arc<OnceCell<tonic::transport::Channel>>,
+    connect_timeout: Duration,
+    rpc_timeout: Duration,
+    channel: std::sync::Arc<RwLock<Option<tonic::transport::Channel>>>,
 }
 
 impl RaftRpcClient {
     pub fn new(endpoint: String) -> Self {
+        Self::with_timeouts(endpoint, DEFAULT_CONNECT_TIMEOUT, DEFAULT_RPC_TIMEOUT)
+    }
+
+    pub fn with_timeouts(
+        endpoint: String,
+        connect_timeout: Duration,
+        rpc_timeout: Duration,
+    ) -> Self {
         Self {
             endpoint,
-            channel: std::sync::Arc::new(OnceCell::new()),
+            connect_timeout,
+            rpc_timeout,
+            channel: std::sync::Arc::new(RwLock::new(None)),
         }
     }
 
@@ -283,7 +296,20 @@ impl RaftRpcClient {
         &self.endpoint
     }
 
+    /// Reset the connection, forcing reconnect on next call.
+    pub async fn reset_connection(&self) {
+        *self.channel.write().await = None;
+    }
+
     pub async fn append_entries(
+        &self,
+        req: AppendEntriesRequest<NodeTypeConfig>,
+    ) -> Result<AppendEntriesResponse<NodeId>, tonic::Status> {
+        let result = self.do_append_entries(req).await;
+        self.handle_result(result).await
+    }
+
+    async fn do_append_entries(
         &self,
         req: AppendEntriesRequest<NodeTypeConfig>,
     ) -> Result<AppendEntriesResponse<NodeId>, tonic::Status> {
@@ -300,6 +326,14 @@ impl RaftRpcClient {
         &self,
         req: VoteRequest<NodeId>,
     ) -> Result<VoteResponse<NodeId>, tonic::Status> {
+        let result = self.do_vote(req).await;
+        self.handle_result(result).await
+    }
+
+    async fn do_vote(
+        &self,
+        req: VoteRequest<NodeId>,
+    ) -> Result<VoteResponse<NodeId>, tonic::Status> {
         let channel = self.get_channel().await?;
         let proto_req = to_proto_vote_request(req);
 
@@ -310,6 +344,14 @@ impl RaftRpcClient {
     }
 
     pub async fn install_snapshot(
+        &self,
+        req: InstallSnapshotRequest<NodeTypeConfig>,
+    ) -> Result<InstallSnapshotResponse<NodeId>, tonic::Status> {
+        let result = self.do_install_snapshot(req).await;
+        self.handle_result(result).await
+    }
+
+    async fn do_install_snapshot(
         &self,
         req: InstallSnapshotRequest<NodeTypeConfig>,
     ) -> Result<InstallSnapshotResponse<NodeId>, tonic::Status> {
@@ -341,20 +383,54 @@ impl RaftRpcClient {
     }
 
     async fn get_channel(&self) -> Result<tonic::transport::Channel, tonic::Status> {
-        self.channel
-            .get_or_try_init(|| self.connect())
-            .await
-            .cloned()
+        // Fast path: check if we have a channel
+        {
+            let guard = self.channel.read().await;
+            if let Some(ref channel) = *guard {
+                return Ok(channel.clone());
+            }
+        }
+
+        // Slow path: acquire write lock and connect
+        let mut guard = self.channel.write().await;
+        // Double-check after acquiring write lock
+        if let Some(ref channel) = *guard {
+            return Ok(channel.clone());
+        }
+
+        let channel = self.do_connect().await?;
+        *guard = Some(channel.clone());
+        Ok(channel)
     }
 
-    async fn connect(&self) -> Result<tonic::transport::Channel, tonic::Status> {
+    async fn do_connect(&self) -> Result<tonic::transport::Channel, tonic::Status> {
         tonic::transport::Channel::from_shared(self.endpoint.clone())
             .map_err(|e| Status::invalid_argument(e.to_string()))?
-            .connect_timeout(CONNECT_TIMEOUT)
-            .timeout(RPC_TIMEOUT)
+            .connect_timeout(self.connect_timeout)
+            .timeout(self.rpc_timeout)
             .connect()
             .await
             .map_err(|e| Status::unavailable(e.to_string()))
+    }
+
+    fn is_transport_error(status: &tonic::Status) -> bool {
+        matches!(
+            status.code(),
+            tonic::Code::Unavailable
+                | tonic::Code::Cancelled
+                | tonic::Code::DeadlineExceeded
+                | tonic::Code::Aborted
+        )
+    }
+
+    async fn handle_result<T>(&self, result: Result<T, tonic::Status>) -> Result<T, tonic::Status> {
+        if let Err(ref e) = result {
+            if Self::is_transport_error(e) {
+                warn!(endpoint = %self.endpoint, "Transport error, resetting connection");
+                self.reset_connection().await;
+            }
+        }
+        result
     }
 }
 
@@ -425,110 +501,5 @@ fn convert_proto_install_snapshot_response(
     })
 }
 
-// --- Low-level gRPC helpers ---
-
-async fn send_unary<Req, Resp>(
-    channel: &tonic::transport::Channel,
-    path: &'static str,
-    request: tonic::Request<Req>,
-) -> Result<tonic::Response<Resp>, tonic::Status>
-where
-    Req: prost::Message + 'static,
-    Resp: prost::Message + Default + 'static,
-{
-    let mut client = tonic::client::Grpc::new(channel.clone());
-    client
-        .ready()
-        .await
-        .map_err(|e| Status::unavailable(e.to_string()))?;
-
-    let path = http::uri::PathAndQuery::from_static(path);
-    client
-        .unary(request, path, ProstCodec::<Req, Resp>::default())
-        .await
-}
-
-struct ProstCodec<T, U>(std::marker::PhantomData<(T, U)>);
-
-impl<T, U> Default for ProstCodec<T, U> {
-    fn default() -> Self {
-        Self(std::marker::PhantomData)
-    }
-}
-
-impl<T, U> tonic::codec::Codec for ProstCodec<T, U>
-where
-    T: prost::Message + Send + 'static,
-    U: prost::Message + Default + Send + 'static,
-{
-    type Encode = T;
-    type Decode = U;
-
-    type Encoder = ProstEncoder<T>;
-    type Decoder = ProstDecoder<U>;
-
-    fn encoder(&mut self) -> Self::Encoder {
-        ProstEncoder(std::marker::PhantomData)
-    }
-
-    fn decoder(&mut self) -> Self::Decoder {
-        ProstDecoder(std::marker::PhantomData)
-    }
-}
-
-struct ProstEncoder<T>(std::marker::PhantomData<T>);
-
-impl<T: prost::Message> tonic::codec::Encoder for ProstEncoder<T> {
-    type Item = T;
-    type Error = tonic::Status;
-
-    fn encode(
-        &mut self,
-        item: Self::Item,
-        dst: &mut tonic::codec::EncodeBuf<'_>,
-    ) -> Result<(), Self::Error> {
-        item.encode(dst)
-            .map_err(|e| tonic::Status::internal(e.to_string()))
-    }
-}
-
-struct ProstDecoder<T>(std::marker::PhantomData<T>);
-
-impl<T: prost::Message + Default> tonic::codec::Decoder for ProstDecoder<T> {
-    type Item = T;
-    type Error = tonic::Status;
-
-    fn decode(
-        &mut self,
-        src: &mut tonic::codec::DecodeBuf<'_>,
-    ) -> Result<Option<Self::Item>, Self::Error> {
-        let item = T::decode(src).map_err(|e| tonic::Status::internal(e.to_string()))?;
-        Ok(Some(item))
-    }
-}
-
-async fn send_client_streaming<Req, Resp, S>(
-    channel: &tonic::transport::Channel,
-    path: &'static str,
-    stream: S,
-) -> Result<tonic::Response<Resp>, tonic::Status>
-where
-    Req: prost::Message + 'static,
-    Resp: prost::Message + Default + 'static,
-    S: tonic::IntoStreamingRequest<Message = Req>,
-{
-    let mut client = tonic::client::Grpc::new(channel.clone());
-    client
-        .ready()
-        .await
-        .map_err(|e| Status::unavailable(e.to_string()))?;
-
-    let path = http::uri::PathAndQuery::from_static(path);
-    client
-        .client_streaming(
-            stream.into_streaming_request(),
-            path,
-            ProstCodec::<Req, Resp>::default(),
-        )
-        .await
-}
+// Re-export shared gRPC helpers
+use save_common::grpc::{send_client_streaming, send_unary};

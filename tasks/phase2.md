@@ -32,18 +32,18 @@ Transform the single-node S3-compatible store into a distributed, replicated sys
 ## Replication Infrastructure
 - [x] Create gRPC service definition `proto/replication.proto`
 - [x] Generate Rust code from protobuf (tonic-build in build.rs)
-- [ ] Implement ReplicationService gRPC server
-- [ ] Add WriteReplica RPC handler (streaming writes)
-- [ ] Add ReadReplica RPC handler (streaming reads)
-- [ ] Add DeleteReplica RPC handler
-- [ ] Add ReplicationHealth RPC handler
+- [x] Implement ReplicationService gRPC server
+- [x] Add WriteReplica RPC handler (streaming writes)
+- [x] Add ReadReplica RPC handler (streaming reads)
+- [x] Add DeleteReplica RPC handler
+- [x] Add ReplicationHealth RPC handler
 - [ ] Implement mTLS certificate management for node authentication
-- [ ] Create ReplicationCoordinator struct for managing replica writes
-- [ ] Implement parallel streaming to N replica nodes
-- [ ] Add quorum wait logic with configurable timeout
-- [ ] Implement replica placement strategy (round-robin for Phase 2)
+- [x] Create ReplicationCoordinator struct for managing replica writes
+- [x] Implement parallel streaming to N replica nodes
+- [x] Add quorum wait logic with configurable timeout
+- [x] Implement replica placement strategy (round-robin for Phase 2)
 - [ ] Add replica selection from healthy nodes only
-- [ ] Handle partial write failures and rollback
+- [x] Handle partial write failures and rollback
 
 ---
 
@@ -111,8 +111,8 @@ Transform the single-node S3-compatible store into a distributed, replicated sys
 
 ## Testing
 - [x] Unit tests for Raft state machine integration
-- [ ] Unit tests for ReplicationCoordinator quorum logic
-- [ ] Unit tests for replica placement strategy
+- [x] Unit tests for ReplicationCoordinator quorum logic
+- [x] Unit tests for replica placement strategy
 - [x] Integration test: 3-node cluster formation
 - [x] Integration test: Leader election after leader crash
 - [ ] Integration test: Write with node failure (quorum still met)

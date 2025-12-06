@@ -235,6 +235,22 @@ pub struct ClusterConfig {
     /// Consistency mode for read operations
     #[serde(default)]
     pub consistency_mode: ConsistencyMode,
+
+    /// Connection timeout for gRPC channels in seconds (default: 5)
+    #[serde(default = "default_connect_timeout_secs")]
+    pub connect_timeout_secs: u64,
+
+    /// RPC timeout for individual requests in seconds (default: 30)
+    #[serde(default = "default_rpc_timeout_secs")]
+    pub rpc_timeout_secs: u64,
+}
+
+fn default_connect_timeout_secs() -> u64 {
+    5
+}
+
+fn default_rpc_timeout_secs() -> u64 {
+    30
 }
 
 fn default_node_id() -> u64 {
@@ -252,6 +268,8 @@ impl Default for ClusterConfig {
             raft_bind_addr: default_raft_bind_addr(),
             peers: vec![],
             consistency_mode: ConsistencyMode::default(),
+            connect_timeout_secs: default_connect_timeout_secs(),
+            rpc_timeout_secs: default_rpc_timeout_secs(),
         }
     }
 }
