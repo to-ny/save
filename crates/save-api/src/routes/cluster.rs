@@ -20,12 +20,6 @@ struct ClusterStatusResponse {
     status: ClusterStatus,
 }
 
-#[derive(Serialize)]
-struct ClusterDisabledResponse {
-    error: String,
-    cluster_enabled: bool,
-}
-
 #[derive(Deserialize)]
 struct InitializeRequest {
     /// Members in format ["node_id:host:port", ...]
@@ -39,20 +33,8 @@ struct InitializeResponse {
 }
 
 async fn cluster_status(State(state): State<AppState>) -> impl IntoResponse {
-    match &state.raft_node {
-        Some(raft_node) => {
-            let status = raft_node.get_status();
-            (StatusCode::OK, Json(ClusterStatusResponse { status })).into_response()
-        }
-        None => (
-            StatusCode::SERVICE_UNAVAILABLE,
-            Json(ClusterDisabledResponse {
-                error: "Cluster mode not enabled".to_string(),
-                cluster_enabled: false,
-            }),
-        )
-            .into_response(),
-    }
+    let status = state.raft_node.get_status();
+    (StatusCode::OK, Json(ClusterStatusResponse { status }))
 }
 
 async fn cluster_initialize(
@@ -64,22 +46,8 @@ async fn cluster_initialize(
         request.members.len()
     );
 
-    let raft_node = match &state.raft_node {
-        Some(node) => node,
-        None => {
-            return (
-                StatusCode::SERVICE_UNAVAILABLE,
-                Json(InitializeResponse {
-                    success: false,
-                    message: "Cluster mode not enabled".to_string(),
-                }),
-            )
-                .into_response();
-        }
-    };
-
     // Check if already initialized
-    if raft_node.is_initialized() {
+    if state.raft_node.is_initialized() {
         warn!("Attempted to initialize already-initialized cluster");
         return (
             StatusCode::CONFLICT,
@@ -115,7 +83,7 @@ async fn cluster_initialize(
         }
     };
 
-    match raft_node.initialize(members).await {
+    match state.raft_node.initialize(members).await {
         Ok(()) => {
             info!("Cluster initialized successfully");
             (
@@ -156,7 +124,7 @@ mod tests {
     use tower::ServiceExt;
 
     #[tokio::test]
-    async fn test_cluster_status_disabled() {
+    async fn test_cluster_status_returns_ok() {
         let (state, _temp_dir) = crate::test_helpers::test_setup().await;
         let app = routes().with_state(state);
 
@@ -167,12 +135,13 @@ mod tests {
 
         let response = app.oneshot(request).await.unwrap();
 
-        assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+        assert_eq!(response.status(), StatusCode::OK);
 
         let body = response.into_body().collect().await.unwrap().to_bytes();
         let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
 
-        assert_eq!(json["cluster_enabled"], false);
-        assert!(json["error"].as_str().unwrap().contains("not enabled"));
+        // Cluster should be initialized (single-node auto-bootstrap)
+        assert!(json["initialized"].as_bool().unwrap());
+        assert_eq!(json["node_id"], 1);
     }
 }

@@ -59,6 +59,7 @@ impl TestEnvironment for SingleNodeEnv {
     async fn setup() -> Result<Self> {
         let data_dir = tempfile::tempdir()?;
         let port = find_free_port()?;
+        let raft_port = find_free_port()?;
 
         // Create config
         let config = format!(
@@ -75,10 +76,15 @@ gc_temp_file_max_age_secs = 60
 [credentials]
 access_key = "test-access-key"
 secret_key = "test-secret-key"
+
+[cluster]
+node_id = 1
+raft_bind_addr = "127.0.0.1:{}"
 "#,
             port,
             data_dir.path().display(),
-            data_dir.path().display()
+            data_dir.path().display(),
+            raft_port
         );
 
         let config_path = data_dir.path().join("config.toml");

@@ -54,11 +54,16 @@ pub struct AppState {
     pub request_tracker: Arc<RequestTracker>,
     pub bucket_cache: Arc<BucketCache>,
     pub start_time: Instant,
-    pub raft_node: Option<Arc<RaftNode>>,
+    pub raft_node: Arc<RaftNode>,
 }
 
 impl AppState {
-    pub fn new(storage: ObjectStorage, metadata: MetadataStore, config: SaveConfig) -> Self {
+    pub fn new(
+        storage: ObjectStorage,
+        metadata: MetadataStore,
+        config: SaveConfig,
+        raft_node: RaftNode,
+    ) -> Self {
         let bucket_cache =
             BucketCache::new(Duration::from_secs(config.server.bucket_cache_ttl_secs));
 
@@ -70,13 +75,8 @@ impl AppState {
             request_tracker: Arc::new(RequestTracker::new()),
             bucket_cache: Arc::new(bucket_cache),
             start_time: Instant::now(),
-            raft_node: None,
+            raft_node: Arc::new(raft_node),
         }
-    }
-
-    pub fn with_raft_node(mut self, raft_node: RaftNode) -> Self {
-        self.raft_node = Some(Arc::new(raft_node));
-        self
     }
 }
 

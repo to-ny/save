@@ -3,9 +3,6 @@ mod common;
 use axum::{body::Body, http::StatusCode};
 use common::{get_all_elements, get_element_text, parse_xml};
 use http_body_util::BodyExt;
-use save_common::config::SaveConfig;
-use save_metadata::MetadataStore;
-use save_storage::ObjectStorage;
 use sha2::Digest;
 use tempfile::TempDir;
 use tower::ServiceExt;
@@ -15,21 +12,7 @@ mod delete {
     use axum::http::Request;
 
     async fn setup() -> (save_api::AppState, TempDir) {
-        let temp_dir = TempDir::new().unwrap();
-        let data_path = temp_dir.path().join("data");
-        let metadata_path = temp_dir.path().join("metadata");
-
-        let mut config = SaveConfig::default();
-        config.storage.data_path = data_path.to_str().unwrap().to_string();
-        config.storage.metadata_path = metadata_path.to_str().unwrap().to_string();
-
-        let storage = ObjectStorage::new(&config.storage.data_path).await.unwrap();
-        let metadata = MetadataStore::new(&config.storage.metadata_path).unwrap();
-
-        metadata.create_bucket("test-bucket").await.unwrap();
-
-        let state = save_api::AppState::new(storage, metadata, config);
-        (state, temp_dir)
+        common::setup().await
     }
 
     #[tokio::test]
@@ -283,21 +266,7 @@ mod get {
     use axum::http::Request;
 
     async fn setup() -> (save_api::AppState, TempDir) {
-        let temp_dir = TempDir::new().unwrap();
-        let data_path = temp_dir.path().join("data");
-        let metadata_path = temp_dir.path().join("metadata");
-
-        let mut config = SaveConfig::default();
-        config.storage.data_path = data_path.to_str().unwrap().to_string();
-        config.storage.metadata_path = metadata_path.to_str().unwrap().to_string();
-
-        let storage = ObjectStorage::new(&config.storage.data_path).await.unwrap();
-        let metadata = MetadataStore::new(&config.storage.metadata_path).unwrap();
-
-        metadata.create_bucket("test-bucket").await.unwrap();
-
-        let state = save_api::AppState::new(storage, metadata, config);
-        (state, temp_dir)
+        common::setup().await
     }
 
     #[tokio::test]
@@ -483,21 +452,7 @@ mod head {
     use axum::http::Request;
 
     async fn setup() -> (save_api::AppState, TempDir) {
-        let temp_dir = TempDir::new().unwrap();
-        let data_path = temp_dir.path().join("data");
-        let metadata_path = temp_dir.path().join("metadata");
-
-        let mut config = SaveConfig::default();
-        config.storage.data_path = data_path.to_str().unwrap().to_string();
-        config.storage.metadata_path = metadata_path.to_str().unwrap().to_string();
-
-        let storage = ObjectStorage::new(&config.storage.data_path).await.unwrap();
-        let metadata = MetadataStore::new(&config.storage.metadata_path).unwrap();
-
-        metadata.create_bucket("test-bucket").await.unwrap();
-
-        let state = save_api::AppState::new(storage, metadata, config);
-        (state, temp_dir)
+        common::setup().await
     }
 
     #[tokio::test]
@@ -990,21 +945,7 @@ mod put {
     use axum::http::Request;
 
     async fn setup() -> (save_api::AppState, TempDir) {
-        let temp_dir = TempDir::new().unwrap();
-        let data_path = temp_dir.path().join("data");
-        let metadata_path = temp_dir.path().join("metadata");
-
-        let mut config = SaveConfig::default();
-        config.storage.data_path = data_path.to_str().unwrap().to_string();
-        config.storage.metadata_path = metadata_path.to_str().unwrap().to_string();
-
-        let storage = ObjectStorage::new(&config.storage.data_path).await.unwrap();
-        let metadata = MetadataStore::new(&config.storage.metadata_path).unwrap();
-
-        metadata.create_bucket("test-bucket").await.unwrap();
-
-        let state = save_api::AppState::new(storage, metadata, config);
-        (state, temp_dir)
+        common::setup().await
     }
 
     #[tokio::test]

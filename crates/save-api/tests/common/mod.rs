@@ -6,12 +6,22 @@ use hmac::{Hmac, Mac};
 use save_api::AppState;
 use save_common::config::SaveConfig;
 use save_metadata::MetadataStore;
+use save_metadata::raft::RaftNode;
 use save_storage::ObjectStorage;
 use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
+use std::sync::atomic::{AtomicU16, Ordering};
 use tempfile::TempDir;
 
 type HmacSha256 = Hmac<Sha256>;
+
+/// Atomic counter for generating unique ports in tests
+static PORT_COUNTER: AtomicU16 = AtomicU16::new(20000);
+
+/// Get the next available port for test Raft servers
+fn next_test_port() -> u16 {
+    PORT_COUNTER.fetch_add(1, Ordering::SeqCst)
+}
 
 pub async fn setup_empty() -> (AppState, TempDir) {
     let temp_dir = TempDir::new().unwrap();
@@ -22,10 +32,27 @@ pub async fn setup_empty() -> (AppState, TempDir) {
     config.storage.data_path = data_path.to_str().unwrap().to_string();
     config.storage.metadata_path = metadata_path.to_str().unwrap().to_string();
 
+    // Configure cluster for single-node test
+    let raft_port = next_test_port();
+    config.cluster.node_id = 1;
+    config.cluster.raft_bind_addr = format!("127.0.0.1:{}", raft_port);
+
     let storage = ObjectStorage::new(&config.storage.data_path).await.unwrap();
     let metadata = MetadataStore::new(&config.storage.metadata_path).unwrap();
 
-    let state = AppState::new(storage, metadata, config);
+    // Create RaftNode and auto-bootstrap as single-node cluster
+    let raft_node = RaftNode::from_cluster_config(metadata.db(), &config.cluster)
+        .await
+        .unwrap();
+
+    // Auto-bootstrap single-node cluster
+    let raft_addr = format!("http://{}", config.cluster.raft_bind_addr);
+    raft_node
+        .initialize(vec![(config.cluster.node_id, raft_addr)])
+        .await
+        .unwrap();
+
+    let state = AppState::new(storage, metadata, config, raft_node);
     (state, temp_dir)
 }
 

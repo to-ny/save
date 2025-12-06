@@ -216,14 +216,9 @@ pub enum ConsistencyMode {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ClusterConfig {
-    // TODO Remove once cluster mode is fully supported (-> Should be the only option)
-    /// Enable cluster mode (default: false)
-    #[serde(default)]
-    pub enabled: bool,
-
-    /// Unique node ID in the cluster (required if enabled)
-    /// Must be unique across all nodes in the cluster
-    #[serde(default)]
+    /// Unique node ID in the cluster
+    /// Must be > 0 and unique across all nodes in the cluster
+    #[serde(default = "default_node_id")]
     pub node_id: u64,
 
     /// Raft gRPC bind address (e.g., "0.0.0.0:9001")
@@ -232,13 +227,18 @@ pub struct ClusterConfig {
 
     /// List of peer node addresses for cluster formation
     /// Format: ["node_id:host:port", "node_id:host:port"]
-    /// Example: ["1:192.168.1.10:9001", "2:192.168.1.11:9001"]
+    /// Example: ["2:192.168.1.11:9001", "3:192.168.1.12:9001"]
+    /// Empty list = single-node cluster (auto-bootstraps)
     #[serde(default)]
     pub peers: Vec<String>,
 
     /// Consistency mode for read operations
     #[serde(default)]
     pub consistency_mode: ConsistencyMode,
+}
+
+fn default_node_id() -> u64 {
+    1
 }
 
 fn default_raft_bind_addr() -> String {
@@ -248,8 +248,7 @@ fn default_raft_bind_addr() -> String {
 impl Default for ClusterConfig {
     fn default() -> Self {
         Self {
-            enabled: false,
-            node_id: 0,
+            node_id: default_node_id(),
             raft_bind_addr: default_raft_bind_addr(),
             peers: vec![],
             consistency_mode: ConsistencyMode::default(),
@@ -309,24 +308,18 @@ impl SaveConfig {
             return Err(Error::validation("drain_timeout_secs must be > 0"));
         }
 
-        // Cluster validation
-        if self.cluster.enabled {
-            if self.cluster.node_id == 0 {
-                return Err(Error::validation(
-                    "node_id must be > 0 when cluster is enabled",
-                ));
-            }
+        // Cluster validation (always required)
+        if self.cluster.node_id == 0 {
+            return Err(Error::validation("cluster.node_id must be > 0"));
+        }
 
-            if self.cluster.raft_bind_addr.is_empty() {
-                return Err(Error::validation(
-                    "raft_bind_addr cannot be empty when cluster is enabled",
-                ));
-            }
+        if self.cluster.raft_bind_addr.is_empty() {
+            return Err(Error::validation("cluster.raft_bind_addr cannot be empty"));
+        }
 
-            // Validate peer format using shared utility
-            for peer in &self.cluster.peers {
-                crate::cluster::parse_peer(peer)?;
-            }
+        // Validate peer format using shared utility
+        for peer in &self.cluster.peers {
+            crate::cluster::parse_peer(peer)?;
         }
 
         Ok(())
@@ -487,19 +480,17 @@ secret_key = "secret123"
     }
 
     #[test]
-    fn test_cluster_config_disabled_by_default() {
+    fn test_cluster_config_defaults() {
         let config = SaveConfig::test_default();
-        assert!(!config.cluster.enabled);
-        assert_eq!(config.cluster.node_id, 0);
+        assert_eq!(config.cluster.node_id, 1);
         assert_eq!(config.cluster.raft_bind_addr, "0.0.0.0:9001");
         assert!(config.cluster.peers.is_empty());
         assert_eq!(config.cluster.consistency_mode, ConsistencyMode::Strong);
     }
 
     #[test]
-    fn test_cluster_config_validation_enabled_without_node_id() {
+    fn test_cluster_config_validation_zero_node_id() {
         let mut config = SaveConfig::test_default();
-        config.cluster.enabled = true;
         config.cluster.node_id = 0; // Invalid
         let result = config.validate();
         assert!(result.is_err());
@@ -507,10 +498,8 @@ secret_key = "secret123"
     }
 
     #[test]
-    fn test_cluster_config_validation_enabled_with_empty_raft_addr() {
+    fn test_cluster_config_validation_empty_raft_addr() {
         let mut config = SaveConfig::test_default();
-        config.cluster.enabled = true;
-        config.cluster.node_id = 1;
         config.cluster.raft_bind_addr = String::new();
         let result = config.validate();
         assert!(result.is_err());
@@ -520,8 +509,6 @@ secret_key = "secret123"
     #[test]
     fn test_cluster_config_validation_invalid_peer_format() {
         let mut config = SaveConfig::test_default();
-        config.cluster.enabled = true;
-        config.cluster.node_id = 1;
         config.cluster.peers = vec!["invalid-format".to_string()];
         let result = config.validate();
         assert!(result.is_err());
@@ -536,8 +523,6 @@ secret_key = "secret123"
     #[test]
     fn test_cluster_config_validation_invalid_peer_node_id() {
         let mut config = SaveConfig::test_default();
-        config.cluster.enabled = true;
-        config.cluster.node_id = 1;
         config.cluster.peers = vec!["abc:192.168.1.10:9001".to_string()];
         let result = config.validate();
         assert!(result.is_err());
@@ -547,8 +532,6 @@ secret_key = "secret123"
     #[test]
     fn test_cluster_config_validation_invalid_peer_port() {
         let mut config = SaveConfig::test_default();
-        config.cluster.enabled = true;
-        config.cluster.node_id = 1;
         config.cluster.peers = vec!["2:192.168.1.10:99999".to_string()];
         let result = config.validate();
         assert!(result.is_err());
@@ -556,11 +539,16 @@ secret_key = "secret123"
     }
 
     #[test]
-    fn test_cluster_config_validation_valid() {
+    fn test_cluster_config_validation_valid_single_node() {
+        let config = SaveConfig::test_default();
+        // Single-node cluster with no peers should validate
+        let result = config.validate();
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_cluster_config_validation_valid_multi_node() {
         let mut config = SaveConfig::test_default();
-        config.cluster.enabled = true;
-        config.cluster.node_id = 1;
-        config.cluster.raft_bind_addr = "0.0.0.0:9001".to_string();
         config.cluster.peers = vec![
             "2:192.168.1.11:9001".to_string(),
             "3:192.168.1.12:9001".to_string(),
@@ -573,8 +561,6 @@ secret_key = "secret123"
     #[test]
     fn test_cluster_config_serialization() {
         let mut config = SaveConfig::test_default();
-        config.cluster.enabled = true;
-        config.cluster.node_id = 1;
         config.cluster.peers = vec!["2:192.168.1.11:9001".to_string()];
         config.cluster.consistency_mode = ConsistencyMode::Eventual;
 

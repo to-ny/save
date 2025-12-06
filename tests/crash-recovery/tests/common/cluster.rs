@@ -347,7 +347,6 @@ access_key = "test-access-key"
 secret_key = "test-secret-key"
 
 [cluster]
-enabled = true
 node_id = {node_id}
 raft_bind_addr = "127.0.0.1:{raft_port}"
 peers = {peers}
