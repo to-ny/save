@@ -50,13 +50,12 @@ impl RaftRpcService {
         inner.vote(request).await
     }
 
-    #[allow(dead_code)] // Will be used when streaming snapshot RPC is routed
-    async fn install_snapshot(
+    async fn install_snapshot_from_frames(
         &self,
-        request: Request<tonic::Streaming<proto::InstallSnapshotRequest>>,
+        frames: Vec<proto::InstallSnapshotRequest>,
     ) -> Result<Response<proto::InstallSnapshotResponse>, Status> {
         let inner = RaftRpcServer::new(self.raft.clone());
-        inner.install_snapshot(request).await
+        inner.install_snapshot_from_frames(frames).await
     }
 }
 
@@ -117,10 +116,7 @@ where
                 "/raft.RaftRpc/AppendEntries" => handle_append_entries(&inner, body.to_vec()).await,
                 "/raft.RaftRpc/Vote" => handle_vote(&inner, body.to_vec()).await,
                 "/raft.RaftRpc/InstallSnapshot" => {
-                    // Streaming snapshots need special handling - for now return unimplemented
-                    create_error_response(Status::unimplemented(
-                        "streaming install_snapshot not yet implemented",
-                    ))
+                    handle_install_snapshot(&inner, body.to_vec()).await
                 }
                 _ => create_error_response(Status::unimplemented("unknown method")),
             };
@@ -140,6 +136,11 @@ trait RaftRpcTrait: Clone + Send + Sync + 'static {
         &self,
         req: Request<proto::VoteRequest>,
     ) -> impl std::future::Future<Output = Result<Response<proto::VoteResponse>, Status>> + Send;
+
+    fn install_snapshot_from_frames(
+        &self,
+        frames: Vec<proto::InstallSnapshotRequest>,
+    ) -> impl std::future::Future<Output = Result<Response<proto::InstallSnapshotResponse>, Status>> + Send;
 }
 
 impl RaftRpcTrait for RaftRpcService {
@@ -155,6 +156,13 @@ impl RaftRpcTrait for RaftRpcService {
         req: Request<proto::VoteRequest>,
     ) -> Result<Response<proto::VoteResponse>, Status> {
         RaftRpcService::vote(self, req).await
+    }
+
+    async fn install_snapshot_from_frames(
+        &self,
+        frames: Vec<proto::InstallSnapshotRequest>,
+    ) -> Result<Response<proto::InstallSnapshotResponse>, Status> {
+        RaftRpcService::install_snapshot_from_frames(self, frames).await
     }
 }
 
@@ -206,6 +214,55 @@ async fn handle_vote<T: RaftRpcTrait>(service: &T, body: Vec<u8>) -> http::Respo
         },
         Err(e) => create_error_response(Status::invalid_argument(e.to_string())),
     }
+}
+
+async fn handle_install_snapshot<T: RaftRpcTrait>(
+    service: &T,
+    body: Vec<u8>,
+) -> http::Response<BoxBody> {
+    let frames = match parse_streaming_frames(&body) {
+        Ok(f) => f,
+        Err(status) => return create_error_response(status),
+    };
+
+    match service.install_snapshot_from_frames(frames).await {
+        Ok(resp) => create_response(resp.into_inner()),
+        Err(status) => create_error_response(status),
+    }
+}
+
+/// Parses multiple gRPC frames from a streaming request body.
+fn parse_streaming_frames(body: &[u8]) -> Result<Vec<proto::InstallSnapshotRequest>, Status> {
+    const HEADER_LEN: usize = 5;
+    let mut frames = Vec::new();
+    let mut offset = 0;
+
+    while offset < body.len() {
+        if body.len() - offset < HEADER_LEN {
+            return Err(Status::invalid_argument("incomplete grpc frame header"));
+        }
+
+        let _compression = body[offset];
+        let len = u32::from_be_bytes([
+            body[offset + 1],
+            body[offset + 2],
+            body[offset + 3],
+            body[offset + 4],
+        ]) as usize;
+
+        if body.len() - offset < HEADER_LEN + len {
+            return Err(Status::invalid_argument("incomplete grpc frame body"));
+        }
+
+        let data = &body[offset + HEADER_LEN..offset + HEADER_LEN + len];
+        let req: proto::InstallSnapshotRequest =
+            prost::Message::decode(data).map_err(|e| Status::invalid_argument(e.to_string()))?;
+        frames.push(req);
+
+        offset += HEADER_LEN + len;
+    }
+
+    Ok(frames)
 }
 
 fn create_response<T: prost::Message>(msg: T) -> http::Response<BoxBody> {

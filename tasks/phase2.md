@@ -21,10 +21,10 @@ Transform the single-node S3-compatible store into a distributed, replicated sys
 - [x] Add Raft log storage using RocksDB column family
 - [x] Implement Raft network layer (node-to-node communication)
 - [x] Add Raft configuration from cluster config (heartbeat, election timeout)
+- [x] Implement Raft snapshot generation for state machine
+- [x] Add snapshot transfer mechanism for new/recovering nodes
 - [ ] Implement cluster membership management (add/remove nodes)
 - [ ] Add leader election monitoring and status tracking
-- [ ] Implement Raft snapshot generation for state machine
-- [ ] Add snapshot transfer mechanism for new/recovering nodes
 - [ ] Handle Raft configuration changes (dynamic cluster membership)
 
 ---

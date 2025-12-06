@@ -8,6 +8,7 @@
 - gRPC client/server for Raft RPCs (proto/raft.proto)
 - Network layer (RaftNetworkFactory trait)
 - ClusterConfig integration
+- Snapshot generation (RocksDB checkpoint) and streaming RPC
 
 **Replication Infrastructure** - Proto defined, implementation pending:
 - proto/replication.proto exists
@@ -21,18 +22,16 @@
 
 ## Next Priorities
 
-### Priority 1: Raft Snapshots
+### Priority 1: Raft Snapshots ✓
 
 From phase2.md:
-- [ ] Implement Raft snapshot generation for state machine
-- [ ] Add snapshot transfer mechanism for new/recovering nodes
+- [x] Implement Raft snapshot generation for state machine
+- [x] Add snapshot transfer mechanism for new/recovering nodes
 
-Work:
-- Implement `snapshot.rs` (RocksDB checkpoint, packaging)
-- Wire streaming snapshot RPC in server.rs
-
-Tests (from phase2.md):
-- [ ] Integration test: Snapshot transfer to new node
+Completed:
+- `snapshot.rs`: RocksDB checkpoint, tar.gz packaging, install/restore
+- Streaming snapshot RPC wired in server.rs
+- 5 unit tests for snapshot operations
 
 ### Priority 2: Leader Election Monitoring + Cluster Tests
 
@@ -73,11 +72,12 @@ Tests (from phase2.md):
 
 ### Priority 5: Cluster Membership
 
-From phase2.md (depends on Priority 1):
+From phase2.md (depends on Priority 2):
 - [ ] Implement cluster membership management (add/remove nodes)
 - [ ] Handle Raft configuration changes
 
 Tests (from phase2.md):
+- [ ] Integration test: Snapshot transfer to new node
 - [ ] Integration test: Network partition (split-brain prevention)
 - [ ] Integration test: Concurrent writes to same object (distributed locking)
 

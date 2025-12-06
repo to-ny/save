@@ -63,12 +63,31 @@ impl RaftRpcServer {
         use tokio_stream::StreamExt;
 
         let mut stream = request.into_inner();
+        let mut chunks = Vec::new();
+
+        while let Some(chunk) = stream.next().await {
+            chunks.push(chunk?);
+        }
+
+        self.do_install_snapshot(chunks).await
+    }
+
+    pub async fn install_snapshot_from_frames(
+        &self,
+        frames: Vec<proto::InstallSnapshotRequest>,
+    ) -> Result<Response<proto::InstallSnapshotResponse>, Status> {
+        self.do_install_snapshot(frames).await
+    }
+
+    async fn do_install_snapshot(
+        &self,
+        chunks: Vec<proto::InstallSnapshotRequest>,
+    ) -> Result<Response<proto::InstallSnapshotResponse>, Status> {
         let mut snapshot_data = Vec::new();
         let mut meta: Option<proto::SnapshotMeta> = None;
         let mut vote: Option<proto::Vote> = None;
 
-        while let Some(chunk) = stream.next().await {
-            let chunk = chunk?;
+        for chunk in chunks {
             if meta.is_none() {
                 meta = chunk.meta;
                 vote = chunk.vote;

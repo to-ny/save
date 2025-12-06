@@ -338,18 +338,23 @@ impl RaftStorage<NodeTypeConfig> for Storage {
 
     async fn install_snapshot(
         &mut self,
-        _meta: &SnapshotMeta<NodeId, openraft::BasicNode>,
-        _snapshot: Box<std::io::Cursor<Vec<u8>>>,
+        meta: &SnapshotMeta<NodeId, openraft::BasicNode>,
+        snapshot: Box<std::io::Cursor<Vec<u8>>>,
     ) -> Result<(), StorageError<NodeId>> {
-        // TODO: Restore RocksDB from snapshot
-        Ok(())
+        let db = Arc::clone(&self.db);
+        let meta = meta.clone();
+        tokio::task::spawn_blocking(move || super::snapshot::install_snapshot(&db, &meta, snapshot))
+            .await
+            .map_err(|e| StorageIOError::write(&std::io::Error::other(e.to_string())))?
     }
 
     async fn get_current_snapshot(
         &mut self,
     ) -> Result<Option<Snapshot<NodeTypeConfig>>, StorageError<NodeId>> {
-        // TODO: Return current snapshot if available
-        Ok(None)
+        let db = Arc::clone(&self.db);
+        tokio::task::spawn_blocking(move || super::snapshot::get_current_snapshot(&db))
+            .await
+            .map_err(|e| StorageIOError::read(&std::io::Error::other(e.to_string())))?
     }
 }
 
