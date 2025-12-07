@@ -65,10 +65,8 @@ Transform the single-node S3-compatible store into a distributed, replicated sys
 ## Metadata Evolution
 - [ ] Add `replica_nodes` field to ObjectMetadata struct
 - [ ] Extend metadata serialization to include replica information
-- [ ] Create migration utility for Phase 1 → Phase 2 metadata format
 - [ ] Update all metadata write operations to go through Raft
 - [ ] Implement distributed metadata reads (local vs leader)
-- [ ] Add metadata version tracking for compatibility
 
 ---
 

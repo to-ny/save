@@ -34,7 +34,7 @@ Implement per-object locking using `ObjectLockManager`:
 - 30-second timeout may be too long for some workloads
 - Memory overhead for lock tracking
 
-**Phase 2 Migration**:
+**Phase 2 Design**:
 - Replace `tokio::RwLock` with distributed lock (Raft-based)
 - API abstraction (`lock_manager.acquire_write_lock`) remains unchanged
 - Handler code unaffected

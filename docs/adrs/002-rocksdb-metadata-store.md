@@ -24,6 +24,5 @@ Use RocksDB as the embedded metadata store with:
 
 **Negative**:
 - Single-node only (Phase 1 limitation)
-- No distributed transactions (Phase 2 will require etcd/Raft)
+- No distributed transactions (Phase 2 uses Raft)
 - Memory overhead for LSM-tree compaction
-- Migration complexity when moving to distributed metadata

@@ -120,21 +120,6 @@ Phase 2 replication architecture for multi-node object storage.
 
 ---
 
-## Migration from Phase 1
-
-**Single-Node to Cluster**:
-1. Stop node, copy RocksDB + objects to new nodes
-2. Enable `cluster.enabled = true`
-3. Start 3-node cluster, Raft bootstraps
-4. Background process marks existing objects as replicated
-
-**Gradual (Zero Downtime)**:
-1. Enable cluster mode with replication_factor=1 (no replication yet)
-2. Add nodes incrementally, increase replication_factor
-3. Background healing replicates old objects
-
----
-
 ## Placement Strategy
 
 **Phase 2**: Round-robin over healthy nodes

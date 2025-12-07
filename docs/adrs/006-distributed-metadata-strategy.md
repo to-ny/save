@@ -4,7 +4,7 @@
 
 ## Context
 
-Phase 2 requires distributed metadata to support multi-node replication with strong consistency. Requirements: cluster membership, distributed coordination, atomic metadata operations, metadata replication, migration from single-node RocksDB.
+Phase 2 requires distributed metadata to support multi-node replication with strong consistency. Requirements: cluster membership, distributed coordination, atomic metadata operations, metadata replication.
 
 ## Decision
 
@@ -34,7 +34,6 @@ Use **embedded Raft consensus** (`openraft` crate) with RocksDB as state machine
 **Positive**:
 - Self-contained (no external services)
 - Low latency (local reads, single hop writes)
-- Clean migration (RocksDB format unchanged)
 - Strong consistency guarantees
 - Production-ready Rust ecosystem (`openraft`)
 
@@ -44,13 +43,8 @@ Use **embedded Raft consensus** (`openraft` crate) with RocksDB as state machine
 - Snapshot transfer overhead
 - Memory overhead for Raft log
 
-## Migration Plan
+## Deployment Models
 
-**Single-Node → Cluster**:
-1. Copy RocksDB to new nodes
-2. Bootstrap Raft from config
-
-**Deployment Models**:
 - Small (1-3 nodes): Single Raft group, all metadata replicated
 - Large (Phase 3+): Sharded metadata, multiple Raft groups
 

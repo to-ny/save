@@ -1,115 +1,83 @@
-# Next Items - Phase 2
+# Next items for phase 2
 
-## Current Status
+## Priority 1: Metadata Evolution
 
-**Raft Consensus Layer** - Core implementation complete:
-- RocksDB storage with column families (raft_log, raft_state, raft_snapshot)
-- Log persistence, state persistence, command application
-- gRPC client/server for Raft RPCs (proto/raft.proto)
-- Network layer (RaftNetworkFactory trait)
-- ClusterConfig integration
-- Snapshot generation (RocksDB checkpoint) and streaming RPC
+Foundation for distributed operations. Required before full cluster writes.
 
-**Replication Infrastructure** - Complete:
-- proto/replication.proto with WriteReplica/ReadReplica/DeleteReplica/ReplicationHealth services
-- ReplicationService, ReplicationClient, ReplicationCoordinator implemented
-- 2PC (PrepareObject/CommitObject/AbortObject) for quorum writes
-
-**Storage Backend** - Complete:
-- StorageBackend trait with dyn-compatible interface
-- LocalBackend wrapper for single-node
-- ReplicatedBackend with 2PC quorum writes
-- API handlers use `Arc<dyn StorageBackend>`
+From phase2.md:
+- [ ] Add `replica_nodes` field to ObjectMetadata struct
+- [ ] Extend metadata serialization to include replica information
+- [ ] Update all metadata write operations to go through Raft
+- [ ] Implement distributed metadata reads (local vs leader)
 
 ---
 
-## Next Priorities
+## Priority 2: Distributed Lock Manager
 
-### Priority 1: Raft Snapshots ✓
-
-From phase2.md:
-- [x] Implement Raft snapshot generation for state machine
-- [x] Add snapshot transfer mechanism for new/recovering nodes
-
-Completed:
-- `snapshot.rs`: RocksDB checkpoint, tar.gz packaging, install/restore
-- Streaming snapshot RPC wired in server.rs
-- 5 unit tests for snapshot operations
-
-### Priority 2: Leader Election Monitoring + Cluster Tests ✓
+Replace local locking with cluster-wide coordination.
 
 From phase2.md:
-- [x] Add leader election monitoring and status tracking
+- [ ] Implement distributed lock manager using Raft
+- [ ] Replace ObjectLockManager with distributed lock implementation
+- [ ] Ensure lock API remains unchanged (per ADR-003)
 
-Completed:
-- `ClusterStatus` struct in save-metadata/src/raft/node.rs
-- `/cluster/status` endpoint in save-api (GET)
-- `/cluster/initialize` endpoint in save-api (POST)
-- `ClusterEnv` test infrastructure in tests/crash-recovery/tests/common/cluster.rs
-- Main.rs now initializes Raft when cluster mode is enabled
-- MetadataStore exposes `db()` method for Raft sharing
+---
 
-Tests (from phase2.md):
-- [x] Integration test: 3-node cluster formation
-- [x] Integration test: Leader election after leader crash
-- [x] Integration test: Node recovery and catch-up
-- [x] Integration test: Cluster survives minority failure (bonus)
+## Priority 3: Storage Backend Completion
 
-Run tests with: `cargo test -p crash-recovery-tests --features cluster_tests cluster --ignored`
-
-### Priority 3: Replication Service ✓
+Enable production-ready replica selection and consistency.
 
 From phase2.md:
-- [x] Implement ReplicationService gRPC server
-- [x] Add WriteReplica/ReadReplica/DeleteReplica RPC handlers
-- [x] Create ReplicationCoordinator for quorum writes
+- [ ] Add storage backend factory based on cluster config
+- [ ] Add replica selection from healthy nodes only
+- [ ] Implement replica preference logic (local > remote)
+- [ ] Handle remote object reads (proxy to replica nodes via gRPC)
+- [ ] Add consistency level support (eventual vs strong reads)
+- [ ] Implement streaming replication for large objects
 
-Completed:
-- `save-storage/src/replication/service.rs`: ReplicationService handling 2PC (PrepareObject/CommitObject/AbortObject), direct writes, reads, deletes
-- `save-storage/src/replication/client.rs`: ReplicationClient with tonic gRPC codec
-- `save-storage/src/replication/coordinator.rs`: ReplicationCoordinator with QuorumConfig, parallel writes, 2PC orchestration
-- `save-storage/src/replication/server.rs`: gRPC server with graceful shutdown
+---
 
-Tests (from phase2.md):
-- [x] Unit tests for ReplicationCoordinator quorum logic
-- [x] Unit tests for replica placement strategy (basic round-robin)
-
-### Priority 4: ReplicatedBackend ✓
+## Priority 4: Cluster Coordination Hardening
 
 From phase2.md:
-- [x] Create ReplicatedBackend implementation
-- [x] Update API handlers to use StorageBackend trait
+- [ ] Add cluster state tracking (node health, leader status)
+- [ ] Implement node discovery on startup from peer configuration
+- [ ] Add heartbeat mechanism for node health monitoring
+- [ ] Handle network partition detection and recovery
+- [ ] Implement split-brain prevention logic
+- [ ] Add cluster topology management
 
-Completed:
-- `save-storage/src/replicated_backend.rs`: ReplicatedBackend with 2PC via ReplicationCoordinator
-- `save-storage/src/error.rs`: Added `QuorumNotAchieved` error variant
-- `save-storage/src/backend.rs`: TempHandle contract documented
-- `save-api/src/state.rs`: AppState uses `Arc<dyn StorageBackend>`
-- `save-api/src/main.rs`: Uses LocalBackend (ReplicatedBackend via config TBD)
+---
 
-Tests:
-- [x] Integration test: Write with all replicas healthy
-- [x] Integration test: Write with node failure (quorum still met)
-- [x] Integration test: Write with quorum failure
-- [x] Integration test: Read-after-write consistency
-- [x] Integration test: Delete replicates to nodes
-- [x] Integration test: Concurrent writes to replicas
-
-### Priority 5: Cluster Membership ✓
+## Priority 5: Replication Resilience
 
 From phase2.md:
-- [x] Implement cluster membership management (add/remove nodes)
-- [x] Handle Raft configuration changes
+- [ ] Add retry with exponential backoff for transient replication failures
+- [ ] Implement mTLS certificate management for node authentication
 
-Completed:
-- `save-metadata/src/raft/node.rs`: add_learner(), promote_voters(), remove_voters(), remove_node()
-- `save-api/src/routes/cluster.rs`: POST /cluster/members, POST /cluster/members/promote, DELETE /cluster/members/{node_id}
-- ClusterStatus now includes `voters` and `learners` lists
-- Unit tests for new endpoints
-- Integration test: test_remove_node_from_cluster
+---
 
-Tests (from phase2.md):
-- [x] Integration test: Snapshot transfer to new node
-- [x] Integration test: Network partition (split-brain prevention)
-- [x] Integration test: Concurrent writes to same object (distributed locking)
+## Priority 6: Observability
 
+From phase2.md:
+- [ ] Add Raft-specific metrics (leader elections, log entries, snapshots)
+- [ ] Implement replication metrics (writes/reads per node, quorum success/failures)
+- [ ] Add cluster health metrics (node status, replication lag)
+- [ ] Create replica count metrics (per bucket, under-replicated objects)
+- [ ] Add gRPC metrics (request latency, stream duration)
+- [ ] Implement distributed tracing across nodes
+
+---
+
+## Priority 7: Testing
+
+From phase2.md:
+- [ ] Integration test: Write with node failure (quorum still met)
+- [ ] Integration test: Write with quorum failure
+- [ ] Integration test: Read-after-write consistency
+- [ ] Integration test: Strong consistency reads during network delay
+- [ ] Chaos test: Random node failures during write workload
+- [ ] Chaos test: Network partition during multipart upload
+- [ ] Load test: Multi-node cluster with replication overhead
+- [ ] Performance test: Replication latency P50/P90/P99
+- [ ] Benchmark: Compare Phase 1 vs Phase 2 write throughput
