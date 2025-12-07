@@ -10,7 +10,7 @@ use std::time::Instant;
 use tokio_util::io::ReaderStream;
 use tracing::{debug, info, instrument};
 
-use crate::handlers::ApiError;
+use crate::handlers::{ApiError, ensure_read_consistency};
 use crate::state::AppState;
 
 use super::storage_key;
@@ -31,6 +31,8 @@ pub async fn get_object(
         .acquire_read_lock(&bucket, &key)
         .await
         .map_err(|e| ApiError::internal(format!("Failed to acquire object lock: {}", e)))?;
+
+    ensure_read_consistency(&state).await?;
 
     let metadata = state
         .metadata

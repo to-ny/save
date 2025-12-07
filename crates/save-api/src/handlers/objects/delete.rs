@@ -56,8 +56,8 @@ pub async fn delete_object(
         // deletion fails) are GC'd.
         debug!("Deleting object metadata: {}/{}", bucket, key);
         state
-            .metadata
-            .delete_object_metadata(&bucket, &key)
+            .raft_node
+            .delete_object_metadata(bucket.clone(), key.clone())
             .await
             .map_err(|e| ApiError::internal(format!("Metadata error: {}", e)))?;
 

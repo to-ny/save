@@ -276,6 +276,48 @@ impl RaftNode {
             .learner_ids()
             .collect()
     }
+
+    /// Submits a command through Raft consensus.
+    /// Must be called on the leader node.
+    pub async fn write(&self, command: super::commands::Command) -> Result<()> {
+        self.raft
+            .client_write(command)
+            .await
+            .map_err(|e| crate::error::MetadataError::Raft(e.to_string()))?;
+        Ok(())
+    }
+
+    pub async fn put_object_metadata(&self, metadata: crate::ObjectMetadata) -> Result<()> {
+        self.write(super::commands::Command::put_object_metadata(metadata))
+            .await
+    }
+
+    pub async fn delete_object_metadata(&self, bucket: String, key: String) -> Result<()> {
+        self.write(super::commands::Command::delete_object_metadata(
+            bucket, key,
+        ))
+        .await
+    }
+
+    pub async fn create_bucket(&self, name: &str) -> Result<()> {
+        let bucket = save_common::Bucket::new(name.to_string());
+        self.write(super::commands::Command::create_bucket(bucket))
+            .await
+    }
+
+    pub async fn delete_bucket(&self, name: &str) -> Result<()> {
+        self.write(super::commands::Command::delete_bucket(name.to_string()))
+            .await
+    }
+
+    /// Confirms leadership and ensures state machine is up-to-date for linearizable reads.
+    pub async fn ensure_linearizable(&self) -> Result<()> {
+        self.raft
+            .ensure_linearizable()
+            .await
+            .map_err(|e| crate::error::MetadataError::Raft(e.to_string()))?;
+        Ok(())
+    }
 }
 
 /// Parses peer strings using the shared utility and converts to (NodeId, addr) tuples.

@@ -8,7 +8,7 @@ use save_metadata::MetadataError;
 use std::time::Instant;
 use tracing::{debug, info, instrument};
 
-use crate::handlers::ApiError;
+use crate::handlers::{ApiError, ensure_read_consistency};
 use crate::state::AppState;
 
 #[instrument(skip(state), fields(bucket = %bucket, key = %key))]
@@ -27,6 +27,8 @@ pub async fn head_object(
         .acquire_read_lock(&bucket, &key)
         .await
         .map_err(|e| ApiError::internal(format!("Failed to acquire object lock: {}", e)))?;
+
+    ensure_read_consistency(&state).await?;
 
     let metadata = state
         .metadata

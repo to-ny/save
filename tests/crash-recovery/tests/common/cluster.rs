@@ -169,11 +169,11 @@ impl ClusterEnv {
         tokio::time::sleep(RAFT_STARTUP_DELAY).await;
 
         // Check if cluster is already initialized (single-node clusters auto-initialize)
-        if let Ok(status) = self.get_node_status(1).await {
-            if let Some(leader_id) = status.current_leader {
-                tracing::info!("Cluster already initialized with leader {}", leader_id);
-                return Ok(());
-            }
+        if let Ok(status) = self.get_node_status(1).await
+            && let Some(leader_id) = status.current_leader
+        {
+            tracing::info!("Cluster already initialized with leader {}", leader_id);
+            return Ok(());
         }
 
         // Build members list for initialization

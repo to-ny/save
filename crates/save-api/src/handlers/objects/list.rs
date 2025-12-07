@@ -7,7 +7,7 @@ use save_common::{ListBucketResult, ListBucketResultV2, S3XmlResponse, validate_
 use serde::Deserialize;
 use tracing::{info, instrument};
 
-use crate::handlers::{ApiError, validate_bucket_exists};
+use crate::handlers::{ApiError, ensure_read_consistency, validate_bucket_exists};
 use crate::state::AppState;
 
 #[derive(Debug, Deserialize)]
@@ -33,6 +33,7 @@ pub async fn list_objects(
     validate_bucket_name(&bucket).map_err(|e| ApiError::InvalidRequest(e.to_string()))?;
 
     validate_bucket_exists(&state, &bucket).await?;
+    ensure_read_consistency(&state).await?;
 
     let prefix = params.prefix.as_deref();
     let mut objects = state

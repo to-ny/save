@@ -73,6 +73,7 @@ fn bench_object_put(c: &mut Criterion) {
                         content_type: Some("application/octet-stream".to_string()),
                         created_at: now,
                         modified_at: now,
+                        replica_nodes: Vec::new(),
                     };
                     store.put_object_metadata(object).await.unwrap();
                     black_box(());
@@ -103,6 +104,7 @@ fn bench_object_get(c: &mut Criterion) {
                 content_type: Some("application/octet-stream".to_string()),
                 created_at: now,
                 modified_at: now,
+                replica_nodes: Vec::new(),
             };
             rt.block_on(store.put_object_metadata(object)).unwrap();
         }
@@ -141,6 +143,7 @@ fn bench_object_list(c: &mut Criterion) {
                 content_type: Some("application/octet-stream".to_string()),
                 created_at: now,
                 modified_at: now,
+                replica_nodes: Vec::new(),
             };
             rt.block_on(store.put_object_metadata(object)).unwrap();
         }

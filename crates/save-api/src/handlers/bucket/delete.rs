@@ -43,7 +43,7 @@ pub async fn delete_bucket(
     }
 
     state
-        .metadata
+        .raft_node
         .delete_bucket(&bucket)
         .await
         .map_err(|e| ApiError::internal(format!("Failed to delete bucket: {}", e)))?;

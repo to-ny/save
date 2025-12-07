@@ -46,7 +46,7 @@ mod tests {
 
         assert!(json["initialized"].as_bool().unwrap());
         assert_eq!(json["node_id"], 1);
-        assert!(json["voters"].as_array().unwrap().len() >= 1);
+        assert!(!json["voters"].as_array().unwrap().is_empty());
         assert!(json["learners"].as_array().unwrap().is_empty());
     }
 

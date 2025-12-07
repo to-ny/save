@@ -19,8 +19,13 @@ pub async fn create_bucket(
 
     validate_bucket_name(&bucket).map_err(|e| ApiError::InvalidRequest(e.to_string()))?;
 
+    if state.metadata.get_bucket(&bucket).await.is_ok() {
+        debug!("Bucket already exists: {}", bucket);
+        return Err(ApiError::BucketAlreadyExists(bucket));
+    }
+
     state
-        .metadata
+        .raft_node
         .create_bucket(&bucket)
         .await
         .map_err(|e| match e {

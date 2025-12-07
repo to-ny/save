@@ -125,7 +125,7 @@ pub async fn put_object(
         .with_label_values(&["storage_commit", "success"])
         .inc();
 
-    if let Err(e) = state.metadata.commit_object_metadata(metadata).await {
+    if let Err(e) = state.raft_node.put_object_metadata(metadata).await {
         atomic_put_operations_total()
             .with_label_values(&["metadata_commit", "error"])
             .inc();

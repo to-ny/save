@@ -134,8 +134,8 @@ pub async fn complete_multipart(
     metadata.content_type = upload.content_type;
 
     state
-        .metadata
-        .commit_object_metadata(metadata)
+        .raft_node
+        .put_object_metadata(metadata)
         .await
         .map_err(|e| ApiError::internal(format!("Metadata commit failed: {}", e)))?;
 

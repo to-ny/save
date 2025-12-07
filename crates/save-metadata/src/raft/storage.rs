@@ -648,6 +648,7 @@ mod tests {
             content_type: Some("text/plain".to_string()),
             created_at: now,
             modified_at: now,
+            replica_nodes: vec![1, 2, 3],
         };
 
         let entry = Entry {
@@ -663,6 +664,7 @@ mod tests {
             crate::object::get_object_metadata(&storage.db, "test-bucket", "test-key").unwrap();
         assert_eq!(stored_metadata.key, "test-key");
         assert_eq!(stored_metadata.size, 1024);
+        assert_eq!(stored_metadata.replica_nodes, vec![1, 2, 3]);
     }
 
     #[tokio::test]
@@ -743,6 +745,7 @@ mod tests {
             content_type: Some("text/plain".to_string()),
             created_at: now,
             modified_at: now,
+            replica_nodes: Vec::new(),
         };
         crate::object::put_object_metadata(&storage.db, &metadata).unwrap();
 

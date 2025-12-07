@@ -1,18 +1,6 @@
 # Next items for phase 2
 
-## Priority 1: Metadata Evolution
-
-Foundation for distributed operations. Required before full cluster writes.
-
-From phase2.md:
-- [ ] Add `replica_nodes` field to ObjectMetadata struct
-- [ ] Extend metadata serialization to include replica information
-- [ ] Update all metadata write operations to go through Raft
-- [ ] Implement distributed metadata reads (local vs leader)
-
----
-
-## Priority 2: Distributed Lock Manager
+## Priority 1: Distributed Lock Manager
 
 Replace local locking with cluster-wide coordination.
 
@@ -23,7 +11,7 @@ From phase2.md:
 
 ---
 
-## Priority 3: Storage Backend Completion
+## Priority 2: Storage Backend Completion
 
 Enable production-ready replica selection and consistency.
 
@@ -32,12 +20,11 @@ From phase2.md:
 - [ ] Add replica selection from healthy nodes only
 - [ ] Implement replica preference logic (local > remote)
 - [ ] Handle remote object reads (proxy to replica nodes via gRPC)
-- [ ] Add consistency level support (eventual vs strong reads)
 - [ ] Implement streaming replication for large objects
 
 ---
 
-## Priority 4: Cluster Coordination Hardening
+## Priority 3: Cluster Coordination Hardening
 
 From phase2.md:
 - [ ] Add cluster state tracking (node health, leader status)
@@ -49,7 +36,7 @@ From phase2.md:
 
 ---
 
-## Priority 5: Replication Resilience
+## Priority 4: Replication Resilience
 
 From phase2.md:
 - [ ] Add retry with exponential backoff for transient replication failures
@@ -57,7 +44,7 @@ From phase2.md:
 
 ---
 
-## Priority 6: Observability
+## Priority 5: Observability
 
 From phase2.md:
 - [ ] Add Raft-specific metrics (leader elections, log entries, snapshots)
@@ -69,7 +56,7 @@ From phase2.md:
 
 ---
 
-## Priority 7: Testing
+## Priority 6: Testing
 
 From phase2.md:
 - [ ] Integration test: Write with node failure (quorum still met)
@@ -81,3 +68,14 @@ From phase2.md:
 - [ ] Load test: Multi-node cluster with replication overhead
 - [ ] Performance test: Replication latency P50/P90/P99
 - [ ] Benchmark: Compare Phase 1 vs Phase 2 write throughput
+
+---
+
+## Completed
+
+### Metadata Evolution (Priority 1 - Done)
+- [x] Add `replica_nodes` field to ObjectMetadata struct
+- [x] Extend metadata serialization to include replica information
+- [x] Update all metadata write operations to go through Raft
+- [x] Implement distributed metadata reads (local vs leader)
+- [x] Add consistency level support (eventual vs strong reads)

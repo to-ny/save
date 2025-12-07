@@ -57,16 +57,16 @@ Transform the single-node S3-compatible store into a distributed, replicated sys
 - [x] Update API handlers to use StorageBackend trait instead of ObjectStorage directly
 - [ ] Handle remote object reads (proxy to replica nodes via gRPC)
 - [ ] Implement replica preference logic (local > remote)
-- [ ] Add consistency level support (eventual vs strong reads)
+- [x] Add consistency level support (eventual vs strong reads)
 - [ ] Implement streaming replication for large objects (avoid full memory buffering)
 
 ---
 
 ## Metadata Evolution
-- [ ] Add `replica_nodes` field to ObjectMetadata struct
-- [ ] Extend metadata serialization to include replica information
-- [ ] Update all metadata write operations to go through Raft
-- [ ] Implement distributed metadata reads (local vs leader)
+- [x] Add `replica_nodes` field to ObjectMetadata struct
+- [x] Extend metadata serialization to include replica information
+- [x] Update all metadata write operations to go through Raft
+- [x] Implement distributed metadata reads (local vs leader)
 
 ---
 

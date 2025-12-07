@@ -6,12 +6,14 @@ use axum::{
 use save_common::{ListAllMyBucketsResult, S3XmlResponse};
 use tracing::{info, instrument};
 
-use crate::handlers::ApiError;
+use crate::handlers::{ApiError, ensure_read_consistency};
 use crate::state::AppState;
 
 #[instrument(skip(state))]
 pub async fn list_buckets(State(state): State<AppState>) -> Result<Response, ApiError> {
     info!("List buckets request");
+
+    ensure_read_consistency(&state).await?;
 
     let buckets = state
         .metadata

@@ -12,6 +12,9 @@ pub struct ObjectMetadata {
     pub content_type: Option<String>,
     pub created_at: DateTime<Utc>,
     pub modified_at: DateTime<Utc>,
+    /// Node IDs that hold replicas of this object (including local node).
+    #[serde(default)]
+    pub replica_nodes: Vec<u64>,
 }
 
 impl ObjectMetadata {
@@ -25,7 +28,13 @@ impl ObjectMetadata {
             content_type: None,
             created_at: now,
             modified_at: now,
+            replica_nodes: Vec::new(),
         }
+    }
+
+    pub fn with_replicas(mut self, nodes: Vec<u64>) -> Self {
+        self.replica_nodes = nodes;
+        self
     }
 
     pub(crate) fn db_key(bucket: &str, key: &str) -> String {
@@ -291,5 +300,46 @@ mod tests {
 
         assert_eq!(fetched.size, 4096);
         assert_eq!(fetched.etag, "abcdef");
+    }
+
+    #[test]
+    fn test_new_has_empty_replica_nodes() {
+        let metadata = ObjectMetadata::new(
+            "bucket".to_string(),
+            "key".to_string(),
+            100,
+            "etag".to_string(),
+        );
+        assert!(metadata.replica_nodes.is_empty());
+    }
+
+    #[test]
+    fn test_with_replicas() {
+        let metadata = ObjectMetadata::new(
+            "bucket".to_string(),
+            "key".to_string(),
+            100,
+            "etag".to_string(),
+        )
+        .with_replicas(vec![1, 2, 3]);
+
+        assert_eq!(metadata.replica_nodes, vec![1, 2, 3]);
+    }
+
+    #[test]
+    fn test_replica_nodes_serialization() {
+        let db = create_test_db();
+        let metadata = ObjectMetadata::new(
+            "bucket".to_string(),
+            "key".to_string(),
+            100,
+            "etag".to_string(),
+        )
+        .with_replicas(vec![10, 20, 30]);
+
+        put_object_metadata(&db, &metadata).unwrap();
+        let fetched = get_object_metadata(&db, "bucket", "key").unwrap();
+
+        assert_eq!(fetched.replica_nodes, vec![10, 20, 30]);
     }
 }

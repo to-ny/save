@@ -10,8 +10,21 @@ pub mod objects;
 pub use error::ApiError;
 
 use crate::state::AppState;
+use save_common::config::ConsistencyMode;
 use save_metadata::MetadataError;
 use tracing::debug;
+
+/// For Strong consistency mode, verifies this node is leader with up-to-date state.
+pub async fn ensure_read_consistency(state: &AppState) -> Result<(), ApiError> {
+    if state.config.cluster.consistency_mode == ConsistencyMode::Strong {
+        state
+            .raft_node
+            .ensure_linearizable()
+            .await
+            .map_err(|e| ApiError::internal(format!("Consistency check failed: {}", e)))?;
+    }
+    Ok(())
+}
 
 /// Validates that a bucket exists, using the bucket cache to avoid repeated DB lookups.
 ///
@@ -193,5 +206,15 @@ mod tests {
 
         // Cache should be populated
         assert!(state.bucket_cache.contains("test-bucket"));
+    }
+
+    #[tokio::test]
+    async fn test_ensure_read_consistency_eventual_mode() {
+        let (state, _temp_dir) = test_setup().await;
+
+        // Default test config uses Strong mode, but ensure_read_consistency
+        // should succeed in single-node cluster (node is always leader)
+        let result = ensure_read_consistency(&state).await;
+        assert!(result.is_ok(), "Consistency check should succeed on leader");
     }
 }
