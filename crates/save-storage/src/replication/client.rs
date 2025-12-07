@@ -218,6 +218,218 @@ impl ReplicationClient {
         self.call_health().await
     }
 
+    /// Streaming prepare for large objects. Reads from file path in chunks.
+    pub async fn stream_prepare_object(
+        &self,
+        key: &str,
+        request_id: u64,
+        file_path: &std::path::Path,
+        checksum: &str,
+    ) -> Result<String, StorageError> {
+        use tokio::io::AsyncReadExt;
+
+        let channel = self.get_channel().await?;
+        let mut client = tonic::client::Grpc::new(channel);
+
+        client
+            .ready()
+            .await
+            .map_err(|e| StorageError::Io(std::io::Error::other(e)))?;
+
+        let (tx, rx) = tokio::sync::mpsc::channel::<proto::PrepareChunkRequest>(4);
+
+        // Spawn task to read file and send chunks
+        let key_owned = key.to_string();
+        let checksum_owned = checksum.to_string();
+        let path_owned = file_path.to_path_buf();
+
+        let send_task = tokio::spawn(async move {
+            let mut file = match tokio::fs::File::open(&path_owned).await {
+                Ok(f) => f,
+                Err(e) => {
+                    tracing::error!(error = %e, "Failed to open file for streaming");
+                    return;
+                }
+            };
+
+            let mut buf = vec![0u8; 64 * 1024]; // 64KB chunks
+            let mut is_first = true;
+
+            loop {
+                let n = match file.read(&mut buf).await {
+                    Ok(0) => break,
+                    Ok(n) => n,
+                    Err(e) => {
+                        tracing::error!(error = %e, "Failed to read chunk");
+                        break;
+                    }
+                };
+
+                let chunk = proto::PrepareChunkRequest {
+                    key: if is_first {
+                        key_owned.clone()
+                    } else {
+                        String::new()
+                    },
+                    request_id: if is_first { request_id } else { 0 },
+                    chunk: buf[..n].to_vec(),
+                    is_last: false,
+                    checksum: String::new(),
+                };
+                is_first = false;
+
+                if tx.send(chunk).await.is_err() {
+                    break;
+                }
+            }
+
+            // Send final marker with checksum
+            let final_chunk = proto::PrepareChunkRequest {
+                key: String::new(),
+                request_id: 0,
+                chunk: Vec::new(),
+                is_last: true,
+                checksum: checksum_owned,
+            };
+            let _ = tx.send(final_chunk).await;
+        });
+
+        let stream = tokio_stream::wrappers::ReceiverStream::new(rx);
+        let path =
+            http::uri::PathAndQuery::from_static("/replication.WriteReplica/StreamPrepareObject");
+        let request = tonic::Request::new(stream);
+
+        let response = client
+            .client_streaming(request, path, ProstCodec::default())
+            .await
+            .map_err(|e| StorageError::Io(std::io::Error::other(e.to_string())))?;
+
+        let _ = send_task.await;
+
+        let resp: proto::PrepareObjectResponse = response.into_inner();
+        if resp.success {
+            debug!(node_id = %self.node_id, key = %key, "Streaming prepare succeeded");
+            Ok(resp.temp_id)
+        } else {
+            warn!(node_id = %self.node_id, error = %resp.error_message, "Streaming prepare failed");
+            Err(StorageError::Io(std::io::Error::other(resp.error_message)))
+        }
+    }
+
+    /// Read object from remote node with streaming.
+    /// Returns an AsyncRead that streams data without full buffering.
+    pub async fn read_object_stream(&self, key: &str) -> Result<StreamingReader, StorageError> {
+        let req = proto::ReadObjectRequest {
+            key: key.to_string(),
+            offset: 0,
+            length: 0, // 0 = read all
+        };
+
+        let channel = self.get_channel().await?;
+        let mut client = tonic::client::Grpc::new(channel);
+
+        client
+            .ready()
+            .await
+            .map_err(|e| StorageError::Io(std::io::Error::other(e)))?;
+
+        let path = http::uri::PathAndQuery::from_static("/replication.ReadReplica/ReadObject");
+        let request = tonic::Request::new(req);
+
+        let response = client
+            .server_streaming(request, path, ProstCodec::default())
+            .await
+            .map_err(|e| StorageError::Io(std::io::Error::other(e.to_string())))?;
+
+        let stream: tonic::Streaming<proto::ReadObjectResponse> = response.into_inner();
+        Ok(StreamingReader::new(stream))
+    }
+}
+
+/// Adapter that wraps a tonic::Streaming into an AsyncRead using a channel.
+pub struct StreamingReader {
+    rx: tokio::sync::mpsc::Receiver<Result<bytes::Bytes, std::io::Error>>,
+    buffer: bytes::Bytes,
+    _task: tokio::task::JoinHandle<()>,
+}
+
+impl StreamingReader {
+    fn new(mut stream: tonic::Streaming<proto::ReadObjectResponse>) -> Self {
+        let (tx, rx) = tokio::sync::mpsc::channel(4);
+
+        let task = tokio::spawn(async move {
+            loop {
+                match stream.message().await {
+                    Ok(Some(chunk)) => {
+                        let is_last = chunk.is_last;
+                        if !chunk.chunk.is_empty()
+                            && tx.send(Ok(bytes::Bytes::from(chunk.chunk))).await.is_err()
+                        {
+                            break;
+                        }
+                        if is_last {
+                            break;
+                        }
+                    }
+                    Ok(None) => break,
+                    Err(e) => {
+                        let _ = tx.send(Err(std::io::Error::other(e.to_string()))).await;
+                        break;
+                    }
+                }
+            }
+        });
+
+        Self {
+            rx,
+            buffer: bytes::Bytes::new(),
+            _task: task,
+        }
+    }
+}
+
+impl tokio::io::AsyncRead for StreamingReader {
+    fn poll_read(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+        buf: &mut tokio::io::ReadBuf<'_>,
+    ) -> std::task::Poll<std::io::Result<()>> {
+        use std::task::Poll;
+
+        // Return buffered data first
+        if !self.buffer.is_empty() {
+            let to_copy = std::cmp::min(self.buffer.len(), buf.remaining());
+            buf.put_slice(&self.buffer[..to_copy]);
+            self.buffer = self.buffer.slice(to_copy..);
+            return Poll::Ready(Ok(()));
+        }
+
+        // Try to receive more data
+        match self.rx.poll_recv(cx) {
+            Poll::Ready(Some(Ok(data))) => {
+                let to_copy = std::cmp::min(data.len(), buf.remaining());
+                buf.put_slice(&data[..to_copy]);
+                if to_copy < data.len() {
+                    self.buffer = data.slice(to_copy..);
+                }
+                Poll::Ready(Ok(()))
+            }
+            Poll::Ready(Some(Err(e))) => Poll::Ready(Err(e)),
+            Poll::Ready(None) => Poll::Ready(Ok(())), // EOF
+            Poll::Pending => Poll::Pending,
+        }
+    }
+}
+
+impl std::fmt::Debug for StreamingReader {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("StreamingReader")
+            .field("buffer_len", &self.buffer.len())
+            .finish()
+    }
+}
+
+impl ReplicationClient {
     // Internal gRPC call implementations
 
     async fn call_prepare(

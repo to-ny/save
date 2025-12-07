@@ -1,5 +1,6 @@
 mod backend;
 mod error;
+mod factory;
 mod layout;
 mod local_backend;
 mod replicated_backend;
@@ -10,6 +11,7 @@ mod tests;
 
 pub use backend::{HealthStatus, StorageBackend, TempHandle};
 pub use error::{Result, StorageError};
+pub use factory::{StorageSetup, create_storage_backend};
 pub use local_backend::LocalBackend;
 pub use replicated_backend::ReplicatedBackend;
 
@@ -142,6 +144,25 @@ impl ObjectStorage {
         })
     }
 
+    /// Creates a TempObject handle for a key without writing any content.
+    /// The caller is responsible for writing data to the temp path.
+    /// Useful for streaming writes where data is written incrementally.
+    #[instrument(skip(self), fields(key = %key))]
+    pub async fn create_temp_object(&self, key: &str) -> Result<TempObject> {
+        let id = self.layout.object_id(key)?;
+        let temp_path = self.layout.temp_path_from_id(&id);
+        let final_path = self.layout.object_path_from_id(&id);
+
+        let temp_parent = temp_path
+            .parent()
+            .ok_or_else(|| StorageError::InvalidPath("Temp path has no parent".to_string()))?;
+        fs::create_dir_all(temp_parent).await?;
+
+        debug!("Created temp object handle");
+
+        Ok(TempObject::new(temp_path, final_path))
+    }
+
     /// Writes object data to temporary file and syncs to disk.
     /// Returns handle that auto-cleans up on drop unless committed.
     ///
@@ -151,18 +172,12 @@ impl ObjectStorage {
     where
         R: AsyncRead + Unpin,
     {
-        let id = self.layout.object_id(key)?;
-        let temp_path = self.layout.temp_path_from_id(&id);
-        let final_path = self.layout.object_path_from_id(&id);
+        let temp_object = self.create_temp_object(key).await?;
+        let temp_path = temp_object.temp_path();
 
         debug!("Writing object to temp path");
 
-        let temp_parent = temp_path
-            .parent()
-            .ok_or_else(|| StorageError::InvalidPath("Temp path has no parent".to_string()))?;
-        fs::create_dir_all(temp_parent).await?;
-
-        let mut temp_file = fs::File::create(&temp_path).await?;
+        let mut temp_file = fs::File::create(temp_path).await?;
 
         #[cfg(feature = "failpoints")]
         fail::fail_point!("storage_write_during_copy");
@@ -177,7 +192,7 @@ impl ObjectStorage {
 
         debug!("Object written to temp");
 
-        Ok(TempObject::new(temp_path, final_path))
+        Ok(temp_object)
     }
 
     /// Commits temporary object by renaming to final path and syncing parent directory.

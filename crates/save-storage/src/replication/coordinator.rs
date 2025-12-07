@@ -6,8 +6,21 @@ use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::Duration;
+use tokio::io::AsyncRead;
 use tokio::sync::RwLock;
 use tracing::{debug, info, warn};
+
+/// Health status constants matching proto HealthCheckResponse.status
+pub mod health_status {
+    pub const HEALTHY: i32 = 0;
+    pub const DEGRADED: i32 = 1;
+    #[allow(dead_code)]
+    pub const UNHEALTHY: i32 = 2;
+}
+
+/// Default timeout for health checks during node selection.
+const DEFAULT_HEALTH_CHECK_TIMEOUT: Duration = Duration::from_secs(2);
 
 /// Quorum configuration.
 #[derive(Debug, Clone)]
@@ -62,12 +75,21 @@ struct PreparedWrite {
     temp_ids: HashMap<u64, String>, // node_id -> temp_id
 }
 
+/// Result of the prepare phase in 2PC.
+struct PreparePhaseResult {
+    prepared: PreparedWrite,
+    success_count: usize,
+    successful_nodes: Vec<u64>,
+    failed_nodes: Vec<(u64, String)>,
+}
+
 /// Coordinates replicated writes across cluster nodes.
 pub struct ReplicationCoordinator {
     local_node_id: u64,
     config: QuorumConfig,
-    connect_timeout: std::time::Duration,
-    rpc_timeout: std::time::Duration,
+    connect_timeout: Duration,
+    rpc_timeout: Duration,
+    health_check_timeout: Duration,
     clients: Arc<RwLock<HashMap<u64, ReplicationClient>>>,
     request_counter: AtomicU64,
 }
@@ -78,8 +100,8 @@ impl ReplicationCoordinator {
         Self::with_timeouts(
             local_node_id,
             config,
-            std::time::Duration::from_secs(5),
-            std::time::Duration::from_secs(30),
+            Duration::from_secs(5),
+            Duration::from_secs(30),
         )
     }
 
@@ -87,17 +109,24 @@ impl ReplicationCoordinator {
     pub fn with_timeouts(
         local_node_id: u64,
         config: QuorumConfig,
-        connect_timeout: std::time::Duration,
-        rpc_timeout: std::time::Duration,
+        connect_timeout: Duration,
+        rpc_timeout: Duration,
     ) -> Self {
         Self {
             local_node_id,
             config,
             connect_timeout,
             rpc_timeout,
+            health_check_timeout: DEFAULT_HEALTH_CHECK_TIMEOUT,
             clients: Arc::new(RwLock::new(HashMap::new())),
             request_counter: AtomicU64::new(1),
         }
+    }
+
+    /// Set health check timeout for node selection.
+    pub fn with_health_check_timeout(mut self, timeout: Duration) -> Self {
+        self.health_check_timeout = timeout;
+        self
     }
 
     /// Add a replica node client.
@@ -129,12 +158,78 @@ impl ReplicationCoordinator {
         self.clients.read().await.keys().copied().collect()
     }
 
-    /// Select nodes for placement (round-robin over healthy nodes).
+    /// Select nodes for placement from healthy nodes only.
+    /// Returns up to `count - 1` nodes (local counts as one).
     pub async fn select_replica_nodes(&self, count: usize) -> Vec<u64> {
+        let needed = count.saturating_sub(1); // -1 for local node
+        if needed == 0 {
+            return vec![];
+        }
+
         let clients = self.clients.read().await;
-        let mut nodes: Vec<u64> = clients.keys().copied().collect();
-        nodes.truncate(count.saturating_sub(1)); // -1 for local
-        nodes
+        let mut healthy_nodes = Vec::with_capacity(needed);
+
+        for (node_id, client) in clients.iter() {
+            if healthy_nodes.len() >= needed {
+                break;
+            }
+            if self.is_node_healthy(client).await {
+                healthy_nodes.push(*node_id);
+            } else {
+                debug!(node_id = %node_id, "Skipping unhealthy node for replica selection");
+            }
+        }
+
+        healthy_nodes
+    }
+
+    /// Check if a node is healthy (HEALTHY or DEGRADED).
+    async fn is_node_healthy(&self, client: &ReplicationClient) -> bool {
+        match tokio::time::timeout(self.health_check_timeout, client.health_check()).await {
+            Ok(Ok(resp)) => {
+                resp.status == health_status::HEALTHY || resp.status == health_status::DEGRADED
+            }
+            _ => false,
+        }
+    }
+
+    /// Read object from remote replicas with streaming.
+    /// Tries healthy nodes until read_quorum successful reads are found.
+    /// Returns a streaming reader from the first successful node.
+    pub async fn read_from_replica(&self, key: &str) -> Option<Box<dyn AsyncRead + Send + Unpin>> {
+        let clients = self.clients.read().await;
+        let mut attempts = 0;
+        let required = self.config.read_quorum;
+
+        for (node_id, client) in clients.iter() {
+            if !self.is_node_healthy(client).await {
+                debug!(node_id = %node_id, "Skipping unhealthy node for read");
+                continue;
+            }
+
+            match client.read_object_stream(key).await {
+                Ok(reader) => {
+                    attempts += 1;
+                    debug!(
+                        node_id = %node_id,
+                        key = %key,
+                        attempts = attempts,
+                        required = required,
+                        "Read stream opened from replica"
+                    );
+                    // For read_quorum=1, return immediately
+                    // For read_quorum>1, we'd need to verify consistency (Phase 3)
+                    if attempts >= required {
+                        return Some(Box::new(reader) as Box<dyn AsyncRead + Send + Unpin>);
+                    }
+                }
+                Err(e) => {
+                    debug!(node_id = %node_id, key = %key, error = %e, "Failed to read from replica");
+                }
+            }
+        }
+
+        None
     }
 
     /// Replicate object write to quorum of nodes using 2PC.
@@ -149,7 +244,6 @@ impl ReplicationCoordinator {
         let request_id = self.request_counter.fetch_add(1, Ordering::SeqCst);
         let checksum = compute_sha256(&data);
 
-        // Select replica nodes
         let replica_nodes = self
             .select_replica_nodes(self.config.replication_factor)
             .await;
@@ -162,84 +256,61 @@ impl ReplicationCoordinator {
         );
 
         // Phase 1: Prepare on all replicas
-        let mut prepared = PreparedWrite {
-            key: key.to_string(),
-            checksum: checksum.clone(),
-            request_id,
-            temp_ids: HashMap::new(),
-        };
-
         let prepare_results = self
-            .prepare_all(&replica_nodes, key, data.clone(), &checksum, request_id)
+            .prepare_all(&replica_nodes, key, data, &checksum, request_id)
             .await;
 
-        // Track prepare successes/failures
-        let mut success_count = 0;
-        let mut successful_nodes = vec![self.local_node_id]; // Local always participates
-        let mut failed_nodes = Vec::new();
-
-        for (node_id, result) in prepare_results {
-            match result {
-                Ok(temp_id) => {
-                    prepared.temp_ids.insert(node_id, temp_id);
-                    successful_nodes.push(node_id);
-                    success_count += 1;
-                }
-                Err(e) => {
-                    failed_nodes.push((node_id, e.to_string()));
-                }
-            }
-        }
-
-        // Include local in count
-        success_count += 1;
-
-        // Check quorum before proceeding
-        if success_count < self.config.write_quorum {
-            // Abort all prepared writes
-            self.abort_all(&prepared).await;
-
-            return Ok(ReplicationResult {
-                success_count,
-                failure_count: failed_nodes.len(),
-                quorum_achieved: false,
-                successful_nodes,
-                failed_nodes,
-            });
-        }
-
-        // Write locally first
-        if let Err(e) = local_write.await {
-            // Abort all prepared writes
-            self.abort_all(&prepared).await;
-            return Err(e);
-        }
-
-        // Phase 2: Commit on all prepared replicas
-        let commit_results = self.commit_all(&prepared).await;
-
-        // Track commit failures (shouldn't happen normally)
-        for (node_id, result) in commit_results {
-            if let Err(e) = result {
-                warn!(node_id = %node_id, error = %e, "Commit failed after prepare");
-                // Don't fail overall - local write succeeded
-            }
-        }
+        let prepare_result =
+            self.process_prepare_results(key, &checksum, request_id, prepare_results);
 
         debug!(
             key = %key,
             request_id = %request_id,
-            success_count = success_count,
+            success_count = prepare_result.success_count,
             "Replicated write completed"
         );
 
-        Ok(ReplicationResult {
-            success_count,
-            failure_count: failed_nodes.len(),
-            quorum_achieved: true,
-            successful_nodes,
-            failed_nodes,
-        })
+        self.complete_2pc_write(prepare_result, local_write).await
+    }
+
+    /// Replicate object write using streaming for large objects.
+    /// Avoids buffering entire object in memory.
+    pub async fn replicate_write_streaming(
+        &self,
+        key: &str,
+        file_path: &std::path::Path,
+        checksum: &str,
+        local_write: impl std::future::Future<Output = Result<(), StorageError>>,
+    ) -> Result<ReplicationResult, StorageError> {
+        let request_id = self.request_counter.fetch_add(1, Ordering::SeqCst);
+
+        let replica_nodes = self
+            .select_replica_nodes(self.config.replication_factor)
+            .await;
+
+        debug!(
+            key = %key,
+            request_id = %request_id,
+            replica_count = replica_nodes.len(),
+            "Starting streaming replicated write"
+        );
+
+        // Phase 1: Stream prepare on all replicas
+        let prepare_results = self
+            .stream_prepare_all(&replica_nodes, key, file_path, checksum, request_id)
+            .await;
+
+        let prepare_result =
+            self.process_prepare_results(key, checksum, request_id, prepare_results);
+
+        debug!(
+            key = %key,
+            request_id = %request_id,
+            success_count = prepare_result.success_count,
+            "Streaming replicated write completed"
+        );
+
+        self.complete_2pc_write(prepare_result, local_write).await
     }
 
     /// Replicate object deletion to all nodes.
@@ -257,11 +328,14 @@ impl ReplicationCoordinator {
         let clients = self.clients.read().await;
         let mut handles = Vec::new();
 
+        debug!(key = %key, client_count = clients.len(), "Replicating delete to nodes");
+
         for (node_id, client) in clients.iter() {
             let node_id = *node_id;
             let client = client.clone();
             let key = key.to_string();
 
+            debug!(node_id = %node_id, key = %key, "Spawning delete task for node");
             handles.push(tokio::spawn(async move {
                 let result = client.delete_object(&key, request_id).await;
                 (node_id, result)
@@ -278,10 +352,12 @@ impl ReplicationCoordinator {
             if let Ok((node_id, result)) = handle.await {
                 match result {
                     Ok(_) => {
+                        debug!(node_id = %node_id, "Delete succeeded on replica");
                         success_count += 1;
                         successful_nodes.push(node_id);
                     }
                     Err(e) => {
+                        warn!(node_id = %node_id, error = %e, "Delete failed on replica");
                         failed_nodes.push((node_id, e.to_string()));
                     }
                 }
@@ -319,6 +395,45 @@ impl ReplicationCoordinator {
                 handles.push(tokio::spawn(async move {
                     let result = client
                         .prepare_object(&key, data, &checksum, request_id)
+                        .await;
+                    (node_id, result)
+                }));
+            }
+        }
+
+        drop(clients);
+
+        let mut results = Vec::new();
+        for handle in handles {
+            if let Ok(result) = handle.await {
+                results.push(result);
+            }
+        }
+        results
+    }
+
+    async fn stream_prepare_all(
+        &self,
+        nodes: &[u64],
+        key: &str,
+        file_path: &std::path::Path,
+        checksum: &str,
+        request_id: u64,
+    ) -> Vec<(u64, Result<String, StorageError>)> {
+        let clients = self.clients.read().await;
+        let mut handles = Vec::new();
+
+        for node_id in nodes {
+            if let Some(client) = clients.get(node_id) {
+                let node_id = *node_id;
+                let client = client.clone();
+                let key = key.to_string();
+                let checksum = checksum.to_string();
+                let path = file_path.to_path_buf();
+
+                handles.push(tokio::spawn(async move {
+                    let result = client
+                        .stream_prepare_object(&key, request_id, &path, &checksum)
                         .await;
                     (node_id, result)
                 }));
@@ -395,6 +510,95 @@ impl ReplicationCoordinator {
                 }
             });
         }
+    }
+
+    /// Process prepare results into a PreparePhaseResult.
+    fn process_prepare_results(
+        &self,
+        key: &str,
+        checksum: &str,
+        request_id: u64,
+        prepare_results: Vec<(u64, Result<String, StorageError>)>,
+    ) -> PreparePhaseResult {
+        let mut prepared = PreparedWrite {
+            key: key.to_string(),
+            checksum: checksum.to_string(),
+            request_id,
+            temp_ids: HashMap::new(),
+        };
+
+        let mut success_count = 1; // Local always participates
+        let mut successful_nodes = vec![self.local_node_id];
+        let mut failed_nodes = Vec::new();
+
+        for (node_id, result) in prepare_results {
+            match result {
+                Ok(temp_id) => {
+                    prepared.temp_ids.insert(node_id, temp_id);
+                    successful_nodes.push(node_id);
+                    success_count += 1;
+                }
+                Err(e) => {
+                    failed_nodes.push((node_id, e.to_string()));
+                }
+            }
+        }
+
+        PreparePhaseResult {
+            prepared,
+            success_count,
+            successful_nodes,
+            failed_nodes,
+        }
+    }
+
+    /// Complete 2PC write after prepare phase.
+    /// Handles quorum check, local write, commit phase, and result construction.
+    async fn complete_2pc_write(
+        &self,
+        prepare_result: PreparePhaseResult,
+        local_write: impl std::future::Future<Output = Result<(), StorageError>>,
+    ) -> Result<ReplicationResult, StorageError> {
+        let PreparePhaseResult {
+            prepared,
+            success_count,
+            successful_nodes,
+            failed_nodes,
+        } = prepare_result;
+
+        // Check quorum before proceeding
+        if success_count < self.config.write_quorum {
+            self.abort_all(&prepared).await;
+            return Ok(ReplicationResult {
+                success_count,
+                failure_count: failed_nodes.len(),
+                quorum_achieved: false,
+                successful_nodes,
+                failed_nodes,
+            });
+        }
+
+        // Write locally
+        if let Err(e) = local_write.await {
+            self.abort_all(&prepared).await;
+            return Err(e);
+        }
+
+        // Phase 2: Commit on all prepared replicas
+        let commit_results = self.commit_all(&prepared).await;
+        for (node_id, result) in commit_results {
+            if let Err(e) = result {
+                warn!(node_id = %node_id, error = %e, "Commit failed after prepare");
+            }
+        }
+
+        Ok(ReplicationResult {
+            success_count,
+            failure_count: failed_nodes.len(),
+            quorum_achieved: true,
+            successful_nodes,
+            failed_nodes,
+        })
     }
 }
 

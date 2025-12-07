@@ -42,7 +42,7 @@ Transform the single-node S3-compatible store into a distributed, replicated sys
 - [x] Implement parallel streaming to N replica nodes
 - [x] Add quorum wait logic with configurable timeout
 - [x] Implement replica placement strategy (round-robin for Phase 2)
-- [ ] Add replica selection from healthy nodes only
+- [x] Add replica selection from healthy nodes only
 - [x] Handle partial write failures and rollback
 - [ ] Add retry with exponential backoff for transient replication failures
 
@@ -53,12 +53,12 @@ Transform the single-node S3-compatible store into a distributed, replicated sys
 - [x] Implement LocalBackend wrapper (Location: `save-storage/src/local_backend.rs`)
 - [x] Create ReplicatedBackend implementation (Location: `save-storage/src/replicated_backend.rs`)
 - [x] Integrate ReplicationCoordinator with ReplicatedBackend
-- [ ] Add storage backend factory based on cluster config
+- [x] Add storage backend factory based on cluster config
 - [x] Update API handlers to use StorageBackend trait instead of ObjectStorage directly
-- [ ] Handle remote object reads (proxy to replica nodes via gRPC)
-- [ ] Implement replica preference logic (local > remote)
+- [x] Handle remote object reads (proxy to replica nodes via gRPC)
+- [x] Implement replica preference logic (local > remote)
 - [x] Add consistency level support (eventual vs strong reads)
-- [ ] Implement streaming replication for large objects (avoid full memory buffering)
+- [x] Implement streaming replication for large objects (avoid full memory buffering)
 
 ---
 

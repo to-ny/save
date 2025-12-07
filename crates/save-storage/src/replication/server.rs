@@ -118,6 +118,9 @@ macro_rules! define_grpc_server {
                         "/replication.WriteReplica/AbortObject" => {
                             handle_abort_object(&inner, body.to_vec()).await
                         }
+                        "/replication.WriteReplica/StreamPrepareObject" => {
+                            handle_stream_prepare_object(&inner, body.to_vec()).await
+                        }
                         // ReadReplica
                         "/replication.ReadReplica/ReadObject" => {
                             handle_read_object(&inner, body.to_vec()).await
@@ -190,7 +193,14 @@ trait ReplicationTrait: Clone + Send + Sync + 'static {
     fn read_object(
         &self,
         req: proto::ReadObjectRequest,
-    ) -> impl std::future::Future<Output = Vec<proto::ReadObjectResponse>> + Send;
+    ) -> impl std::future::Future<
+        Output = Result<Vec<proto::ReadObjectResponse>, crate::StorageError>,
+    > + Send;
+
+    fn stream_prepare_object(
+        &self,
+        chunks: Vec<proto::PrepareChunkRequest>,
+    ) -> impl Future<Output = proto::PrepareObjectResponse> + Send;
 
     fn object_exists(
         &self,
@@ -227,8 +237,18 @@ impl ReplicationTrait for ServiceWrapper {
         self.service.abort_object(req).await
     }
 
-    async fn read_object(&self, req: proto::ReadObjectRequest) -> Vec<proto::ReadObjectResponse> {
+    async fn read_object(
+        &self,
+        req: proto::ReadObjectRequest,
+    ) -> Result<Vec<proto::ReadObjectResponse>, crate::StorageError> {
         self.service.read_object(req).await
+    }
+
+    async fn stream_prepare_object(
+        &self,
+        chunks: Vec<proto::PrepareChunkRequest>,
+    ) -> proto::PrepareObjectResponse {
+        self.service.stream_prepare_object(chunks).await
     }
 
     async fn object_exists(&self, req: proto::ObjectExistsRequest) -> proto::ObjectExistsResponse {
@@ -326,6 +346,42 @@ async fn handle_abort_object<T: ReplicationTrait>(
     }
 }
 
+async fn handle_stream_prepare_object<T: ReplicationTrait>(
+    service: &T,
+    body: Vec<u8>,
+) -> http::Response<BoxBody> {
+    // Parse multiple grpc frames from the streaming request body
+    let mut chunks = Vec::new();
+    let mut offset = 0;
+
+    while offset < body.len() {
+        const HEADER_LEN: usize = 5;
+        if body.len() - offset < HEADER_LEN {
+            break;
+        }
+
+        let len = u32::from_be_bytes([
+            body[offset + 1],
+            body[offset + 2],
+            body[offset + 3],
+            body[offset + 4],
+        ]) as usize;
+
+        if body.len() - offset < HEADER_LEN + len {
+            break;
+        }
+
+        let data = &body[offset + HEADER_LEN..offset + HEADER_LEN + len];
+        match prost::Message::decode(data) {
+            Ok(chunk) => chunks.push(chunk),
+            Err(e) => return create_error_response(Status::invalid_argument(e.to_string())),
+        }
+        offset += HEADER_LEN + len;
+    }
+
+    create_response(service.stream_prepare_object(chunks).await)
+}
+
 async fn handle_read_object<T: ReplicationTrait>(
     service: &T,
     body: Vec<u8>,
@@ -340,8 +396,13 @@ async fn handle_read_object<T: ReplicationTrait>(
         Err(e) => return create_error_response(Status::invalid_argument(e.to_string())),
     };
 
-    let chunks = service.read_object(req).await;
-    create_streaming_response(chunks)
+    match service.read_object(req).await {
+        Ok(chunks) => create_streaming_response(chunks),
+        Err(crate::StorageError::NotFound(key)) => {
+            create_error_response(Status::not_found(format!("Object not found: {}", key)))
+        }
+        Err(e) => create_error_response(Status::internal(e.to_string())),
+    }
 }
 
 async fn handle_object_exists<T: ReplicationTrait>(

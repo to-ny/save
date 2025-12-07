@@ -5,10 +5,30 @@ use crate::backend::{HealthStatus, StorageBackend, TempHandle};
 use crate::error::{Result, StorageError};
 use crate::replication::{QuorumConfig, ReplicationCoordinator};
 use async_trait::async_trait;
+use sha2::{Digest, Sha256};
 use std::any::Any;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use tokio::io::AsyncRead;
+use tokio::io::{AsyncRead, AsyncReadExt};
+
+/// Compute SHA256 checksum of a file without loading it entirely into memory.
+async fn compute_file_checksum(path: &Path) -> Result<String> {
+    let mut file = tokio::fs::File::open(path)
+        .await
+        .map_err(StorageError::Io)?;
+    let mut hasher = Sha256::new();
+    let mut buf = vec![0u8; 64 * 1024]; // 64KB chunks
+
+    loop {
+        let n = file.read(&mut buf).await.map_err(StorageError::Io)?;
+        if n == 0 {
+            break;
+        }
+        hasher.update(&buf[..n]);
+    }
+
+    Ok(hex::encode(hasher.finalize()))
+}
 
 /// TempHandle for replicated storage. Stores key for replication at commit time.
 #[derive(Debug)]
@@ -86,17 +106,20 @@ impl StorageBackend for ReplicatedBackend {
     ) -> Result<()> {
         // Write to local temp first
         let temp_object = self.local.write_temp_object(key, reader).await?;
-
-        // Read data from temp for replication
         let temp_path = temp_object.temp_path().to_path_buf();
-        let data = tokio::fs::read(&temp_path)
-            .await
-            .map_err(StorageError::Io)?;
 
-        // Replicate and commit
+        // Compute checksum from temp file (streaming, no full buffer)
+        let checksum = compute_file_checksum(&temp_path).await?;
+
+        // Replicate using streaming and commit
         let result = self
             .coordinator
-            .replicate_write(key, data, self.local.commit_object(temp_object))
+            .replicate_write_streaming(
+                key,
+                &temp_path,
+                &checksum,
+                self.local.commit_object(temp_object),
+            )
             .await?;
 
         if !result.quorum_achieved {
@@ -110,8 +133,18 @@ impl StorageBackend for ReplicatedBackend {
     }
 
     async fn get_object(&self, key: &str) -> Result<Box<dyn AsyncRead + Send + Unpin>> {
-        let file = self.local.get_object(key).await?;
-        Ok(Box::new(file) as Box<dyn AsyncRead + Send + Unpin>)
+        // Try local first (preference: local > remote)
+        match self.local.get_object(key).await {
+            Ok(file) => Ok(Box::new(file) as Box<dyn AsyncRead + Send + Unpin>),
+            Err(StorageError::NotFound(_)) => {
+                // Fallback to remote replicas (streaming)
+                self.coordinator
+                    .read_from_replica(key)
+                    .await
+                    .ok_or_else(|| StorageError::NotFound(key.to_string()))
+            }
+            Err(e) => Err(e),
+        }
     }
 
     async fn delete_object(&self, key: &str) -> Result<()> {
@@ -119,6 +152,15 @@ impl StorageBackend for ReplicatedBackend {
             .coordinator
             .replicate_delete(key, self.local.delete_object(key))
             .await?;
+
+        tracing::debug!(
+            key = %key,
+            success_count = result.success_count,
+            failure_count = result.failure_count,
+            successful_nodes = ?result.successful_nodes,
+            failed_nodes = ?result.failed_nodes,
+            "Delete replication result"
+        );
 
         if result.success_count == 0 {
             return Err(StorageError::NotFound(key.to_string()));
@@ -147,18 +189,21 @@ impl StorageBackend for ReplicatedBackend {
             ))
         })?;
 
-        // Read data from temp file for replication
         let temp_path = handle.inner.temp_path().to_path_buf();
-        let data = tokio::fs::read(&temp_path)
-            .await
-            .map_err(StorageError::Io)?;
-
         let key = handle.key.clone();
 
-        // Replicate and commit local
+        // Compute checksum from temp file (streaming, no full buffer)
+        let checksum = compute_file_checksum(&temp_path).await?;
+
+        // Replicate using streaming and commit local
         let result = self
             .coordinator
-            .replicate_write(&key, data, self.local.commit_object(handle.inner))
+            .replicate_write_streaming(
+                &key,
+                &temp_path,
+                &checksum,
+                self.local.commit_object(handle.inner),
+            )
             .await?;
 
         if !result.quorum_achieved {
@@ -527,7 +572,7 @@ mod integration_tests {
 
         coordinator.add_node(2, node2.endpoint()).await.unwrap();
 
-        let backend = ReplicatedBackend::new(local_storage, coordinator, config);
+        let backend = ReplicatedBackend::new(local_storage, coordinator.clone(), config);
 
         let key = "test/to-delete.txt";
         let data = b"Delete me";
@@ -544,9 +589,12 @@ mod integration_tests {
         // Delete
         backend.delete_object(key).await.unwrap();
 
-        // Verify deleted locally
+        // Verify deleted from all replicas (get_object fallback to remote should also fail)
         let result = backend.get_object(key).await;
-        assert!(result.is_err());
+        assert!(
+            result.is_err(),
+            "Object should be deleted from all replicas"
+        );
     }
 
     #[tokio::test]
@@ -567,6 +615,44 @@ mod integration_tests {
             }
             _ => panic!("Expected Degraded status, got {:?}", health),
         }
+    }
+
+    #[tokio::test]
+    async fn test_read_from_remote_when_local_missing() {
+        // This test simulates a scenario where data exists on remote but not locally.
+        // Write to remote node directly, then try to read from local backend.
+        let remote_node = TestNode::start().await;
+
+        // Create local backend that has no data
+        let temp_dir = TempDir::new().unwrap();
+        let local_storage = ObjectStorage::new(temp_dir.path()).await.unwrap();
+        let config = QuorumConfig::with_replication_factor(2);
+        let coordinator = Arc::new(ReplicationCoordinator::new(1, config.clone()));
+
+        // Add remote node
+        coordinator
+            .add_node(2, remote_node.endpoint())
+            .await
+            .unwrap();
+
+        let backend = ReplicatedBackend::new(local_storage, coordinator, config);
+
+        // Write directly to remote node via its storage (simulating data that exists remotely)
+        let remote_storage = ObjectStorage::new(remote_node._temp_dir.path())
+            .await
+            .unwrap();
+        let key = "test/remote-only.txt";
+        let data = b"Remote data only";
+        remote_storage.put_object(key, &data[..]).await.unwrap();
+
+        // Try to read from backend - should fall back to remote
+        let mut reader = backend
+            .get_object(key)
+            .await
+            .expect("Should read from remote");
+        let mut buf = Vec::new();
+        reader.read_to_end(&mut buf).await.unwrap();
+        assert_eq!(buf, data);
     }
 
     #[tokio::test]

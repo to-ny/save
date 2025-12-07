@@ -1,19 +1,6 @@
 # Next items for phase 2
 
-## Priority 1: Storage Backend Completion
-
-Enable production-ready replica selection and consistency.
-
-From phase2.md:
-- [ ] Add storage backend factory based on cluster config
-- [ ] Add replica selection from healthy nodes only
-- [ ] Implement replica preference logic (local > remote)
-- [ ] Handle remote object reads (proxy to replica nodes via gRPC)
-- [ ] Implement streaming replication for large objects
-
----
-
-## Priority 2: Cluster Coordination Hardening
+## Priority 1: Cluster Coordination Hardening
 
 From phase2.md:
 - [ ] Add cluster state tracking (node health, leader status)
@@ -25,7 +12,7 @@ From phase2.md:
 
 ---
 
-## Priority 3: Replication Resilience
+## Priority 2: Replication Resilience
 
 From phase2.md:
 - [ ] Add retry with exponential backoff for transient replication failures
@@ -33,7 +20,7 @@ From phase2.md:
 
 ---
 
-## Priority 4: Observability
+## Priority 3: Observability
 
 From phase2.md:
 - [ ] Add Raft-specific metrics (leader elections, log entries, snapshots)
@@ -45,7 +32,7 @@ From phase2.md:
 
 ---
 
-## Priority 5: Testing
+## Priority 4: Testing
 
 From phase2.md:
 - [ ] Integration test: Write with node failure (quorum still met)
@@ -61,6 +48,21 @@ From phase2.md:
 ---
 
 ## Completed
+
+### Storage Backend Completion (Done)
+- [x] Add storage backend factory based on cluster config
+- [x] Add replica selection from healthy nodes only
+- [x] Implement replica preference logic (local > remote)
+- [x] Handle remote object reads (proxy to replica nodes via gRPC)
+- [x] Implement streaming replication for large objects
+- [x] Add configurable health check timeout
+- [x] Use read_quorum in read_from_replica
+
+### Code Quality Improvements (Done)
+- [x] Extract shared 2PC logic from replicate_write methods (process_prepare_results, complete_2pc_write)
+- [x] Improve stream_prepare_object temp handling (added create_temp_object method)
+- [x] Fix gRPC read_object to return NOT_FOUND error instead of empty response
+- [x] Add health_status constants module
 
 ### Distributed Lock Manager (Done)
 - [x] Implement distributed lock manager using Raft

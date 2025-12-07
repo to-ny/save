@@ -123,6 +123,126 @@ impl ReplicationService {
         }
     }
 
+    /// WriteReplica.StreamPrepareObject - Streaming 2PC phase 1 for large objects.
+    pub async fn stream_prepare_object(
+        &self,
+        chunks: Vec<proto::PrepareChunkRequest>,
+    ) -> proto::PrepareObjectResponse {
+        use sha2::{Digest, Sha256};
+        use tokio::io::AsyncWriteExt;
+
+        if chunks.is_empty() {
+            return proto::PrepareObjectResponse {
+                success: false,
+                error_message: "no chunks received".to_string(),
+                temp_id: String::new(),
+            };
+        }
+
+        // Extract key and request_id from first chunk
+        let first_chunk = &chunks[0];
+        let key = &first_chunk.key;
+        let request_id = first_chunk.request_id;
+
+        if key.is_empty() {
+            return proto::PrepareObjectResponse {
+                success: false,
+                error_message: "missing key in first chunk".to_string(),
+                temp_id: String::new(),
+            };
+        }
+
+        // Create TempObject handle (this gives us the proper temp path without creating a file)
+        let temp_object = match self.storage.create_temp_object(key).await {
+            Ok(t) => t,
+            Err(e) => {
+                return proto::PrepareObjectResponse {
+                    success: false,
+                    error_message: format!("failed to create temp object: {}", e),
+                    temp_id: String::new(),
+                };
+            }
+        };
+
+        let temp_path = temp_object.temp_path();
+
+        // Create file and write chunks directly to the temp path
+        let mut file = match tokio::fs::File::create(temp_path).await {
+            Ok(f) => f,
+            Err(e) => {
+                return proto::PrepareObjectResponse {
+                    success: false,
+                    error_message: format!("failed to create temp file: {}", e),
+                    temp_id: String::new(),
+                };
+            }
+        };
+
+        let mut hasher = Sha256::new();
+        let mut expected_checksum = String::new();
+
+        for chunk in &chunks {
+            if !chunk.chunk.is_empty() {
+                hasher.update(&chunk.chunk);
+                if let Err(e) = file.write_all(&chunk.chunk).await {
+                    // temp_object will clean up on drop
+                    return proto::PrepareObjectResponse {
+                        success: false,
+                        error_message: format!("failed to write chunk: {}", e),
+                        temp_id: String::new(),
+                    };
+                }
+            }
+            if chunk.is_last && !chunk.checksum.is_empty() {
+                expected_checksum = chunk.checksum.clone();
+            }
+        }
+
+        if let Err(e) = file.flush().await {
+            return proto::PrepareObjectResponse {
+                success: false,
+                error_message: format!("failed to flush: {}", e),
+                temp_id: String::new(),
+            };
+        }
+        drop(file);
+
+        // Verify checksum if provided
+        if !expected_checksum.is_empty() {
+            let actual = hex::encode(hasher.finalize());
+            if actual != expected_checksum {
+                return proto::PrepareObjectResponse {
+                    success: false,
+                    error_message: format!(
+                        "checksum mismatch: expected {}, got {}",
+                        expected_checksum, actual
+                    ),
+                    temp_id: String::new(),
+                };
+            }
+        }
+
+        let temp_id = format!("{}:{}", request_id, key);
+        let pending = PendingPrepare {
+            temp_object,
+            checksum: expected_checksum,
+            created_at: Instant::now(),
+        };
+
+        self.pending_prepares
+            .write()
+            .await
+            .insert(temp_id.clone(), pending);
+
+        debug!(key = %key, temp_id = %temp_id, "Stream prepared object");
+
+        proto::PrepareObjectResponse {
+            success: true,
+            error_message: String::new(),
+            temp_id,
+        }
+    }
+
     /// WriteReplica.CommitObject - 2PC phase 2: rename temp to final.
     pub async fn commit_object(
         &self,
@@ -176,64 +296,53 @@ impl ReplicationService {
     }
 
     /// ReadReplica.ReadObject - Stream object data in chunks.
+    /// Returns Err for not found, Ok with chunks for success.
     pub async fn read_object(
         &self,
         req: proto::ReadObjectRequest,
-    ) -> Vec<proto::ReadObjectResponse> {
+    ) -> Result<Vec<proto::ReadObjectResponse>, crate::StorageError> {
         let key = &req.key;
+        let mut file = self.storage.get_object(key).await?;
+        let mut chunks = Vec::new();
+        let mut buf = vec![0u8; 64 * 1024]; // 64KB chunks
+        let mut total_bytes = 0u64;
 
-        match self.storage.get_object(key).await {
-            Ok(mut file) => {
-                let mut chunks = Vec::new();
-                let mut buf = vec![0u8; 64 * 1024]; // 64KB chunks
-                let mut total_bytes = 0u64;
-
-                loop {
-                    match file.read(&mut buf).await {
-                        Ok(0) => {
-                            if chunks.is_empty() {
-                                chunks.push(proto::ReadObjectResponse {
-                                    chunk: Vec::new(),
-                                    is_last: true,
-                                    total_size: 0,
-                                });
-                            }
-                            break;
-                        }
-                        Ok(n) => {
-                            total_bytes += n as u64;
-                            chunks.push(proto::ReadObjectResponse {
-                                chunk: buf[..n].to_vec(),
-                                is_last: false,
-                                total_size: 0,
-                            });
-                        }
-                        Err(e) => {
-                            warn!(key = %key, error = %e, "Read error");
-                            break;
-                        }
+        loop {
+            match file.read(&mut buf).await {
+                Ok(0) => {
+                    if chunks.is_empty() {
+                        chunks.push(proto::ReadObjectResponse {
+                            chunk: Vec::new(),
+                            is_last: true,
+                            total_size: 0,
+                        });
                     }
+                    break;
                 }
-
-                // Set total_size in first chunk and is_last in last chunk
-                if let Some(first_chunk) = chunks.first_mut() {
-                    first_chunk.total_size = total_bytes;
+                Ok(n) => {
+                    total_bytes += n as u64;
+                    chunks.push(proto::ReadObjectResponse {
+                        chunk: buf[..n].to_vec(),
+                        is_last: false,
+                        total_size: 0,
+                    });
                 }
-                if let Some(last_chunk) = chunks.last_mut() {
-                    last_chunk.is_last = true;
+                Err(e) => {
+                    warn!(key = %key, error = %e, "Read error");
+                    break;
                 }
-
-                chunks
-            }
-            Err(e) => {
-                warn!(key = %key, error = %e, "Object not found");
-                vec![proto::ReadObjectResponse {
-                    chunk: Vec::new(),
-                    is_last: true,
-                    total_size: 0,
-                }]
             }
         }
+
+        // Set total_size in first chunk and is_last in last chunk
+        if let Some(first_chunk) = chunks.first_mut() {
+            first_chunk.total_size = total_bytes;
+        }
+        if let Some(last_chunk) = chunks.last_mut() {
+            last_chunk.is_last = true;
+        }
+
+        Ok(chunks)
     }
 
     /// ReadReplica.ObjectExists - Check if object exists.
@@ -364,8 +473,9 @@ mod tests {
             })
             .await;
 
-        assert!(!read_resp.is_empty());
-        let all_data: Vec<u8> = read_resp.iter().flat_map(|r| r.chunk.clone()).collect();
+        let chunks = read_resp.unwrap();
+        assert!(!chunks.is_empty());
+        let all_data: Vec<u8> = chunks.iter().flat_map(|r| r.chunk.clone()).collect();
         assert_eq!(all_data, data);
     }
 

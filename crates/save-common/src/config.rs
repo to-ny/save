@@ -255,6 +255,44 @@ pub struct ClusterConfig {
     /// or when you understand the implications.
     #[serde(default)]
     pub allow_auto_recovery: bool,
+
+    /// Replication configuration
+    #[serde(default)]
+    pub replication: ReplicationConfig,
+}
+
+/// Replication configuration for data redundancy
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct ReplicationConfig {
+    /// Number of copies to maintain (including local). Default: 1 (no replication)
+    /// Set to 3 for typical production clusters.
+    #[serde(default = "default_replication_factor")]
+    pub replication_factor: usize,
+
+    /// gRPC bind address for replication service (e.g., "0.0.0.0:9002")
+    /// If empty, replication service is disabled.
+    #[serde(default)]
+    pub bind_addr: String,
+}
+
+fn default_replication_factor() -> usize {
+    1
+}
+
+impl Default for ReplicationConfig {
+    fn default() -> Self {
+        Self {
+            replication_factor: default_replication_factor(),
+            bind_addr: String::new(),
+        }
+    }
+}
+
+impl ReplicationConfig {
+    /// Returns true if replication is enabled (factor > 1)
+    pub fn is_enabled(&self) -> bool {
+        self.replication_factor > 1
+    }
 }
 
 fn default_connect_timeout_secs() -> u64 {
@@ -283,6 +321,7 @@ impl Default for ClusterConfig {
             connect_timeout_secs: default_connect_timeout_secs(),
             rpc_timeout_secs: default_rpc_timeout_secs(),
             allow_auto_recovery: false,
+            replication: ReplicationConfig::default(),
         }
     }
 }
