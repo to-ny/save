@@ -1,6 +1,6 @@
 # ADR-006: Distributed Metadata Strategy
 
-**Status**: Proposed
+**Status**: Accepted
 
 ## Context
 

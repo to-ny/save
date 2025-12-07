@@ -52,6 +52,12 @@ pub async fn setup_empty() -> (AppState, TempDir) {
         .await
         .unwrap();
 
+    // Wait for leader election before running tests
+    raft_node
+        .wait_for_leader(std::time::Duration::from_secs(5))
+        .await
+        .expect("Failed to elect leader in test setup");
+
     let state = AppState::new(storage, metadata, config, raft_node);
     (state, temp_dir)
 }

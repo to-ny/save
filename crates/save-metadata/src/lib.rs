@@ -1,6 +1,7 @@
 mod bucket;
 mod error;
 mod keys;
+pub mod lock;
 mod multipart;
 mod object;
 pub mod raft;

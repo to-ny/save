@@ -71,9 +71,9 @@ Transform the single-node S3-compatible store into a distributed, replicated sys
 ---
 
 ## Cluster Coordination
-- [ ] Implement distributed lock manager using Raft
-- [ ] Replace ObjectLockManager with distributed lock implementation
-- [ ] Ensure lock API remains unchanged (per ADR-003)
+- [x] Implement distributed lock manager using Raft
+- [x] Replace ObjectLockManager with distributed lock implementation
+- [x] Ensure lock API remains unchanged (per ADR-003)
 - [ ] Add cluster state tracking (node health, leader status)
 - [ ] Implement node discovery on startup from peer configuration
 - [ ] Add heartbeat mechanism for node health monitoring

@@ -318,6 +318,36 @@ impl RaftNode {
             .map_err(|e| crate::error::MetadataError::Raft(e.to_string()))?;
         Ok(())
     }
+
+    pub async fn acquire_lock(
+        &self,
+        bucket: &str,
+        key: &str,
+        lock_type: super::commands::LockType,
+        holder: super::commands::LockHolder,
+    ) -> Result<()> {
+        self.write(super::commands::Command::AcquireLock {
+            bucket: bucket.to_string(),
+            key: key.to_string(),
+            lock_type,
+            holder,
+        })
+        .await
+    }
+
+    pub async fn release_lock(
+        &self,
+        bucket: &str,
+        key: &str,
+        holder: super::commands::LockHolder,
+    ) -> Result<()> {
+        self.write(super::commands::Command::ReleaseLock {
+            bucket: bucket.to_string(),
+            key: key.to_string(),
+            holder,
+        })
+        .await
+    }
 }
 
 /// Parses peer strings using the shared utility and converts to (NodeId, addr) tuples.

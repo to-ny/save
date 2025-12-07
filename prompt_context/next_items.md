@@ -1,17 +1,6 @@
 # Next items for phase 2
 
-## Priority 1: Distributed Lock Manager
-
-Replace local locking with cluster-wide coordination.
-
-From phase2.md:
-- [ ] Implement distributed lock manager using Raft
-- [ ] Replace ObjectLockManager with distributed lock implementation
-- [ ] Ensure lock API remains unchanged (per ADR-003)
-
----
-
-## Priority 2: Storage Backend Completion
+## Priority 1: Storage Backend Completion
 
 Enable production-ready replica selection and consistency.
 
@@ -24,7 +13,7 @@ From phase2.md:
 
 ---
 
-## Priority 3: Cluster Coordination Hardening
+## Priority 2: Cluster Coordination Hardening
 
 From phase2.md:
 - [ ] Add cluster state tracking (node health, leader status)
@@ -36,7 +25,7 @@ From phase2.md:
 
 ---
 
-## Priority 4: Replication Resilience
+## Priority 3: Replication Resilience
 
 From phase2.md:
 - [ ] Add retry with exponential backoff for transient replication failures
@@ -44,7 +33,7 @@ From phase2.md:
 
 ---
 
-## Priority 5: Observability
+## Priority 4: Observability
 
 From phase2.md:
 - [ ] Add Raft-specific metrics (leader elections, log entries, snapshots)
@@ -56,7 +45,7 @@ From phase2.md:
 
 ---
 
-## Priority 6: Testing
+## Priority 5: Testing
 
 From phase2.md:
 - [ ] Integration test: Write with node failure (quorum still met)
@@ -73,7 +62,12 @@ From phase2.md:
 
 ## Completed
 
-### Metadata Evolution (Priority 1 - Done)
+### Distributed Lock Manager (Done)
+- [x] Implement distributed lock manager using Raft
+- [x] Replace ObjectLockManager with distributed lock implementation
+- [x] Ensure lock API remains unchanged (per ADR-003)
+
+### Metadata Evolution (Done)
 - [x] Add `replica_nodes` field to ObjectMetadata struct
 - [x] Extend metadata serialization to include replica information
 - [x] Update all metadata write operations to go through Raft

@@ -1,8 +1,8 @@
 use crate::middleware::RequestTracker;
 use dashmap::DashMap;
-use save_common::ObjectLockManager;
 use save_common::config::SaveConfig;
 use save_metadata::MetadataStore;
+use save_metadata::lock::DistributedLockManager;
 use save_metadata::raft::RaftNode;
 use save_storage::StorageBackend;
 use std::sync::Arc;
@@ -50,7 +50,7 @@ pub struct AppState {
     pub storage: Arc<dyn StorageBackend>,
     pub metadata: Arc<MetadataStore>,
     pub config: Arc<SaveConfig>,
-    pub lock_manager: Arc<ObjectLockManager>,
+    pub lock_manager: Arc<DistributedLockManager>,
     pub request_tracker: Arc<RequestTracker>,
     pub bucket_cache: Arc<BucketCache>,
     pub start_time: Instant,
@@ -67,15 +67,21 @@ impl AppState {
         let bucket_cache =
             BucketCache::new(Duration::from_secs(config.server.bucket_cache_ttl_secs));
 
+        let metadata = Arc::new(metadata);
+        let raft_node = Arc::new(raft_node);
+        let node_id = raft_node.node_id();
+        let lock_manager =
+            DistributedLockManager::new(Arc::clone(&raft_node), metadata.db(), node_id);
+
         Self {
             storage: Arc::new(storage),
-            metadata: Arc::new(metadata),
+            metadata,
             config: Arc::new(config),
-            lock_manager: Arc::new(ObjectLockManager::new_default()),
+            lock_manager: Arc::new(lock_manager),
             request_tracker: Arc::new(RequestTracker::new()),
             bucket_cache: Arc::new(bucket_cache),
             start_time: Instant::now(),
-            raft_node: Arc::new(raft_node),
+            raft_node,
         }
     }
 }

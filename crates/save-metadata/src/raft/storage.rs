@@ -299,6 +299,28 @@ impl RaftStorage<NodeTypeConfig> for Storage {
                             |e| StorageIOError::write(&std::io::Error::other(e.to_string())),
                         )?;
                     }
+                    Command::AcquireLock {
+                        bucket,
+                        key,
+                        lock_type,
+                        holder,
+                    } => {
+                        // Lock acquisition result is stored in DB, caller queries after consensus
+                        let _ =
+                            crate::lock::acquire_lock(&self.db, bucket, key, *lock_type, holder)
+                                .map_err(|e| {
+                                    StorageIOError::write(&std::io::Error::other(e.to_string()))
+                                })?;
+                    }
+                    Command::ReleaseLock {
+                        bucket,
+                        key,
+                        holder,
+                    } => {
+                        crate::lock::release_lock(&self.db, bucket, key, holder).map_err(|e| {
+                            StorageIOError::write(&std::io::Error::other(e.to_string()))
+                        })?;
+                    }
                 },
                 openraft::EntryPayload::Membership(membership) => {
                     let cf = self.db.cf_handle("raft_state").ok_or_else(|| {

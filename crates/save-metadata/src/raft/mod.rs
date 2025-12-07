@@ -9,7 +9,7 @@ mod snapshot;
 mod storage;
 mod types;
 
-pub use commands::Command;
+pub use commands::{Command, LockHolder, LockType};
 pub use node::{ClusterStatus, RaftNode, RaftState};
 pub use rpc::{RaftRpcClient, RaftRpcServer};
 pub use server::run_server;
