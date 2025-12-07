@@ -193,6 +193,19 @@ impl ReplicationCoordinator {
         }
     }
 
+    /// Check health of a specific node by ID.
+    pub async fn health_check(&self, node_id: u64) -> Result<bool, StorageError> {
+        let clients = self.clients.read().await;
+        if let Some(client) = clients.get(&node_id) {
+            Ok(self.is_node_healthy(client).await)
+        } else {
+            Err(StorageError::Io(std::io::Error::other(format!(
+                "Node {} not found",
+                node_id
+            ))))
+        }
+    }
+
     /// Read object from remote replicas with streaming.
     /// Tries healthy nodes until read_quorum successful reads are found.
     /// Returns a streaming reader from the first successful node.

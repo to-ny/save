@@ -1,14 +1,27 @@
 # Next items for phase 2
 
-## Priority 1: Cluster Coordination Hardening
+## Priority 1: Code Quality & Architecture
 
-From phase2.md:
-- [ ] Add cluster state tracking (node health, leader status)
-- [ ] Implement node discovery on startup from peer configuration
-- [ ] Add heartbeat mechanism for node health monitoring
-- [ ] Handle network partition detection and recovery
-- [ ] Implement split-brain prevention logic
-- [ ] Add cluster topology management
+Recommendations from codebase analysis:
+
+### Module Refactoring (Large Files)
+- [ ] Split `raft/storage.rs` (788 LOC) into: log.rs, state.rs, snapshot_integration.rs
+- [ ] Extract health monitoring from `replication/coordinator.rs` (715 LOC)
+- [ ] Consider splitting `replicated_backend.rs` (701 LOC) if it grows further
+
+### Documentation
+- [ ] Add module-level documentation to replication module
+- [ ] Add module-level documentation to raft module
+- [ ] Document cluster module architecture
+
+### Benchmarks
+- [ ] Add replication benchmarks (2PC overhead, streaming performance)
+- [ ] Add cluster coordination benchmarks (heartbeat, partition detection)
+- [ ] Add health check benchmarks
+
+### Ongoing Maintenance
+- [ ] Monitor module sizes (maintain <500 LOC guideline)
+- [ ] Increase unit test coverage in save-storage and save-metadata
 
 ---
 
@@ -44,10 +57,19 @@ From phase2.md:
 - [ ] Load test: Multi-node cluster with replication overhead
 - [ ] Performance test: Replication latency P50/P90/P99
 - [ ] Benchmark: Compare Phase 1 vs Phase 2 write throughput
+- [ ] Benchmark: Cluster coordination overhead
 
 ---
 
 ## Completed
+
+### Cluster Coordination Hardening (Done)
+- [x] Add cluster state tracking (node health, leader status)
+- [x] Implement node discovery on startup from peer configuration
+- [x] Add heartbeat mechanism for node health monitoring
+- [x] Handle network partition detection and recovery
+- [x] Implement split-brain prevention logic
+- [x] Add cluster topology management
 
 ### Storage Backend Completion (Done)
 - [x] Add storage backend factory based on cluster config

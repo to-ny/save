@@ -74,12 +74,12 @@ Transform the single-node S3-compatible store into a distributed, replicated sys
 - [x] Implement distributed lock manager using Raft
 - [x] Replace ObjectLockManager with distributed lock implementation
 - [x] Ensure lock API remains unchanged (per ADR-003)
-- [ ] Add cluster state tracking (node health, leader status)
-- [ ] Implement node discovery on startup from peer configuration
-- [ ] Add heartbeat mechanism for node health monitoring
-- [ ] Handle network partition detection and recovery
-- [ ] Implement split-brain prevention logic
-- [ ] Add cluster topology management
+- [x] Add cluster state tracking (node health, leader status)
+- [x] Implement node discovery on startup from peer configuration
+- [x] Add heartbeat mechanism for node health monitoring
+- [x] Handle network partition detection and recovery
+- [x] Implement split-brain prevention logic
+- [x] Add cluster topology management
 - [x] Create cluster status API endpoint `/cluster/status`
 
 ---
@@ -113,6 +113,7 @@ Transform the single-node S3-compatible store into a distributed, replicated sys
 - [x] Unit tests for Raft state machine integration
 - [x] Unit tests for ReplicationCoordinator quorum logic
 - [x] Unit tests for replica placement strategy
+- [x] Unit tests for ClusterManager (state, events, topology)
 - [x] Integration test: 3-node cluster formation
 - [x] Integration test: Leader election after leader crash
 - [ ] Integration test: Write with node failure (quorum still met)
@@ -128,6 +129,7 @@ Transform the single-node S3-compatible store into a distributed, replicated sys
 - [ ] Load test: Multi-node cluster with replication overhead
 - [ ] Performance test: Replication latency P50/P90/P99
 - [ ] Benchmark: Compare Phase 1 vs Phase 2 write throughput
+- [ ] Benchmark: Cluster coordination overhead (add to save-storage/benches)
 
 ---
 
@@ -145,6 +147,16 @@ Transform the single-node S3-compatible store into a distributed, replicated sys
 - [ ] Create Kubernetes manifests for cluster deployment
 - [ ] Add backup/restore procedures for distributed cluster
 - [ ] Document disaster recovery scenarios (quorum loss)
+
+---
+
+## Code Quality & Architecture (Recommended)
+- [ ] Split `raft/storage.rs` (788 LOC) into submodules: log.rs, state.rs, snapshot_integration.rs
+- [ ] Extract health monitoring from `replication/coordinator.rs` (715 LOC)
+- [ ] Add module-level documentation to replication and raft modules
+- [ ] Add replication benchmarks to save-storage/benches (2PC overhead, streaming)
+- [ ] Add cluster coordination benchmarks (heartbeat, partition detection)
+- [ ] Monitor module sizes during development (maintain <500 LOC guideline)
 
 ---
 

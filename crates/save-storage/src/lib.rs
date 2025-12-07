@@ -1,4 +1,5 @@
 mod backend;
+pub mod cluster;
 mod error;
 mod factory;
 mod layout;
