@@ -9,11 +9,6 @@ Recommendations from codebase analysis:
 - [x] Extract health monitoring from `replication/coordinator.rs` (715→695 LOC) into: health.rs
 - [ ] Consider splitting `replicated_backend.rs` (701 LOC) if it grows further
 
-### Documentation
-- [ ] Add module-level documentation to replication module
-- [ ] Add module-level documentation to raft module
-- [ ] Document cluster module architecture
-
 ### Benchmarks
 - [ ] Add replication benchmarks (2PC overhead, streaming performance)
 - [ ] Add cluster coordination benchmarks (heartbeat, partition detection)

@@ -1,10 +1,4 @@
 //! Replication infrastructure for distributed object storage.
-//!
-//! This module provides:
-//! - `ReplicationService`: gRPC server handling incoming replication requests
-//! - `ReplicationClient`: Client for making replication requests to other nodes
-//! - `ReplicationCoordinator`: Orchestrates quorum writes across nodes
-//! - `HealthChecker`: Health monitoring for replica nodes
 
 mod client;
 mod coordinator;

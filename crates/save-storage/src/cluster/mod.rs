@@ -1,6 +1,4 @@
 //! Cluster coordination for storage replication.
-//!
-//! Provides node discovery, health monitoring, and cluster state tracking.
 
 mod manager;
 mod state;
