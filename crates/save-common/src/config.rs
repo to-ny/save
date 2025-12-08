@@ -273,6 +273,74 @@ pub struct ReplicationConfig {
     /// If empty, replication service is disabled.
     #[serde(default)]
     pub bind_addr: String,
+
+    /// TLS configuration for secure node-to-node communication.
+    #[serde(default)]
+    pub tls: Option<TlsConfig>,
+
+    /// Retry configuration for transient failures.
+    #[serde(default)]
+    pub retry: RetrySettings,
+}
+
+/// Retry settings for replication operations.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct RetrySettings {
+    /// Maximum number of retry attempts (0 = no retries). Default: 3.
+    #[serde(default = "default_retry_max_attempts")]
+    pub max_attempts: u32,
+
+    /// Initial delay before first retry in milliseconds. Default: 100.
+    #[serde(default = "default_retry_initial_delay_ms")]
+    pub initial_delay_ms: u64,
+
+    /// Maximum delay between retries in milliseconds. Default: 5000.
+    #[serde(default = "default_retry_max_delay_ms")]
+    pub max_delay_ms: u64,
+
+    /// Jitter factor (0.0 to 1.0) to prevent thundering herd. Default: 0.2.
+    #[serde(default = "default_retry_jitter")]
+    pub jitter: f64,
+}
+
+fn default_retry_max_attempts() -> u32 {
+    3
+}
+
+fn default_retry_initial_delay_ms() -> u64 {
+    100
+}
+
+fn default_retry_max_delay_ms() -> u64 {
+    5000
+}
+
+fn default_retry_jitter() -> f64 {
+    0.2
+}
+
+impl Default for RetrySettings {
+    fn default() -> Self {
+        Self {
+            max_attempts: default_retry_max_attempts(),
+            initial_delay_ms: default_retry_initial_delay_ms(),
+            max_delay_ms: default_retry_max_delay_ms(),
+            jitter: default_retry_jitter(),
+        }
+    }
+}
+
+/// TLS configuration for mTLS node authentication.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct TlsConfig {
+    /// Path to the server certificate (PEM format).
+    pub cert_path: String,
+
+    /// Path to the server private key (PEM format).
+    pub key_path: String,
+
+    /// Path to the CA certificate for verifying client certificates (PEM format).
+    pub ca_cert_path: String,
 }
 
 fn default_replication_factor() -> usize {
@@ -284,6 +352,8 @@ impl Default for ReplicationConfig {
         Self {
             replication_factor: default_replication_factor(),
             bind_addr: String::new(),
+            tls: None,
+            retry: RetrySettings::default(),
         }
     }
 }

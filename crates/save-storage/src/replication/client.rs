@@ -1,11 +1,14 @@
 //! Replication client for making gRPC requests to other nodes.
 
 use crate::StorageError;
+use save_common::TlsConfig;
 use save_common::grpc::ProstCodec;
+use save_common::retry::{RetryConfig, retry_with_backoff};
 use save_proto::replication as proto;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::RwLock;
+use tonic::transport::ClientTlsConfig;
 use tracing::{debug, warn};
 
 /// Default connection timeout for establishing new connections.
@@ -15,13 +18,15 @@ const DEFAULT_CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
 const DEFAULT_RPC_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// Client for replication RPCs to a single node.
-/// Supports automatic reconnection on transport errors.
+/// Supports automatic reconnection, retry with exponential backoff, and mTLS.
 #[derive(Clone)]
 pub struct ReplicationClient {
     node_id: u64,
     addr: String,
     connect_timeout: Duration,
     rpc_timeout: Duration,
+    retry_config: RetryConfig,
+    tls_config: Option<ClientTlsConfig>,
     channel: Arc<RwLock<Option<tonic::transport::Channel>>>,
 }
 
@@ -43,8 +48,24 @@ impl ReplicationClient {
             addr,
             connect_timeout,
             rpc_timeout,
+            retry_config: RetryConfig::default(),
+            tls_config: None,
             channel: Arc::new(RwLock::new(None)),
         }
+    }
+
+    /// Set retry configuration.
+    pub fn with_retry_config(mut self, config: RetryConfig) -> Self {
+        self.retry_config = config;
+        self
+    }
+
+    /// Enable mTLS with the given configuration.
+    pub fn with_tls(mut self, config: &TlsConfig) -> Result<Self, StorageError> {
+        let tls = save_common::load_client_tls_config(config)
+            .map_err(|e| StorageError::Tls(e.to_string()))?;
+        self.tls_config = Some(tls);
+        Ok(self)
     }
 
     /// Connect to a replication endpoint (eagerly) with default timeouts.
@@ -80,24 +101,40 @@ impl ReplicationClient {
             }
         }
 
-        // Slow path: acquire write lock and connect
+        // Slow path: acquire write lock and connect with retry
         let mut guard = self.channel.write().await;
         // Double-check after acquiring write lock
         if let Some(ref channel) = *guard {
             return Ok(channel.clone());
         }
 
-        let channel = self.do_connect().await?;
+        // Retry connection establishment for transient network issues
+        let channel = retry_with_backoff(
+            &self.retry_config,
+            || async { self.do_connect().await },
+            Self::is_transport_error,
+        )
+        .await?;
+
         *guard = Some(channel.clone());
         Ok(channel)
     }
 
     async fn do_connect(&self) -> Result<tonic::transport::Channel, StorageError> {
-        debug!(node_id = %self.node_id, addr = %self.addr, "Connecting to replication endpoint");
-        tonic::transport::Channel::from_shared(self.addr.clone())
+        debug!(node_id = %self.node_id, addr = %self.addr, tls = self.tls_config.is_some(), "Connecting to replication endpoint");
+
+        let mut endpoint = tonic::transport::Channel::from_shared(self.addr.clone())
             .map_err(|e| StorageError::Io(std::io::Error::other(e)))?
             .connect_timeout(self.connect_timeout)
-            .timeout(self.rpc_timeout)
+            .timeout(self.rpc_timeout);
+
+        if let Some(ref tls) = self.tls_config {
+            endpoint = endpoint
+                .tls_config(tls.clone())
+                .map_err(|e| StorageError::Io(std::io::Error::other(e)))?;
+        }
+
+        endpoint
             .connect()
             .await
             .map_err(|e| StorageError::Io(std::io::Error::other(e)))
@@ -486,20 +523,28 @@ impl ReplicationClient {
         req: Req,
     ) -> Result<Resp, StorageError>
     where
-        Req: prost::Message + 'static,
+        Req: prost::Message + Clone + 'static,
         Resp: prost::Message + Default + 'static,
     {
-        let result = self.do_call_unary(path, req).await;
-
-        // Reset connection on transport errors for automatic reconnect
-        if let Err(ref e) = result
-            && Self::is_transport_error(e)
-        {
-            warn!(node_id = %self.node_id, "Transport error, resetting connection");
-            self.reset_connection().await;
-        }
-
-        result
+        retry_with_backoff(
+            &self.retry_config,
+            || {
+                let req = req.clone();
+                async move {
+                    let result = self.do_call_unary(path, req).await;
+                    // Reset connection on transport errors for automatic reconnect
+                    if let Err(ref e) = result
+                        && Self::is_transport_error(e)
+                    {
+                        warn!(node_id = %self.node_id, error = %e, "Transport error, will retry");
+                        self.reset_connection().await;
+                    }
+                    result
+                }
+            },
+            Self::is_transport_error,
+        )
+        .await
     }
 
     async fn do_call_unary<Req, Resp>(

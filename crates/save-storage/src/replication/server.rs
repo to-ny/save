@@ -1,6 +1,7 @@
 //! gRPC server for handling incoming replication requests.
 
 use super::service::ReplicationService;
+use save_common::TlsConfig;
 use save_proto::replication as proto;
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -16,17 +17,37 @@ type BoxBody = http_body_util::combinators::UnsyncBoxBody<bytes::Bytes, Status>;
 pub async fn run_server(
     service: Arc<ReplicationService>,
     addr: SocketAddr,
+    shutdown_rx: Option<broadcast::Receiver<()>>,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    run_server_with_tls(service, addr, shutdown_rx, None).await
+}
+
+/// Run the replication gRPC server with optional mTLS.
+pub async fn run_server_with_tls(
+    service: Arc<ReplicationService>,
+    addr: SocketAddr,
     mut shutdown_rx: Option<broadcast::Receiver<()>>,
-) -> Result<(), tonic::transport::Error> {
-    info!("Starting replication gRPC server on {}", addr);
+    tls_config: Option<&TlsConfig>,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    info!(
+        "Starting replication gRPC server on {} (TLS: {})",
+        addr,
+        tls_config.is_some()
+    );
 
     let inner = ServiceWrapper {
         service: service.clone(),
     };
 
     // Add services for all gRPC paths we handle
-    // Each service type has a different NamedService::NAME to route correctly
-    let server = Server::builder()
+    let mut builder = Server::builder();
+
+    if let Some(tls) = tls_config {
+        let server_tls = save_common::load_server_tls_config(tls)?;
+        builder = builder.tls_config(server_tls)?;
+    }
+
+    let server = builder
         .add_service(WriteReplicaServer::new(inner.clone()))
         .add_service(ReadReplicaServer::new(inner.clone()))
         .add_service(DeleteReplicaServer::new(inner.clone()))
@@ -39,10 +60,12 @@ pub async fn run_server(
                     let _ = rx.recv().await;
                     info!("Replication gRPC server shutting down");
                 })
-                .await
+                .await?
         }
-        None => server.serve(addr).await,
+        None => server.serve(addr).await?,
     }
+
+    Ok(())
 }
 
 #[derive(Clone)]

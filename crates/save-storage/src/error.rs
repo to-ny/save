@@ -16,6 +16,9 @@ pub enum StorageError {
 
     #[error("Quorum not achieved: {achieved} of {required} nodes")]
     QuorumNotAchieved { achieved: usize, required: usize },
+
+    #[error("TLS error: {0}")]
+    Tls(String),
 }
 
 pub type Result<T> = std::result::Result<T, StorageError>;

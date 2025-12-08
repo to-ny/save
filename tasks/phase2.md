@@ -37,14 +37,14 @@ Transform the single-node S3-compatible store into a distributed, replicated sys
 - [x] Add ReadReplica RPC handler (streaming reads)
 - [x] Add DeleteReplica RPC handler
 - [x] Add ReplicationHealth RPC handler
-- [ ] Implement mTLS certificate management for node authentication
+- [x] Implement mTLS certificate management for node authentication
 - [x] Create ReplicationCoordinator struct for managing replica writes
 - [x] Implement parallel streaming to N replica nodes
 - [x] Add quorum wait logic with configurable timeout
 - [x] Implement replica placement strategy (round-robin for Phase 2)
 - [x] Add replica selection from healthy nodes only
 - [x] Handle partial write failures and rollback
-- [ ] Add retry with exponential backoff for transient replication failures
+- [x] Add retry with exponential backoff for transient replication failures
 
 ---
 

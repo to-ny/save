@@ -3,6 +3,7 @@
 use super::client::ReplicationClient;
 use super::health::HealthChecker;
 use crate::StorageError;
+use save_common::{RetryConfig, TlsConfig};
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -79,6 +80,8 @@ pub struct ReplicationCoordinator {
     config: QuorumConfig,
     connect_timeout: Duration,
     rpc_timeout: Duration,
+    retry_config: RetryConfig,
+    tls_config: Option<TlsConfig>,
     health_checker: HealthChecker,
     clients: Arc<RwLock<HashMap<u64, ReplicationClient>>>,
     request_counter: AtomicU64,
@@ -107,6 +110,8 @@ impl ReplicationCoordinator {
             config,
             connect_timeout,
             rpc_timeout,
+            retry_config: RetryConfig::default(),
+            tls_config: None,
             health_checker: HealthChecker::default(),
             clients: Arc::new(RwLock::new(HashMap::new())),
             request_counter: AtomicU64::new(1),
@@ -119,19 +124,32 @@ impl ReplicationCoordinator {
         self
     }
 
+    /// Set retry configuration for client operations.
+    pub fn with_retry_config(mut self, config: RetryConfig) -> Self {
+        self.retry_config = config;
+        self
+    }
+
+    /// Enable mTLS for node-to-node communication.
+    pub fn with_tls(mut self, config: TlsConfig) -> Self {
+        self.tls_config = Some(config);
+        self
+    }
+
     /// Add a replica node client.
     pub async fn add_node(&self, node_id: u64, addr: String) -> Result<(), StorageError> {
         if node_id == self.local_node_id {
             return Ok(()); // Skip self
         }
 
-        let client = ReplicationClient::connect_with_timeouts(
-            node_id,
-            addr,
-            self.connect_timeout,
-            self.rpc_timeout,
-        )
-        .await?;
+        let mut client =
+            ReplicationClient::with_timeouts(node_id, addr, self.connect_timeout, self.rpc_timeout)
+                .with_retry_config(self.retry_config.clone());
+
+        if let Some(ref tls) = self.tls_config {
+            client = client.with_tls(tls)?;
+        }
+
         self.clients.write().await.insert(node_id, client);
         info!(node_id = %node_id, "Added replication client");
         Ok(())
