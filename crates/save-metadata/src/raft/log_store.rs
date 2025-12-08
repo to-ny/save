@@ -23,15 +23,15 @@ impl LogStore {
     }
 
     fn log_cf(&self) -> Result<&rocksdb::ColumnFamily, StorageError<NodeId>> {
-        self.db
-            .cf_handle("raft_log")
-            .ok_or_else(|| StorageIOError::read(&std::io::Error::other("raft_log CF not found")).into())
+        self.db.cf_handle("raft_log").ok_or_else(|| {
+            StorageIOError::read(&std::io::Error::other("raft_log CF not found")).into()
+        })
     }
 
     fn state_cf(&self) -> Result<&rocksdb::ColumnFamily, StorageError<NodeId>> {
-        self.db
-            .cf_handle("raft_state")
-            .ok_or_else(|| StorageIOError::read(&std::io::Error::other("raft_state CF not found")).into())
+        self.db.cf_handle("raft_state").ok_or_else(|| {
+            StorageIOError::read(&std::io::Error::other("raft_state CF not found")).into()
+        })
     }
 
     fn index_to_key(index: u64) -> [u8; 8] {

@@ -1,6 +1,7 @@
 //! Replication coordinator for quorum writes across nodes.
 
 use super::client::ReplicationClient;
+use super::health::HealthChecker;
 use crate::StorageError;
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
@@ -10,17 +11,6 @@ use std::time::Duration;
 use tokio::io::AsyncRead;
 use tokio::sync::RwLock;
 use tracing::{debug, info, warn};
-
-/// Health status constants matching proto HealthCheckResponse.status
-pub mod health_status {
-    pub const HEALTHY: i32 = 0;
-    pub const DEGRADED: i32 = 1;
-    #[allow(dead_code)]
-    pub const UNHEALTHY: i32 = 2;
-}
-
-/// Default timeout for health checks during node selection.
-const DEFAULT_HEALTH_CHECK_TIMEOUT: Duration = Duration::from_secs(2);
 
 /// Quorum configuration.
 #[derive(Debug, Clone)]
@@ -89,7 +79,7 @@ pub struct ReplicationCoordinator {
     config: QuorumConfig,
     connect_timeout: Duration,
     rpc_timeout: Duration,
-    health_check_timeout: Duration,
+    health_checker: HealthChecker,
     clients: Arc<RwLock<HashMap<u64, ReplicationClient>>>,
     request_counter: AtomicU64,
 }
@@ -117,7 +107,7 @@ impl ReplicationCoordinator {
             config,
             connect_timeout,
             rpc_timeout,
-            health_check_timeout: DEFAULT_HEALTH_CHECK_TIMEOUT,
+            health_checker: HealthChecker::default(),
             clients: Arc::new(RwLock::new(HashMap::new())),
             request_counter: AtomicU64::new(1),
         }
@@ -125,7 +115,7 @@ impl ReplicationCoordinator {
 
     /// Set health check timeout for node selection.
     pub fn with_health_check_timeout(mut self, timeout: Duration) -> Self {
-        self.health_check_timeout = timeout;
+        self.health_checker = HealthChecker::with_timeout(timeout);
         self
     }
 
@@ -173,7 +163,7 @@ impl ReplicationCoordinator {
             if healthy_nodes.len() >= needed {
                 break;
             }
-            if self.is_node_healthy(client).await {
+            if self.health_checker.is_healthy(client).await {
                 healthy_nodes.push(*node_id);
             } else {
                 debug!(node_id = %node_id, "Skipping unhealthy node for replica selection");
@@ -183,21 +173,11 @@ impl ReplicationCoordinator {
         healthy_nodes
     }
 
-    /// Check if a node is healthy (HEALTHY or DEGRADED).
-    async fn is_node_healthy(&self, client: &ReplicationClient) -> bool {
-        match tokio::time::timeout(self.health_check_timeout, client.health_check()).await {
-            Ok(Ok(resp)) => {
-                resp.status == health_status::HEALTHY || resp.status == health_status::DEGRADED
-            }
-            _ => false,
-        }
-    }
-
     /// Check health of a specific node by ID.
     pub async fn health_check(&self, node_id: u64) -> Result<bool, StorageError> {
         let clients = self.clients.read().await;
         if let Some(client) = clients.get(&node_id) {
-            Ok(self.is_node_healthy(client).await)
+            Ok(self.health_checker.is_healthy(client).await)
         } else {
             Err(StorageError::Io(std::io::Error::other(format!(
                 "Node {} not found",
@@ -215,7 +195,7 @@ impl ReplicationCoordinator {
         let required = self.config.read_quorum;
 
         for (node_id, client) in clients.iter() {
-            if !self.is_node_healthy(client).await {
+            if !self.health_checker.is_healthy(client).await {
                 debug!(node_id = %node_id, "Skipping unhealthy node for read");
                 continue;
             }

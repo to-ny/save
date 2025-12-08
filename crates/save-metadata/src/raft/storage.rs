@@ -32,9 +32,9 @@ impl Storage {
     }
 
     fn state_cf(&self) -> Result<&rocksdb::ColumnFamily, StorageError<NodeId>> {
-        self.db()
-            .cf_handle("raft_state")
-            .ok_or_else(|| StorageIOError::read(&std::io::Error::other("raft_state CF not found")).into())
+        self.db().cf_handle("raft_state").ok_or_else(|| {
+            StorageIOError::read(&std::io::Error::other("raft_state CF not found")).into()
+        })
     }
 }
 

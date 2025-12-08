@@ -6,7 +6,7 @@ Recommendations from codebase analysis:
 
 ### Module Refactoring (Large Files)
 - [x] Split `raft/storage.rs` (788→427 LOC) into: log_store.rs, state_machine.rs
-- [ ] Extract health monitoring from `replication/coordinator.rs` (715 LOC)
+- [x] Extract health monitoring from `replication/coordinator.rs` (715→695 LOC) into: health.rs
 - [ ] Consider splitting `replicated_backend.rs` (701 LOC) if it grows further
 
 ### Documentation
