@@ -2,17 +2,15 @@
 
 ## Priority 1: Code Quality & Architecture
 
-Recommendations from codebase analysis:
-
 ### Module Refactoring (Large Files)
 - [x] Split `raft/storage.rs` (788→427 LOC) into: log_store.rs, state_machine.rs
 - [x] Extract health monitoring from `replication/coordinator.rs` (715→695 LOC) into: health.rs
 - [ ] Consider splitting `replicated_backend.rs` (701 LOC) if it grows further
 
 ### Benchmarks
-- [ ] Add replication benchmarks (2PC overhead, streaming performance)
-- [ ] Add cluster coordination benchmarks (heartbeat, partition detection)
-- [ ] Add health check benchmarks
+- [x] Add replication benchmarks (2PC overhead: direct vs coordinator)
+- [x] Add cluster coordination benchmarks (quorum, partition detection, available_nodes)
+- [x] Extract shared benchmark helpers to `benches/common.rs`
 
 ### Ongoing Maintenance
 - [ ] Monitor module sizes (maintain <500 LOC guideline)
@@ -42,7 +40,7 @@ From phase2.md:
 
 ## Priority 4: Testing
 
-From phase2.md:
+Integration & load tests (require multi-node setup):
 - [ ] Integration test: Write with node failure (quorum still met)
 - [ ] Integration test: Write with quorum failure
 - [ ] Integration test: Read-after-write consistency
@@ -51,8 +49,6 @@ From phase2.md:
 - [ ] Chaos test: Network partition during multipart upload
 - [ ] Load test: Multi-node cluster with replication overhead
 - [ ] Performance test: Replication latency P50/P90/P99
-- [ ] Benchmark: Compare Phase 1 vs Phase 2 write throughput
-- [ ] Benchmark: Cluster coordination overhead
 
 ---
 

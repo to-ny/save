@@ -1,15 +1,12 @@
+mod common;
+
+use common::{format_size, random_bytes};
 use criterion::{BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
 use save_storage::ObjectStorage;
 use std::hint::black_box;
 use std::io::Cursor;
 use tempfile::TempDir;
 use tokio::runtime::Runtime;
-
-fn random_bytes(size: usize) -> Vec<u8> {
-    use rand::Rng;
-    let mut rng = rand::rng();
-    (0..size).map(|_| rng.random::<u8>()).collect()
-}
 
 fn bench_put(c: &mut Criterion) {
     let rt = Runtime::new().unwrap();
@@ -112,16 +109,6 @@ fn bench_hash_only(c: &mut Criterion) {
         );
     }
     group.finish();
-}
-
-fn format_size(bytes: usize) -> String {
-    if bytes >= 1_048_576 {
-        format!("{}MB", bytes / 1_048_576)
-    } else if bytes >= 1024 {
-        format!("{}KB", bytes / 1024)
-    } else {
-        format!("{}B", bytes)
-    }
 }
 
 criterion_group!(benches, bench_put, bench_get, bench_delete, bench_hash_only);

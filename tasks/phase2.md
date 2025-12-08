@@ -153,8 +153,8 @@ Transform the single-node S3-compatible store into a distributed, replicated sys
 ## Code Quality & Architecture (Recommended)
 - [x] Split `raft/storage.rs` (788→427 LOC) into submodules: log_store.rs, state_machine.rs
 - [x] Extract health monitoring from `replication/coordinator.rs` (715→695 LOC) into health.rs
-- [ ] Add replication benchmarks to save-storage/benches (2PC overhead, streaming)
-- [ ] Add cluster coordination benchmarks (heartbeat, partition detection)
+- [x] Add replication benchmarks to save-storage/benches (2PC overhead)
+- [x] Add cluster coordination benchmarks (quorum, partition detection, health)
 - [ ] Monitor module sizes during development (maintain <500 LOC guideline)
 
 ---
