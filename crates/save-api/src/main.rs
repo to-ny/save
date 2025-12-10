@@ -186,6 +186,55 @@ async fn async_main_with_config(config: SaveConfig) -> anyhow::Result<()> {
         }
     });
 
+    // Start internal gRPC server if configured
+    let internal_api_handle = if !config.cluster.internal_api.bind_addr.is_empty() {
+        let internal_api_addr: SocketAddr = config.cluster.internal_api.bind_addr.parse()?;
+        let internal_api_state = state.clone();
+        let internal_api_shutdown_rx = shutdown_tx.subscribe();
+        let internal_api_tls = config
+            .cluster
+            .internal_api
+            .tls
+            .as_ref()
+            .or(config.cluster.replication.tls.as_ref())
+            .cloned();
+        let internal_api_require_auth = config.cluster.internal_api.require_auth;
+
+        let handle = tokio::spawn(async move {
+            if let Err(e) = save_api::run_internal_api_server(
+                internal_api_state,
+                internal_api_addr,
+                Some(internal_api_shutdown_rx),
+                internal_api_tls.as_ref(),
+                internal_api_require_auth,
+            )
+            .await
+            {
+                error!("Internal API server failed: {}", e);
+            }
+        });
+
+        // Give the server a moment to bind and verify it started
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        if handle.is_finished() {
+            let result = handle.await;
+            match result {
+                Ok(()) => {
+                    return Err(anyhow::anyhow!("Internal API server exited unexpectedly"));
+                }
+                Err(e) => {
+                    return Err(anyhow::anyhow!("Internal API server task panicked: {}", e));
+                }
+            }
+        }
+
+        info!("Internal gRPC API server started on {}", internal_api_addr);
+        Some(handle)
+    } else {
+        info!("Internal API server disabled (no bind address configured)");
+        None
+    };
+
     let metrics_state = state.clone();
     let mut metrics_shutdown = shutdown_tx.subscribe();
     info!("Starting metrics collection worker");
@@ -292,6 +341,10 @@ async fn async_main_with_config(config: SaveConfig) -> anyhow::Result<()> {
             let _ = gc_handle.await;
             let _ = metrics_handle.await;
             let _ = cache_cleanup_handle.await;
+            if let Some(handle) = internal_api_handle {
+                info!("Waiting for internal API server to shutdown");
+                let _ = handle.await;
+            }
             info!("Waiting for Raft server to shutdown");
             let _ = raft_handle.await;
             Ok(())

@@ -85,13 +85,14 @@ Transform the single-node S3-compatible store into a distributed, replicated sys
 ---
 
 ## Internal APIs
-- [ ] Add internal gRPC server startup (port 8082)
-- [ ] Implement gRPC middleware for request logging
-- [ ] Add gRPC interceptors for authentication (mTLS validation)
-- [ ] Create internal API for cluster management operations
-- [ ] Add Raft-specific endpoints (add node, remove node, leader transfer)
-- [ ] Implement node drain API for graceful shutdown
-- [ ] Add debug endpoints for cluster state inspection
+- [x] Add internal gRPC server startup (port 8082)
+- [x] Implement gRPC middleware for request logging (via metrics)
+- [x] Add gRPC interceptors for authentication (mTLS validation)
+- [x] Create internal API for cluster management operations
+- [x] Add Raft-specific endpoints (add node, remove node, leader transfer)
+- [x] Implement node drain API for graceful shutdown
+- [x] Add debug endpoints for cluster state inspection
+- [ ] Implement leader transfer functionality (stub exists, needs openraft API)
 
 ---
 

@@ -19,7 +19,10 @@ dashmap = { workspace = true }
 tonic = { workspace = true }
 prost = { workspace = true }
 rand = { workspace = true }
-http = "1.3"
+http = "1"
+bytes = "1"
+http-body = "1"
+http-body-util = { workspace = true }
 
 [dev-dependencies]
 tempfile = { workspace = true }

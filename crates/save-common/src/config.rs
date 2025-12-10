@@ -259,6 +259,10 @@ pub struct ClusterConfig {
     /// Replication configuration
     #[serde(default)]
     pub replication: ReplicationConfig,
+
+    /// Internal API configuration for cluster management
+    #[serde(default)]
+    pub internal_api: InternalApiConfig,
 }
 
 /// Replication configuration for data redundancy
@@ -281,6 +285,38 @@ pub struct ReplicationConfig {
     /// Retry configuration for transient failures.
     #[serde(default)]
     pub retry: RetrySettings,
+}
+
+/// Internal API configuration for cluster management operations.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct InternalApiConfig {
+    /// gRPC bind address for internal cluster API (e.g., "0.0.0.0:9082")
+    /// If empty, internal API is disabled.
+    #[serde(default)]
+    pub bind_addr: String,
+
+    /// TLS configuration for secure admin communication.
+    /// If not set, uses the replication TLS config if available.
+    #[serde(default)]
+    pub tls: Option<TlsConfig>,
+
+    /// Require mTLS authentication for all requests.
+    #[serde(default = "default_require_auth")]
+    pub require_auth: bool,
+}
+
+fn default_require_auth() -> bool {
+    true
+}
+
+impl Default for InternalApiConfig {
+    fn default() -> Self {
+        Self {
+            bind_addr: String::new(),
+            tls: None,
+            require_auth: default_require_auth(),
+        }
+    }
 }
 
 /// Retry settings for replication operations.
@@ -392,6 +428,7 @@ impl Default for ClusterConfig {
             rpc_timeout_secs: default_rpc_timeout_secs(),
             allow_auto_recovery: false,
             replication: ReplicationConfig::default(),
+            internal_api: InternalApiConfig::default(),
         }
     }
 }

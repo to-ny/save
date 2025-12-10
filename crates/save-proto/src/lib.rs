@@ -7,3 +7,8 @@ pub mod replication {
 pub mod raft {
     tonic::include_proto!("raft");
 }
+
+/// Generated protobuf definitions for cluster administration.
+pub mod cluster {
+    tonic::include_proto!("cluster");
+}

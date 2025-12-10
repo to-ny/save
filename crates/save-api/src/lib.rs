@@ -3,6 +3,7 @@ use axum::Router;
 pub mod auth;
 pub mod gc;
 pub mod handlers;
+pub mod internal_api;
 pub mod metrics;
 pub mod middleware;
 pub mod routes;
@@ -12,6 +13,7 @@ pub mod state;
 pub mod test_helpers;
 
 pub use gc::{GcConfig, run_gc_worker};
+pub use internal_api::run_server as run_internal_api_server;
 pub use middleware::RequestTracker;
 pub use state::AppState;
 

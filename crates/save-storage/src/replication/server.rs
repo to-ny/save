@@ -2,6 +2,10 @@
 
 use super::service::ReplicationService;
 use save_common::TlsConfig;
+use save_common::{
+    BoxBody, create_grpc_error_response, create_grpc_response, create_grpc_streaming_response,
+    parse_grpc_frame,
+};
 use save_proto::replication as proto;
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -10,8 +14,6 @@ use tonic::Status;
 use tonic::server::NamedService;
 use tonic::transport::Server;
 use tracing::info;
-
-type BoxBody = http_body_util::combinators::UnsyncBoxBody<bytes::Bytes, Status>;
 
 /// Run the replication gRPC server with graceful shutdown support.
 pub async fn run_server(
@@ -121,7 +123,7 @@ macro_rules! define_grpc_server {
                     let body = match http_body_util::BodyExt::collect(body).await {
                         Ok(collected) => collected.to_bytes(),
                         Err(_) => {
-                            return Ok(create_error_response(Status::internal(
+                            return Ok(create_grpc_error_response(Status::internal(
                                 "failed to read body",
                             )));
                         }
@@ -162,7 +164,7 @@ macro_rules! define_grpc_server {
                         "/replication.ReplicationHealth/GetStats" => {
                             handle_get_stats(&inner, body.to_vec()).await
                         }
-                        _ => create_error_response(Status::unimplemented("unknown method")),
+                        _ => create_grpc_error_response(Status::unimplemented("unknown method")),
                     };
 
                     Ok(response)
@@ -293,34 +295,18 @@ impl ReplicationTrait for ServiceWrapper {
 
 // Request handlers
 
-fn parse_grpc_frame(body: &[u8]) -> Result<&[u8], Status> {
-    const HEADER_LEN: usize = 5;
-    if body.len() < HEADER_LEN {
-        return Err(Status::invalid_argument("incomplete grpc frame header"));
-    }
-
-    let _compression = body[0];
-    let len = u32::from_be_bytes([body[1], body[2], body[3], body[4]]) as usize;
-
-    if body.len() < HEADER_LEN + len {
-        return Err(Status::invalid_argument("incomplete grpc frame body"));
-    }
-
-    Ok(&body[HEADER_LEN..HEADER_LEN + len])
-}
-
 async fn handle_write_object<T: ReplicationTrait>(
     service: &T,
     body: Vec<u8>,
 ) -> http::Response<BoxBody> {
     let data = match parse_grpc_frame(&body) {
         Ok(d) => d,
-        Err(status) => return create_error_response(status),
+        Err(status) => return create_grpc_error_response(status),
     };
 
     match prost::Message::decode(data) {
-        Ok(req) => create_response(service.write_object(req).await),
-        Err(e) => create_error_response(Status::invalid_argument(e.to_string())),
+        Ok(req) => create_grpc_response(service.write_object(req).await),
+        Err(e) => create_grpc_error_response(Status::invalid_argument(e.to_string())),
     }
 }
 
@@ -330,12 +316,12 @@ async fn handle_prepare_object<T: ReplicationTrait>(
 ) -> http::Response<BoxBody> {
     let data = match parse_grpc_frame(&body) {
         Ok(d) => d,
-        Err(status) => return create_error_response(status),
+        Err(status) => return create_grpc_error_response(status),
     };
 
     match prost::Message::decode(data) {
-        Ok(req) => create_response(service.prepare_object(req).await),
-        Err(e) => create_error_response(Status::invalid_argument(e.to_string())),
+        Ok(req) => create_grpc_response(service.prepare_object(req).await),
+        Err(e) => create_grpc_error_response(Status::invalid_argument(e.to_string())),
     }
 }
 
@@ -345,12 +331,12 @@ async fn handle_commit_object<T: ReplicationTrait>(
 ) -> http::Response<BoxBody> {
     let data = match parse_grpc_frame(&body) {
         Ok(d) => d,
-        Err(status) => return create_error_response(status),
+        Err(status) => return create_grpc_error_response(status),
     };
 
     match prost::Message::decode(data) {
-        Ok(req) => create_response(service.commit_object(req).await),
-        Err(e) => create_error_response(Status::invalid_argument(e.to_string())),
+        Ok(req) => create_grpc_response(service.commit_object(req).await),
+        Err(e) => create_grpc_error_response(Status::invalid_argument(e.to_string())),
     }
 }
 
@@ -360,12 +346,12 @@ async fn handle_abort_object<T: ReplicationTrait>(
 ) -> http::Response<BoxBody> {
     let data = match parse_grpc_frame(&body) {
         Ok(d) => d,
-        Err(status) => return create_error_response(status),
+        Err(status) => return create_grpc_error_response(status),
     };
 
     match prost::Message::decode(data) {
-        Ok(req) => create_response(service.abort_object(req).await),
-        Err(e) => create_error_response(Status::invalid_argument(e.to_string())),
+        Ok(req) => create_grpc_response(service.abort_object(req).await),
+        Err(e) => create_grpc_error_response(Status::invalid_argument(e.to_string())),
     }
 }
 
@@ -397,12 +383,12 @@ async fn handle_stream_prepare_object<T: ReplicationTrait>(
         let data = &body[offset + HEADER_LEN..offset + HEADER_LEN + len];
         match prost::Message::decode(data) {
             Ok(chunk) => chunks.push(chunk),
-            Err(e) => return create_error_response(Status::invalid_argument(e.to_string())),
+            Err(e) => return create_grpc_error_response(Status::invalid_argument(e.to_string())),
         }
         offset += HEADER_LEN + len;
     }
 
-    create_response(service.stream_prepare_object(chunks).await)
+    create_grpc_response(service.stream_prepare_object(chunks).await)
 }
 
 async fn handle_read_object<T: ReplicationTrait>(
@@ -411,20 +397,20 @@ async fn handle_read_object<T: ReplicationTrait>(
 ) -> http::Response<BoxBody> {
     let data = match parse_grpc_frame(&body) {
         Ok(d) => d,
-        Err(status) => return create_error_response(status),
+        Err(status) => return create_grpc_error_response(status),
     };
 
     let req: proto::ReadObjectRequest = match prost::Message::decode(data) {
         Ok(r) => r,
-        Err(e) => return create_error_response(Status::invalid_argument(e.to_string())),
+        Err(e) => return create_grpc_error_response(Status::invalid_argument(e.to_string())),
     };
 
     match service.read_object(req).await {
-        Ok(chunks) => create_streaming_response(chunks),
+        Ok(chunks) => create_grpc_streaming_response(chunks),
         Err(crate::StorageError::NotFound(key)) => {
-            create_error_response(Status::not_found(format!("Object not found: {}", key)))
+            create_grpc_error_response(Status::not_found(format!("Object not found: {}", key)))
         }
-        Err(e) => create_error_response(Status::internal(e.to_string())),
+        Err(e) => create_grpc_error_response(Status::internal(e.to_string())),
     }
 }
 
@@ -434,12 +420,12 @@ async fn handle_object_exists<T: ReplicationTrait>(
 ) -> http::Response<BoxBody> {
     let data = match parse_grpc_frame(&body) {
         Ok(d) => d,
-        Err(status) => return create_error_response(status),
+        Err(status) => return create_grpc_error_response(status),
     };
 
     match prost::Message::decode(data) {
-        Ok(req) => create_response(service.object_exists(req).await),
-        Err(e) => create_error_response(Status::invalid_argument(e.to_string())),
+        Ok(req) => create_grpc_response(service.object_exists(req).await),
+        Err(e) => create_grpc_error_response(Status::invalid_argument(e.to_string())),
     }
 }
 
@@ -449,17 +435,17 @@ async fn handle_delete_object<T: ReplicationTrait>(
 ) -> http::Response<BoxBody> {
     let data = match parse_grpc_frame(&body) {
         Ok(d) => d,
-        Err(status) => return create_error_response(status),
+        Err(status) => return create_grpc_error_response(status),
     };
 
     match prost::Message::decode(data) {
-        Ok(req) => create_response(service.delete_object(req).await),
-        Err(e) => create_error_response(Status::invalid_argument(e.to_string())),
+        Ok(req) => create_grpc_response(service.delete_object(req).await),
+        Err(e) => create_grpc_error_response(Status::invalid_argument(e.to_string())),
     }
 }
 
 async fn handle_health_check<T: ReplicationTrait>(service: &T) -> http::Response<BoxBody> {
-    create_response(service.health_check())
+    create_grpc_response(service.health_check())
 }
 
 async fn handle_get_stats<T: ReplicationTrait>(
@@ -468,75 +454,13 @@ async fn handle_get_stats<T: ReplicationTrait>(
 ) -> http::Response<BoxBody> {
     let data = match parse_grpc_frame(&body) {
         Ok(d) => d,
-        Err(status) => return create_error_response(status),
+        Err(status) => return create_grpc_error_response(status),
     };
 
     let _req: proto::GetStatsRequest = match prost::Message::decode(data) {
         Ok(r) => r,
-        Err(e) => return create_error_response(Status::invalid_argument(e.to_string())),
+        Err(e) => return create_grpc_error_response(Status::invalid_argument(e.to_string())),
     };
 
-    create_response(service.get_stats().await)
-}
-
-// Response helpers
-
-fn create_response<T: prost::Message>(msg: T) -> http::Response<BoxBody> {
-    use http_body_util::BodyExt;
-
-    let mut buf = Vec::with_capacity(msg.encoded_len() + 5);
-    buf.push(0); // compression flag
-    let len = msg.encoded_len() as u32;
-    buf.extend_from_slice(&len.to_be_bytes());
-    msg.encode(&mut buf).unwrap();
-
-    let body = http_body_util::Full::new(bytes::Bytes::from(buf))
-        .map_err(|_: std::convert::Infallible| Status::internal("body error"))
-        .boxed_unsync();
-
-    http::Response::builder()
-        .status(200)
-        .header("content-type", "application/grpc")
-        .header("grpc-status", "0")
-        .body(body)
-        .unwrap()
-}
-
-fn create_streaming_response<T: prost::Message>(msgs: Vec<T>) -> http::Response<BoxBody> {
-    use http_body_util::BodyExt;
-
-    let mut buf = Vec::new();
-    for msg in msgs {
-        buf.push(0); // compression flag
-        let len = msg.encoded_len() as u32;
-        buf.extend_from_slice(&len.to_be_bytes());
-        msg.encode(&mut buf).unwrap();
-    }
-
-    let body = http_body_util::Full::new(bytes::Bytes::from(buf))
-        .map_err(|_: std::convert::Infallible| Status::internal("body error"))
-        .boxed_unsync();
-
-    http::Response::builder()
-        .status(200)
-        .header("content-type", "application/grpc")
-        .header("grpc-status", "0")
-        .body(body)
-        .unwrap()
-}
-
-fn create_error_response(status: Status) -> http::Response<BoxBody> {
-    use http_body_util::BodyExt;
-
-    let body = http_body_util::Empty::new()
-        .map_err(|_: std::convert::Infallible| Status::internal("body error"))
-        .boxed_unsync();
-
-    http::Response::builder()
-        .status(200)
-        .header("content-type", "application/grpc")
-        .header("grpc-status", status.code() as i32)
-        .header("grpc-message", status.message())
-        .body(body)
-        .unwrap()
+    create_grpc_response(service.get_stats().await)
 }

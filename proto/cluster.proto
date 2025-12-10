@@ -1,0 +1,128 @@
+syntax = "proto3";
+
+package cluster;
+
+// Internal cluster management service for administrative operations.
+// This service is used for node-to-node and operator-to-cluster communication.
+
+service ClusterAdmin {
+  // Get cluster status including Raft state and membership
+  rpc GetStatus(GetStatusRequest) returns (GetStatusResponse);
+
+  // Add a node as a learner (non-voting)
+  rpc AddLearner(AddLearnerRequest) returns (AddLearnerResponse);
+
+  // Promote learners to voters
+  rpc PromoteVoters(PromoteVotersRequest) returns (PromoteVotersResponse);
+
+  // Remove a node from the cluster
+  rpc RemoveNode(RemoveNodeRequest) returns (RemoveNodeResponse);
+
+  // Transfer leadership to another node
+  rpc TransferLeader(TransferLeaderRequest) returns (TransferLeaderResponse);
+
+  // Drain node for graceful shutdown (rejects new requests, waits for in-flight)
+  rpc DrainNode(DrainNodeRequest) returns (DrainNodeResponse);
+
+  // Get debug information about cluster state
+  rpc GetDebugInfo(GetDebugInfoRequest) returns (GetDebugInfoResponse);
+}
+
+// Status messages
+
+message GetStatusRequest {}
+
+message GetStatusResponse {
+  uint64 node_id = 1;
+  bool initialized = 2;
+  RaftState state = 3;
+  uint64 current_term = 4;
+  optional uint64 leader_id = 5;
+  repeated uint64 voters = 6;
+  repeated uint64 learners = 7;
+  optional uint64 last_applied_index = 8;
+  optional uint64 last_log_index = 9;
+}
+
+enum RaftState {
+  RAFT_STATE_UNKNOWN = 0;
+  RAFT_STATE_LEADER = 1;
+  RAFT_STATE_FOLLOWER = 2;
+  RAFT_STATE_CANDIDATE = 3;
+  RAFT_STATE_LEARNER = 4;
+  RAFT_STATE_SHUTDOWN = 5;
+}
+
+// Membership management messages
+
+message AddLearnerRequest {
+  uint64 node_id = 1;
+  string address = 2;  // gRPC address for the new node
+}
+
+message AddLearnerResponse {
+  bool success = 1;
+  string error_message = 2;
+}
+
+message PromoteVotersRequest {
+  repeated uint64 node_ids = 1;
+}
+
+message PromoteVotersResponse {
+  bool success = 1;
+  string error_message = 2;
+}
+
+message RemoveNodeRequest {
+  uint64 node_id = 1;
+}
+
+message RemoveNodeResponse {
+  bool success = 1;
+  string error_message = 2;
+}
+
+// Leader transfer messages
+
+message TransferLeaderRequest {
+  uint64 target_node_id = 1;  // Node to transfer leadership to (0 = auto-select)
+}
+
+message TransferLeaderResponse {
+  bool success = 1;
+  string error_message = 2;
+  uint64 new_leader_id = 3;
+}
+
+// Node drain messages
+
+message DrainNodeRequest {
+  uint64 timeout_secs = 1;  // Max time to wait for drain (0 = use default)
+}
+
+message DrainNodeResponse {
+  bool success = 1;
+  string error_message = 2;
+  uint64 drained_requests = 3;
+}
+
+// Debug messages
+
+message GetDebugInfoRequest {
+  bool include_log_entries = 1;  // Include recent Raft log entries
+  uint32 max_log_entries = 2;    // Max entries to return (default: 100)
+}
+
+message GetDebugInfoResponse {
+  string node_info = 1;          // JSON-encoded node state
+  string cluster_info = 2;       // JSON-encoded cluster state
+  repeated LogEntry recent_logs = 3;
+}
+
+message LogEntry {
+  uint64 term = 1;
+  uint64 index = 2;
+  string entry_type = 3;         // Command type
+  uint64 timestamp_ms = 4;
+}

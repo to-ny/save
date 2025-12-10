@@ -10,6 +10,7 @@ repository.workspace = true
 save-common = { path = "../save-common" }
 save-storage = { path = "../save-storage" }
 save-metadata = { path = "../save-metadata" }
+save-proto = { path = "../save-proto" }
 tokio = { workspace = true }
 tokio-util = { version = "0.7", features = ["io"] }
 futures = "0.3"
@@ -31,10 +32,15 @@ dashmap = { workspace = true }
 socket2 = { workspace = true }
 rand = { workspace = true }
 fail = { workspace = true, optional = true }
+tonic = { workspace = true }
+prost = { workspace = true }
+bytes = "1"
+http = "1"
+http-body = "1"
+http-body-util = { workspace = true }
+tower = { workspace = true }
 
 [dev-dependencies]
-tower = { workspace = true }
-http-body-util = { workspace = true }
 tempfile = { workspace = true }
 filetime = "0.2"
 roxmltree = "0.21.1"

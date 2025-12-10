@@ -12,6 +12,10 @@ pub mod validation;
 
 pub use config::{RetrySettings, TlsConfig};
 pub use error::{Error, Result};
+pub use grpc::{
+    BoxBody, create_grpc_error_response, create_grpc_response, create_grpc_streaming_response,
+    parse_grpc_frame,
+};
 pub use retry::{RetryConfig, retry_with_backoff};
 
 impl From<&RetrySettings> for RetryConfig {
