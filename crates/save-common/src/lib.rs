@@ -6,6 +6,7 @@ pub mod retry;
 pub mod s3_error;
 pub mod s3_responses;
 pub mod tls;
+pub mod tracing;
 pub mod types;
 pub mod validation;
 

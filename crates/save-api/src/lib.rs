@@ -29,6 +29,29 @@ pub async fn collect_metrics(state: &AppState) {
 
     let temp_dir = data_path.join("temp");
     metrics::collect_temp_file_stats(&temp_dir);
+
+    // Collect Raft metrics
+    collect_raft_metrics_from_node(state);
+
+    // TODO: Cluster health metrics (node status, quorum, partition) are collected
+    // when ClusterManager is wired up. Currently Raft metrics are collected from
+    // the RaftNode. When ClusterManager is added to AppState, call:
+    // collect_cluster_health_from_manager(state);
+}
+
+fn collect_raft_metrics_from_node(state: &AppState) {
+    let status = state.raft_node.get_status();
+
+    let data = metrics::RaftMetrics {
+        term: status.current_term,
+        state: status.state,
+        last_applied_index: status.last_applied_index,
+        last_log_index: status.last_log_index,
+        voters_count: status.voters.len(),
+        learners_count: status.learners.len(),
+    };
+
+    metrics::collect_raft_metrics(&data);
 }
 
 pub fn app(state: AppState) -> Router {

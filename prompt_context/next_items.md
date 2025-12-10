@@ -1,14 +1,15 @@
 # Next items for phase 2
 
-## Priority 1: Observability
+## Priority 1: Internal APIs
 
 From phase2.md:
-- [ ] Add Raft-specific metrics (leader elections, log entries, snapshots)
-- [ ] Implement replication metrics (writes/reads per node, quorum success/failures)
-- [ ] Add cluster health metrics (node status, replication lag)
-- [ ] Create replica count metrics (per bucket, under-replicated objects)
-- [ ] Add gRPC metrics (request latency, stream duration)
-- [ ] Implement distributed tracing across nodes
+- [ ] Add internal gRPC server startup (port 8082)
+- [ ] Implement gRPC middleware for request logging
+- [ ] Add gRPC interceptors for authentication (mTLS validation)
+- [ ] Create internal API for cluster management operations
+- [ ] Add Raft-specific endpoints (add node, remove node, leader transfer)
+- [ ] Implement node drain API for graceful shutdown
+- [ ] Add debug endpoints for cluster state inspection
 
 ---
 

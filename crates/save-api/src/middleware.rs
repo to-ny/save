@@ -1,4 +1,7 @@
 use axum::{extract::Request, middleware::Next, response::Response};
+use save_common::tracing::{
+    PARENT_SPAN_HEADER, REQUEST_ID_HEADER, TRACE_ID_HEADER, TraceContext, generate_span_id,
+};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Instant;
@@ -6,6 +9,28 @@ use tracing::{Span, debug};
 use uuid::Uuid;
 
 use crate::metrics::{http_request_duration_seconds, http_requests_total};
+
+/// Create a trace context from incoming HTTP headers.
+fn trace_context_from_headers(headers: &axum::http::HeaderMap) -> TraceContext {
+    let trace_id = headers
+        .get(TRACE_ID_HEADER)
+        .and_then(|v| v.to_str().ok())
+        .map(|s| s.to_string())
+        .unwrap_or_else(|| Uuid::new_v4().to_string());
+
+    let parent_span_id = headers
+        .get(PARENT_SPAN_HEADER)
+        .and_then(|v| v.to_str().ok())
+        .map(|s| s.to_string());
+
+    let request_id = headers
+        .get(REQUEST_ID_HEADER)
+        .and_then(|v| v.to_str().ok())
+        .map(|s| s.to_string())
+        .unwrap_or_else(|| Uuid::new_v4().to_string());
+
+    TraceContext::with_values(trace_id, generate_span_id(), parent_span_id, request_id)
+}
 
 #[derive(Clone)]
 pub struct RequestTracker {
@@ -61,20 +86,43 @@ pub async fn track_requests(
 }
 
 pub async fn request_id(mut request: Request, next: Next) -> Response {
-    let request_id = request
-        .headers()
-        .get("x-request-id")
-        .and_then(|v| v.to_str().ok())
-        .map(|s| s.to_string())
-        .unwrap_or_else(|| Uuid::new_v4().to_string());
+    let trace_ctx = trace_context_from_headers(request.headers());
 
-    Span::current().record("request_id", &request_id);
-    request.extensions_mut().insert(request_id.clone());
+    // Record trace context in current span
+    Span::current().record("trace_id", &trace_ctx.trace_id);
+    Span::current().record("span_id", &trace_ctx.span_id);
+    Span::current().record("request_id", &trace_ctx.request_id);
+    if let Some(ref parent) = trace_ctx.parent_span_id {
+        Span::current().record("parent_span_id", parent);
+    }
+
+    // Store in request extensions for use by handlers
+    request.extensions_mut().insert(trace_ctx.clone());
 
     let mut response = next.run(request).await;
-    response
-        .headers_mut()
-        .insert("x-request-id", request_id.parse().unwrap());
+
+    // Add trace headers to response
+    response.headers_mut().insert(
+        REQUEST_ID_HEADER,
+        trace_ctx
+            .request_id
+            .parse()
+            .expect("request_id is valid header value"),
+    );
+    response.headers_mut().insert(
+        TRACE_ID_HEADER,
+        trace_ctx
+            .trace_id
+            .parse()
+            .expect("trace_id is valid header value"),
+    );
+    response.headers_mut().insert(
+        PARENT_SPAN_HEADER,
+        trace_ctx
+            .span_id
+            .parse()
+            .expect("span_id is valid header value"),
+    );
 
     response
 }
@@ -84,11 +132,11 @@ pub async fn track_metrics(request: Request, next: Next) -> Response {
     let method = request.method().to_string();
     let endpoint = normalize_endpoint(request.uri().path());
 
-    let request_id = request
+    let trace_ctx = request
         .extensions()
-        .get::<String>()
+        .get::<TraceContext>()
         .cloned()
-        .unwrap_or_else(|| "unknown".to_string());
+        .unwrap_or_default();
 
     let response = next.run(request).await;
     let status = response.status().as_u16().to_string();
@@ -103,7 +151,9 @@ pub async fn track_metrics(request: Request, next: Next) -> Response {
         .observe(duration);
 
     debug!(
-        request_id = %request_id,
+        trace_id = %trace_ctx.trace_id,
+        span_id = %trace_ctx.span_id,
+        request_id = %trace_ctx.request_id,
         endpoint = %endpoint,
         method = %method,
         status = %status,
@@ -172,5 +222,32 @@ mod tests {
         let metrics = crate::metrics::encode_metrics().unwrap();
         assert!(metrics.contains("save_http_requests_total"));
         assert!(metrics.contains("save_http_request_duration_seconds"));
+    }
+
+    #[test]
+    fn test_trace_context_from_headers_empty() {
+        let headers = axum::http::HeaderMap::new();
+        let ctx = trace_context_from_headers(&headers);
+
+        // Should generate new IDs when headers are missing
+        assert!(!ctx.trace_id.is_empty());
+        assert!(!ctx.span_id.is_empty());
+        assert!(!ctx.request_id.is_empty());
+        assert!(ctx.parent_span_id.is_none());
+    }
+
+    #[test]
+    fn test_trace_context_from_headers_with_trace() {
+        let mut headers = axum::http::HeaderMap::new();
+        headers.insert(TRACE_ID_HEADER, "test-trace-id".parse().unwrap());
+        headers.insert(PARENT_SPAN_HEADER, "parent-span-123".parse().unwrap());
+        headers.insert(REQUEST_ID_HEADER, "req-456".parse().unwrap());
+
+        let ctx = trace_context_from_headers(&headers);
+
+        assert_eq!(ctx.trace_id, "test-trace-id");
+        assert_eq!(ctx.parent_span_id, Some("parent-span-123".to_string()));
+        assert_eq!(ctx.request_id, "req-456");
+        assert!(!ctx.span_id.is_empty()); // New span ID generated
     }
 }

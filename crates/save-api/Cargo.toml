@@ -29,6 +29,7 @@ prometheus = { workspace = true }
 nix = { workspace = true }
 dashmap = { workspace = true }
 socket2 = { workspace = true }
+rand = { workspace = true }
 fail = { workspace = true, optional = true }
 
 [dev-dependencies]

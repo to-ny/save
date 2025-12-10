@@ -3660,6 +3660,7 @@ dependencies = [
  "http-body-util",
  "nix",
  "prometheus",
+ "rand 0.9.2",
  "roxmltree",
  "save-common",
  "save-metadata",

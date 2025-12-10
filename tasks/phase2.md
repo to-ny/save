@@ -96,12 +96,12 @@ Transform the single-node S3-compatible store into a distributed, replicated sys
 ---
 
 ## Observability & Monitoring
-- [ ] Add Raft-specific metrics (leader elections, log entries, snapshots)
-- [ ] Implement replication metrics (writes/reads per node, quorum success/failures)
-- [ ] Add cluster health metrics (node status, replication lag)
-- [ ] Create replica count metrics (per bucket, under-replicated objects)
-- [ ] Add gRPC metrics (request latency, stream duration)
-- [ ] Implement distributed tracing across nodes (trace IDs propagation)
+- [x] Add Raft-specific metrics (leader elections, log entries, snapshots)
+- [x] Implement replication metrics (writes/reads per node, quorum success/failures)
+- [x] Add cluster health metrics (node status, replication lag)
+- [x] Create replica count metrics (per bucket, under-replicated objects)
+- [x] Add gRPC metrics (request latency, stream duration)
+- [x] Implement distributed tracing across nodes (trace IDs propagation)
 - [ ] Update Grafana dashboard with cluster panels
 - [ ] Add alerting rules for cluster degradation
 - [ ] Create replication lag alerts
