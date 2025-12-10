@@ -408,6 +408,9 @@ impl RaftRpcClient {
             .map_err(|e| Status::invalid_argument(e.to_string()))?
             .connect_timeout(self.connect_timeout)
             .timeout(self.rpc_timeout)
+            .http2_keep_alive_interval(Duration::from_secs(1))
+            .keep_alive_timeout(Duration::from_secs(3))
+            .keep_alive_while_idle(true)
             .connect()
             .await
             .map_err(|e| Status::unavailable(e.to_string()))

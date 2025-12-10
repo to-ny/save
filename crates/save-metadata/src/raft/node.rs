@@ -3,7 +3,8 @@
 use super::network::Network;
 use super::storage::Storage;
 use super::types::{NodeId, Raft};
-use crate::error::Result;
+use crate::error::{MetadataError, Result};
+use openraft::error::{ClientWriteError, RaftError};
 use openraft::storage::Adaptor;
 use openraft::{BasicNode, ChangeMembers, Config, ServerState};
 use save_common::cluster::parse_peer;
@@ -13,6 +14,7 @@ use std::collections::BTreeMap;
 use std::collections::BTreeSet;
 use std::sync::Arc;
 use std::time::Duration;
+use tracing::debug;
 
 /// Raft node state for monitoring.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -278,13 +280,69 @@ impl RaftNode {
     }
 
     /// Submits a command through Raft consensus.
-    /// Must be called on the leader node.
+    ///
+    /// If this node is not the leader, it will wait for a leader to be elected
+    /// and retry the operation. This handles leadership changes during operation.
     pub async fn write(&self, command: super::commands::Command) -> Result<()> {
-        self.raft
-            .client_write(command)
-            .await
-            .map_err(|e| crate::error::MetadataError::Raft(e.to_string()))?;
-        Ok(())
+        self.write_with_retry(command, 5, Duration::from_millis(200)).await
+    }
+
+    /// Internal write with retry logic for leadership changes.
+    async fn write_with_retry(
+        &self,
+        command: super::commands::Command,
+        max_retries: u32,
+        retry_delay: Duration,
+    ) -> Result<()> {
+        let mut attempt = 0;
+        let mut last_error = None;
+
+        while attempt <= max_retries {
+            match self.raft.client_write(command.clone()).await {
+                Ok(_) => return Ok(()),
+                Err(e) => {
+                    // Check if this is a ForwardToLeader error (wrapped in RaftError)
+                    let is_forward_to_leader = match &e {
+                        RaftError::APIError(ClientWriteError::ForwardToLeader(forward)) => {
+                            Some(forward.leader_id)
+                        }
+                        _ => None,
+                    };
+
+                    if let Some(leader_id) = is_forward_to_leader {
+                        debug!(
+                            attempt = attempt,
+                            leader_id = ?leader_id,
+                            "Not leader, waiting for leader election"
+                        );
+
+                        // If we know the leader is us or no leader is known, wait for election
+                        if leader_id == Some(self.node_id) || leader_id.is_none() {
+                            // Wait for a leader to be elected
+                            let wait_result = self.wait_for_leader(Duration::from_secs(5)).await;
+                            if wait_result.is_err() {
+                                last_error = Some(MetadataError::NotLeader(None));
+                                attempt += 1;
+                                tokio::time::sleep(retry_delay).await;
+                                continue;
+                            }
+                        } else {
+                            // There's a different leader - this node shouldn't be handling writes
+                            return Err(MetadataError::NotLeader(leader_id));
+                        }
+
+                        attempt += 1;
+                        tokio::time::sleep(retry_delay).await;
+                        continue;
+                    }
+
+                    // For other errors, fail immediately
+                    return Err(MetadataError::Raft(e.to_string()));
+                }
+            }
+        }
+
+        Err(last_error.unwrap_or_else(|| MetadataError::Raft("Max retries exceeded".to_string())))
     }
 
     pub async fn put_object_metadata(&self, metadata: crate::ObjectMetadata) -> Result<()> {

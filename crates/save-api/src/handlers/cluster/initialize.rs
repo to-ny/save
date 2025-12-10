@@ -1,5 +1,6 @@
 use axum::{Json, extract::State, http::StatusCode, response::IntoResponse};
 use save_common::cluster::parse_peer;
+use std::time::Duration;
 use tracing::{error, info, warn};
 
 use super::{InitializeRequest, InitializeResponse};
@@ -49,28 +50,111 @@ pub async fn cluster_initialize(
         }
     };
 
-    match state.raft_node.initialize(members).await {
-        Ok(()) => {
-            info!("Cluster initialized successfully");
-            (
-                StatusCode::OK,
+    let my_node_id = state.raft_node.node_id();
+
+    // Find this node's address from the members list
+    let my_addr = match members.iter().find(|(id, _)| *id == my_node_id) {
+        Some((_, addr)) => addr.clone(),
+        None => {
+            return (
+                StatusCode::BAD_REQUEST,
                 Json(InitializeResponse {
-                    success: true,
-                    message: "Cluster initialized".to_string(),
+                    success: false,
+                    message: format!(
+                        "This node (id={}) must be included in members list",
+                        my_node_id
+                    ),
                 }),
             )
-                .into_response()
+                .into_response();
         }
-        Err(e) => {
-            error!("Failed to initialize cluster: {}", e);
-            (
+    };
+
+    // Step 1: Initialize this node as a single-node cluster first.
+    // This allows this node to become leader immediately.
+    let initial_member = vec![(my_node_id, my_addr)];
+    if let Err(e) = state.raft_node.initialize(initial_member).await {
+        error!("Failed to initialize single-node cluster: {}", e);
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(InitializeResponse {
+                success: false,
+                message: format!("Failed to initialize: {}", e),
+            }),
+        )
+            .into_response();
+    }
+
+    info!("Initialized as single-node cluster, waiting to become leader");
+
+    // Step 2: Wait for this node to become leader
+    if let Err(e) = state
+        .raft_node
+        .wait_for_leader(Duration::from_secs(5))
+        .await
+    {
+        error!("Failed to become leader: {}", e);
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(InitializeResponse {
+                success: false,
+                message: format!("Failed to become leader: {}", e),
+            }),
+        )
+            .into_response();
+    }
+
+    info!("Became leader, adding other nodes");
+
+    // Step 3: Add other nodes as learners and promote to voters
+    let other_members: Vec<(u64, String)> = members
+        .into_iter()
+        .filter(|(id, _)| *id != my_node_id)
+        .collect();
+
+    if !other_members.is_empty() {
+        // Add all other nodes as learners first
+        for (node_id, addr) in &other_members {
+            if let Err(e) = state.raft_node.add_learner(*node_id, addr.clone()).await {
+                error!("Failed to add learner {}: {}", node_id, e);
+                return (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(InitializeResponse {
+                        success: false,
+                        message: format!("Failed to add learner {}: {}", node_id, e),
+                    }),
+                )
+                    .into_response();
+            }
+            info!("Added node {} as learner", node_id);
+        }
+
+        // Small delay to let learners sync
+        tokio::time::sleep(Duration::from_millis(100)).await;
+
+        // Promote all learners to voters
+        let learner_ids: Vec<u64> = other_members.iter().map(|(id, _)| *id).collect();
+        if let Err(e) = state.raft_node.promote_voters(learner_ids.clone()).await {
+            error!("Failed to promote voters: {}", e);
+            return (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(InitializeResponse {
                     success: false,
-                    message: format!("Failed to initialize: {}", e),
+                    message: format!("Failed to promote voters: {}", e),
                 }),
             )
-                .into_response()
+                .into_response();
         }
+        info!("Promoted {} learners to voters", learner_ids.len());
     }
+
+    info!("Cluster initialized successfully with {} members", other_members.len() + 1);
+    (
+        StatusCode::OK,
+        Json(InitializeResponse {
+            success: true,
+            message: "Cluster initialized".to_string(),
+        }),
+    )
+        .into_response()
 }

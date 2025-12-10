@@ -10,14 +10,16 @@ use openraft::raft::{
     VoteRequest, VoteResponse,
 };
 use std::collections::HashMap;
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
 use std::time::Duration;
+use tokio::sync::RwLock;
 
 /// Raft network factory that creates connections to peers.
 pub struct Network {
-    #[allow(dead_code)] // Used for cluster membership management
+    #[allow(dead_code)]
     node_id: NodeId,
-    peers: Arc<RwLock<HashMap<NodeId, String>>>,
+    peers: Arc<std::sync::RwLock<HashMap<NodeId, String>>>,
+    clients: Arc<RwLock<HashMap<NodeId, RaftRpcClient>>>,
     connect_timeout: Duration,
     rpc_timeout: Duration,
 }
@@ -43,7 +45,8 @@ impl Network {
         let peer_map: HashMap<NodeId, String> = peers.into_iter().collect();
         Self {
             node_id,
-            peers: Arc::new(RwLock::new(peer_map)),
+            peers: Arc::new(std::sync::RwLock::new(peer_map)),
+            clients: Arc::new(RwLock::new(HashMap::new())),
             connect_timeout,
             rpc_timeout,
         }
@@ -73,27 +76,47 @@ impl RaftNetworkFactory<NodeTypeConfig> for Network {
             peers.get(&target).cloned()
         };
 
-        let endpoint = addr.unwrap_or_else(|| format!("http://{}", node.addr));
-        NetworkConnection::with_timeouts(target, endpoint, self.connect_timeout, self.rpc_timeout)
+        // Use peer map address if available, otherwise use node.addr from membership.
+        // node.addr may already have "http://" prefix from initialization.
+        let endpoint = addr.unwrap_or_else(|| {
+            if node.addr.starts_with("http://") || node.addr.starts_with("https://") {
+                node.addr.clone()
+            } else {
+                format!("http://{}", node.addr)
+            }
+        });
+
+        // Get or create a cached client for this target
+        let client = {
+            let mut clients = self.clients.write().await;
+            clients
+                .entry(target)
+                .or_insert_with(|| {
+                    RaftRpcClient::with_timeouts(
+                        endpoint.clone(),
+                        self.connect_timeout,
+                        self.rpc_timeout,
+                    )
+                })
+                .clone()
+        };
+
+        NetworkConnection::new(client)
     }
 }
 
 /// Network connection to a specific peer.
+///
+/// Wraps a cached `RaftRpcClient` that handles connection management
+/// and automatic reconnection on transport failures.
 pub struct NetworkConnection {
     client: RaftRpcClient,
 }
 
 impl NetworkConnection {
-    /// Create a new connection with custom timeouts.
-    pub fn with_timeouts(
-        _target: NodeId,
-        endpoint: String,
-        connect_timeout: Duration,
-        rpc_timeout: Duration,
-    ) -> Self {
-        Self {
-            client: RaftRpcClient::with_timeouts(endpoint, connect_timeout, rpc_timeout),
-        }
+    /// Create a new connection wrapping an existing client.
+    pub fn new(client: RaftRpcClient) -> Self {
+        Self { client }
     }
 }
 

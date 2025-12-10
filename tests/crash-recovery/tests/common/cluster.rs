@@ -72,6 +72,7 @@ pub struct ClusterNode {
     pub data_path: PathBuf,
     pub metadata_path: PathBuf,
     pub config_path: PathBuf,
+    pub stderr_path: PathBuf,
     pub client: Client,
 }
 
@@ -218,20 +219,43 @@ impl ClusterEnv {
     }
 
     /// Wait for a leader to be elected.
+    /// Only considers running nodes and ensures the leader is also running.
     pub async fn wait_for_leader(&self, timeout: Duration) -> Result<u64> {
         let start = Instant::now();
 
         loop {
             if start.elapsed() > timeout {
+                // Print stderr logs from all nodes to help debug
+                for node in self.nodes.values() {
+                    if let Ok(content) = std::fs::read_to_string(&node.stderr_path) {
+                        let last_lines: Vec<&str> = content.lines().rev().take(50).collect();
+                        tracing::error!(
+                            "Node {} stderr (last 50 lines):\n{}",
+                            node.config.node_id,
+                            last_lines.into_iter().rev().collect::<Vec<_>>().join("\n")
+                        );
+                    }
+                }
                 anyhow::bail!("Timeout waiting for leader election");
             }
 
+            // Only check running nodes
             for node in self.nodes.values() {
-                if let Ok(status) = self.get_node_status(node.config.node_id).await
-                    && let Some(leader_id) = status.current_leader
-                {
-                    tracing::info!("Leader elected: node {}", leader_id);
-                    return Ok(leader_id);
+                // Skip nodes that are not running
+                if node.child.is_none() {
+                    continue;
+                }
+
+                if let Ok(status) = self.get_node_status(node.config.node_id).await {
+                    if let Some(leader_id) = status.current_leader {
+                        // Verify the reported leader is actually running
+                        if let Some(leader_node) = self.nodes.get(&leader_id) {
+                            if leader_node.child.is_some() {
+                                tracing::info!("Leader elected: node {}", leader_id);
+                                return Ok(leader_id);
+                            }
+                        }
+                    }
                 }
             }
 
@@ -625,6 +649,8 @@ async fn start_node(config: &NodeConfig, peers: &[String]) -> Result<ClusterNode
     // Create config file
     // Note: allow_auto_recovery = true enables automatic recovery from corrupted Raft state
     // after crash tests. This is safe for single-node test environments.
+    // consistency_mode = "eventual" is used for chaos tests where we're testing resilience,
+    // not linearizable reads. This avoids 500 errors during cluster instability.
     let config_content = format!(
         r#"
 [server]
@@ -645,6 +671,7 @@ node_id = {node_id}
 raft_bind_addr = "127.0.0.1:{raft_port}"
 peers = {peers}
 allow_auto_recovery = true
+consistency_mode = "eventual"
 "#,
         api_port = config.api_port,
         data_path = data_dir.path().display(),
@@ -656,12 +683,17 @@ allow_auto_recovery = true
     let config_path = data_dir.path().join("config.toml");
     std::fs::write(&config_path, config_content)?;
 
+    // Capture stderr to a log file for debugging
+    let stderr_path = data_dir.path().join("stderr.log");
+    let stderr_file =
+        std::fs::File::create(&stderr_path).context("Failed to create stderr log file")?;
+
     // Spawn server
     let child = Command::new(get_binary_path())
         .env("SAVE_CONFIG", &config_path)
         .env("RUST_LOG", "info,save_metadata::raft=debug")
         .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
+        .stderr(std::process::Stdio::from(stderr_file))
         .spawn()
         .context("Failed to spawn save-api")?;
 
@@ -677,6 +709,7 @@ allow_auto_recovery = true
         data_path,
         metadata_path,
         config_path,
+        stderr_path,
         client,
     };
 

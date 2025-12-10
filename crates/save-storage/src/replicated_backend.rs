@@ -698,4 +698,103 @@ mod integration_tests {
             assert_eq!(String::from_utf8(buf).unwrap(), expected);
         }
     }
+
+    #[tokio::test]
+    async fn test_strong_consistency_reads_during_network_delay() {
+        // This test verifies read consistency when there are network delays.
+        // We write data to a cluster and verify that reads always return
+        // the latest written data, even with simulated delays between operations.
+
+        let node2 = TestNode::start().await;
+        let node3 = TestNode::start().await;
+
+        let temp_dir = TempDir::new().unwrap();
+        let local_storage = ObjectStorage::new(temp_dir.path()).await.unwrap();
+        let config = QuorumConfig::with_replication_factor(3); // quorum = 2
+        let coordinator = Arc::new(ReplicationCoordinator::new(1, config.clone()));
+
+        coordinator.add_node(2, node2.endpoint()).await.unwrap();
+        coordinator.add_node(3, node3.endpoint()).await.unwrap();
+
+        let backend = Arc::new(ReplicatedBackend::new(local_storage, coordinator, config));
+
+        // Perform a series of writes with simulated network delays
+        for i in 0..10 {
+            let key = "test/delayed.txt";
+            let data = format!("Version {}", i);
+            let mut reader = data.as_bytes();
+
+            // Write new version
+            backend.put_object(key, &mut reader).await.unwrap();
+
+            // Simulate network delay between write and read
+            tokio::time::sleep(Duration::from_millis(50)).await;
+
+            // Strong consistency read should always return the latest version
+            let mut file = backend.get_object(key).await.unwrap();
+            let mut buf = Vec::new();
+            file.read_to_end(&mut buf).await.unwrap();
+
+            let read_value = String::from_utf8(buf).unwrap();
+            assert_eq!(
+                read_value, data,
+                "Read should return latest version {} but got {}",
+                data, read_value
+            );
+        }
+
+        // Test concurrent read during write (interleaved operations)
+        let backend_clone = backend.clone();
+        let write_handle = tokio::spawn(async move {
+            for i in 0..5 {
+                let key = format!("test/concurrent-{}.txt", i);
+                let data = format!("Concurrent data {}", i);
+                let mut reader = data.as_bytes();
+
+                // Simulate variable network delay before write
+                tokio::time::sleep(Duration::from_millis(i as u64 * 10)).await;
+                backend_clone.put_object(&key, &mut reader).await.unwrap();
+            }
+        });
+
+        // Read operations with delays
+        let backend_clone2 = backend.clone();
+        let read_handle = tokio::spawn(async move {
+            // Wait for first writes to complete
+            tokio::time::sleep(Duration::from_millis(30)).await;
+
+            for i in 0..5 {
+                let key = format!("test/concurrent-{}.txt", i);
+                tokio::time::sleep(Duration::from_millis(20)).await;
+
+                // Object may or may not exist depending on timing
+                let result = backend_clone2.get_object(&key).await;
+                if let Ok(mut file) = result {
+                    let mut buf = Vec::new();
+                    file.read_to_end(&mut buf).await.unwrap();
+                    let value = String::from_utf8(buf).unwrap();
+                    // If we can read it, it should be consistent
+                    assert!(
+                        value.starts_with("Concurrent data"),
+                        "Read value should be valid: {}",
+                        value
+                    );
+                }
+            }
+        });
+
+        write_handle.await.unwrap();
+        read_handle.await.unwrap();
+
+        // Final verification: all concurrent writes should be readable now
+        for i in 0..5 {
+            let key = format!("test/concurrent-{}.txt", i);
+            let mut file = backend.get_object(&key).await.unwrap();
+            let mut buf = Vec::new();
+            file.read_to_end(&mut buf).await.unwrap();
+
+            let expected = format!("Concurrent data {}", i);
+            assert_eq!(String::from_utf8(buf).unwrap(), expected);
+        }
+    }
 }

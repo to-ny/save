@@ -32,6 +32,9 @@ pub enum MetadataError {
     #[error("Raft error: {0}")]
     Raft(String),
 
+    #[error("Not leader, leader is node {0:?}")]
+    NotLeader(Option<u64>),
+
     #[error("Storage error: {0}")]
     Storage(String),
 }

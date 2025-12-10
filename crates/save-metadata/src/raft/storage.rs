@@ -167,7 +167,8 @@ impl RaftStorage<NodeTypeConfig> for Storage {
                 }
                 openraft::EntryPayload::Membership(membership) => {
                     let cf = self.state_cf()?;
-                    let encoded = serde_json::to_vec(membership).map_err(|e| {
+                    let stored = StoredMembership::new(Some(entry.log_id), membership.clone());
+                    let encoded = serde_json::to_vec(&stored).map_err(|e| {
                         StorageIOError::write(&std::io::Error::other(e.to_string()))
                     })?;
 

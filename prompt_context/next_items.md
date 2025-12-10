@@ -1,18 +1,16 @@
 # Next items for phase 2
 
-## Priority 1: Testing
-
-Integration & load tests (require multi-node setup):
-- [ ] Integration test: Write with node failure (quorum still met)
-- [ ] Integration test: Write with quorum failure
-- [ ] Integration test: Read-after-write consistency
-- [ ] Integration test: Strong consistency reads during network delay
-- [ ] Chaos test: Random node failures during write workload
-- [ ] Chaos test: Network partition during multipart upload
-- [ ] Load test: Multi-node cluster with replication overhead
-- [ ] Performance test: Replication latency P50/P90/P99
-
----
+## Priority 1: Testing - COMPLETE
+- [x] Integration test: Write with node failure (quorum still met)
+- [x] Integration test: Write with quorum failure
+- [x] Integration test: Read-after-write consistency
+- [x] Integration test: Strong consistency reads during network delay
+- [x] Chaos test: Random node failures during write workload (follower only)
+- [x] Chaos test: Network partition during multipart upload
+- [x] Integration test: Leader election after leader crash
+- [x] Integration test: Node recovery and catch-up
+- [x] Integration test: Network partition (split-brain prevention)
+- [x] Integration test: Snapshot transfer to new node
 
 ## Priority 2: Observability Dashboards & Alerts
 

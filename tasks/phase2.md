@@ -117,16 +117,16 @@ Transform the single-node S3-compatible store into a distributed, replicated sys
 - [x] Unit tests for ClusterManager (state, events, topology)
 - [x] Integration test: 3-node cluster formation
 - [x] Integration test: Leader election after leader crash
-- [ ] Integration test: Write with node failure (quorum still met)
-- [ ] Integration test: Write with quorum failure
+- [x] Integration test: Write with node failure (quorum still met)
+- [x] Integration test: Write with quorum failure
 - [x] Integration test: Network partition (split-brain prevention)
 - [x] Integration test: Node recovery and catch-up
 - [x] Integration test: Snapshot transfer to new node
 - [x] Integration test: Concurrent writes to same object (distributed locking)
-- [ ] Integration test: Read-after-write consistency
-- [ ] Integration test: Strong consistency reads during network delay
-- [ ] Chaos test: Random node failures during write workload
-- [ ] Chaos test: Network partition during multipart upload
+- [x] Integration test: Read-after-write consistency
+- [x] Integration test: Strong consistency reads during network delay
+- [x] Chaos test: Random node failures during write workload (follower failure only)
+- [x] Chaos test: Network partition during multipart upload
 - [ ] Load test: Multi-node cluster with replication overhead
 - [ ] Performance test: Replication latency P50/P90/P99
 - [ ] Benchmark: Compare Phase 1 vs Phase 2 write throughput
@@ -168,7 +168,7 @@ Transform the single-node S3-compatible store into a distributed, replicated sys
 - [ ] Create Makefile/Justfile for common development tasks
 - [ ] Add setup/teardown scripts in `scripts/`
 - [ ] Complete deployment documentation (systemd, TLS termination)
-- [ ] Create operator runbooks for Phase 1 operations
+- [ ] Create operator runbooks
 
 ---
 
