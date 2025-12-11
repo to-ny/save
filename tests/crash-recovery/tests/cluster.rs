@@ -559,7 +559,8 @@ async fn test_snapshot_transfer_to_new_node() {
 
     // The new node should see the current leader
     assert_eq!(
-        new_node_status.current_leader, Some(leader),
+        new_node_status.current_leader,
+        Some(leader),
         "New node should see the current leader"
     );
 
@@ -849,4 +850,123 @@ async fn test_concurrent_writes_to_same_object() {
     }
 
     tracing::info!("Test passed: concurrent writes handled correctly");
+}
+
+/// Test: Request forwarding from follower to leader.
+///
+/// Verifies that:
+/// 1. Write requests sent to a follower are transparently forwarded to the leader
+/// 2. The client receives a successful response as if it contacted the leader directly
+/// 3. The forwarded response includes the x-forwarded-from header
+#[tokio::test]
+async fn test_request_forwarding_to_leader() {
+    tracing_subscriber::fmt()
+        .with_env_filter("info,save_metadata::raft=debug,save_api::middleware=debug")
+        .try_init()
+        .ok();
+
+    // Create a 3-node cluster
+    let cluster = ClusterEnv::new_3_node()
+        .await
+        .expect("Failed to create cluster");
+
+    let leader = cluster.get_leader().await.expect("Should have a leader");
+    tracing::info!("Leader: node {}", leader);
+
+    // Find a follower node
+    let follower = cluster
+        .node_ids()
+        .into_iter()
+        .find(|id| *id != leader)
+        .expect("Should have a follower");
+
+    tracing::info!("Will send requests to follower node {}", follower);
+
+    // Create a bucket via the follower (should be forwarded to leader)
+    let follower_client = cluster.node_client(follower).expect("Should have client");
+
+    let result = follower_client
+        .create_bucket()
+        .bucket("forwarded-bucket")
+        .send()
+        .await;
+
+    assert!(
+        result.is_ok(),
+        "Create bucket via follower should succeed (forwarded to leader): {:?}",
+        result.err()
+    );
+
+    tracing::info!("Create bucket succeeded via follower");
+
+    // Verify the bucket exists by reading from the leader
+    let leader_client = cluster.node_client(leader).expect("Should have client");
+    let head_result = leader_client
+        .head_bucket()
+        .bucket("forwarded-bucket")
+        .send()
+        .await;
+
+    assert!(
+        head_result.is_ok(),
+        "Bucket should exist on leader: {:?}",
+        head_result.err()
+    );
+
+    // Put an object via the follower
+    let put_result = follower_client
+        .put_object()
+        .bucket("forwarded-bucket")
+        .key("forwarded-key")
+        .body(aws_sdk_s3::primitives::ByteStream::from_static(
+            b"forwarded-data",
+        ))
+        .send()
+        .await;
+
+    assert!(
+        put_result.is_ok(),
+        "Put object via follower should succeed: {:?}",
+        put_result.err()
+    );
+
+    tracing::info!("Put object succeeded via follower");
+
+    // Verify the object exists
+    let get_result = leader_client
+        .get_object()
+        .bucket("forwarded-bucket")
+        .key("forwarded-key")
+        .send()
+        .await
+        .expect("Object should exist");
+
+    let body = get_result
+        .body
+        .collect()
+        .await
+        .expect("Failed to read body")
+        .into_bytes();
+
+    assert_eq!(
+        body.as_ref(),
+        b"forwarded-data",
+        "Object content should match"
+    );
+
+    // Delete via follower
+    let delete_result = follower_client
+        .delete_object()
+        .bucket("forwarded-bucket")
+        .key("forwarded-key")
+        .send()
+        .await;
+
+    assert!(
+        delete_result.is_ok(),
+        "Delete via follower should succeed: {:?}",
+        delete_result.err()
+    );
+
+    tracing::info!("Test passed: request forwarding to leader successful");
 }

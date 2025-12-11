@@ -35,6 +35,10 @@ static CLUSTER_REPLICATION_LAG_SECONDS: OnceLock<GaugeVec> = OnceLock::new();
 static REPLICA_COUNT: OnceLock<IntGaugeVec> = OnceLock::new();
 static UNDER_REPLICATED_OBJECTS_TOTAL: OnceLock<IntGauge> = OnceLock::new();
 
+// Request forwarding metrics
+static REQUESTS_FORWARDED_TOTAL: OnceLock<IntCounterVec> = OnceLock::new();
+static FORWARDING_LATENCY_SECONDS: OnceLock<HistogramVec> = OnceLock::new();
+
 // =============================================================================
 // Raft State Label (uses From trait)
 // =============================================================================
@@ -463,6 +467,52 @@ pub fn collect_replica_metrics(buckets: &[BucketReplicaMetrics], under_replicate
     under_replicated_objects_total().set(under_replicated_total);
 }
 
+// =============================================================================
+// Request Forwarding Metrics
+// =============================================================================
+
+/// Total requests forwarded to leader by result.
+pub fn requests_forwarded_total() -> &'static IntCounterVec {
+    REQUESTS_FORWARDED_TOTAL.get_or_init(|| {
+        register_int_counter_vec!(
+            "save_requests_forwarded_total",
+            "Total requests forwarded to leader by result",
+            &["result"]
+        )
+        .expect("Failed to register save_requests_forwarded_total metric")
+    })
+}
+
+/// Request forwarding latency.
+pub fn forwarding_latency_seconds() -> &'static HistogramVec {
+    FORWARDING_LATENCY_SECONDS.get_or_init(|| {
+        register_histogram_vec!(
+            "save_forwarding_latency_seconds",
+            "Request forwarding latency in seconds",
+            &["method"],
+            vec![
+                0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0
+            ]
+        )
+        .expect("Failed to register save_forwarding_latency_seconds metric")
+    })
+}
+
+/// Record a forwarded request result.
+pub fn record_forwarded_request(success: bool) {
+    let result = if success { "success" } else { "failed" };
+    requests_forwarded_total()
+        .with_label_values(&[result])
+        .inc();
+}
+
+/// Record forwarding latency.
+pub fn record_forwarding_latency(method: &str, duration_secs: f64) {
+    forwarding_latency_seconds()
+        .with_label_values(&[method])
+        .observe(duration_secs);
+}
+
 pub(crate) fn init() {
     // Raft metrics
     let _ = raft_term();
@@ -489,6 +539,10 @@ pub(crate) fn init() {
     // Replica metrics
     let _ = replica_count();
     let _ = under_replicated_objects_total();
+
+    // Forwarding metrics
+    let _ = requests_forwarded_total();
+    let _ = forwarding_latency_seconds();
 }
 
 #[cfg(test)]
@@ -593,5 +647,17 @@ mod tests {
 
         collect_replica_metrics(&buckets, 7);
         assert_eq!(under_replicated_objects_total().get(), 7);
+    }
+
+    #[test]
+    fn test_forwarding_metrics() {
+        record_forwarded_request(true);
+        record_forwarded_request(false);
+        record_forwarding_latency("PUT", 0.05);
+        record_forwarding_latency("DELETE", 0.02);
+
+        // Just verify the metrics were recorded without panicking
+        let _ = requests_forwarded_total();
+        let _ = forwarding_latency_seconds();
     }
 }

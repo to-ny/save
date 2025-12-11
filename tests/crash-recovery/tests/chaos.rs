@@ -9,8 +9,8 @@
 mod common;
 
 use common::cluster::ClusterEnv;
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 
 /// Test: Node failure during write workload.
@@ -78,7 +78,9 @@ async fn test_random_node_failures_during_write_workload() {
         .find(|id| *id != leader)
         .expect("Should have a follower");
 
-    cluster.kill_node(follower).expect("Failed to kill follower");
+    cluster
+        .kill_node(follower)
+        .expect("Failed to kill follower");
     tracing::info!("Phase 2: Killed follower {}, continuing writes", follower);
 
     // Wait for cluster to detect the failure
@@ -92,8 +94,13 @@ async fn test_random_node_failures_during_write_workload() {
 
     // More writes should still succeed (quorum = 2, we have 2 nodes)
     for i in 10..20 {
-        let result =
-            write_object(&cluster, current_leader, "chaos-test", &format!("object-{}", i)).await;
+        let result = write_object(
+            &cluster,
+            current_leader,
+            "chaos-test",
+            &format!("object-{}", i),
+        )
+        .await;
         if result {
             successful_writes.fetch_add(1, Ordering::SeqCst);
         } else {
@@ -182,7 +189,9 @@ async fn test_network_partition_during_multipart_upload() {
         .find(|id| *id != leader)
         .expect("Should have a follower");
 
-    cluster.kill_node(follower).expect("Failed to kill follower");
+    cluster
+        .kill_node(follower)
+        .expect("Failed to kill follower");
     tracing::info!("Killed follower {} during multipart upload", follower);
 
     // Wait a moment for cluster to detect the failure
@@ -194,7 +203,9 @@ async fn test_network_partition_during_multipart_upload() {
         .await
         .expect("Should have leader");
 
-    let client = cluster.node_client(current_leader).expect("Should have client");
+    let client = cluster
+        .node_client(current_leader)
+        .expect("Should have client");
 
     let part2_data = vec![b'B'; 5 * 1024 * 1024]; // 5MB
     let part2_result = client
@@ -290,7 +301,9 @@ async fn test_network_partition_during_multipart_upload() {
         .expect("Should have leader after restart");
 
     // Get a fresh client for verification
-    let verify_client = cluster.node_client(final_leader).expect("Should have client");
+    let verify_client = cluster
+        .node_client(final_leader)
+        .expect("Should have client");
 
     // Verify no orphaned parts (list incomplete uploads should be empty or valid)
     let list_uploads = verify_client
@@ -376,7 +389,9 @@ async fn test_rapid_succession_failures() {
         .find(|id| *id != leader)
         .expect("Should have a follower");
 
-    cluster.kill_node(follower).expect("Failed to kill follower");
+    cluster
+        .kill_node(follower)
+        .expect("Failed to kill follower");
     tracing::info!("Killed follower node {}", follower);
 
     // Wait for cluster to detect the failure
@@ -514,7 +529,9 @@ async fn write_object_to_port(port: u16, bucket: &str, key: &str) -> bool {
         .put_object()
         .bucket(bucket)
         .key(key)
-        .body(aws_sdk_s3::primitives::ByteStream::from_static(b"test-data"))
+        .body(aws_sdk_s3::primitives::ByteStream::from_static(
+            b"test-data",
+        ))
         .send()
         .await;
 

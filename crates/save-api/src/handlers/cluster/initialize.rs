@@ -148,7 +148,10 @@ pub async fn cluster_initialize(
         info!("Promoted {} learners to voters", learner_ids.len());
     }
 
-    info!("Cluster initialized successfully with {} members", other_members.len() + 1);
+    info!(
+        "Cluster initialized successfully with {} members",
+        other_members.len() + 1
+    );
     (
         StatusCode::OK,
         Json(InitializeResponse {

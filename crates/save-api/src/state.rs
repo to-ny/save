@@ -1,3 +1,4 @@
+use crate::forward::ForwardingClient;
 use crate::middleware::RequestTracker;
 use dashmap::DashMap;
 use save_common::config::SaveConfig;
@@ -55,6 +56,7 @@ pub struct AppState {
     pub bucket_cache: Arc<BucketCache>,
     pub start_time: Instant,
     pub raft_node: Arc<RaftNode>,
+    pub forwarding_client: ForwardingClient,
 }
 
 impl AppState {
@@ -73,6 +75,12 @@ impl AppState {
         let lock_manager =
             DistributedLockManager::new(Arc::clone(&raft_node), metadata.db(), node_id);
 
+        // Create forwarding client using configured timeouts for leader proxying
+        let forwarding_client = ForwardingClient::new(
+            Duration::from_secs(config.cluster.rpc_timeout_secs),
+            Duration::from_secs(config.cluster.connect_timeout_secs),
+        );
+
         Self {
             storage: Arc::new(storage),
             metadata,
@@ -82,6 +90,7 @@ impl AppState {
             bucket_cache: Arc::new(bucket_cache),
             start_time: Instant::now(),
             raft_node,
+            forwarding_client,
         }
     }
 }

@@ -81,7 +81,7 @@ Transform the single-node S3-compatible store into a distributed, replicated sys
 - [x] Implement split-brain prevention logic
 - [x] Add cluster topology management
 - [x] Create cluster status API endpoint `/cluster/status`
-- [ ] Implement transparent request forwarding to leader for non-leader nodes
+- [x] Implement transparent request forwarding to leader for non-leader nodes
 
 ---
 

@@ -181,6 +181,22 @@ impl RaftNode {
         self.raft.current_leader().await
     }
 
+    /// Returns the address for a given node ID from the membership config.
+    pub fn get_node_addr(&self, node_id: NodeId) -> Option<String> {
+        let metrics = self.raft.metrics().borrow().clone();
+        metrics
+            .membership_config
+            .membership()
+            .get_node(&node_id)
+            .map(|node| node.addr.clone())
+    }
+
+    /// Returns the current leader's address, if known.
+    pub async fn leader_addr(&self) -> Option<String> {
+        let leader_id = self.current_leader().await?;
+        self.get_node_addr(leader_id)
+    }
+
     /// Waits until a leader is elected or timeout.
     pub async fn wait_for_leader(&self, timeout: Duration) -> Result<NodeId> {
         let start = std::time::Instant::now();
@@ -284,7 +300,8 @@ impl RaftNode {
     /// If this node is not the leader, it will wait for a leader to be elected
     /// and retry the operation. This handles leadership changes during operation.
     pub async fn write(&self, command: super::commands::Command) -> Result<()> {
-        self.write_with_retry(command, 5, Duration::from_millis(200)).await
+        self.write_with_retry(command, 5, Duration::from_millis(200))
+            .await
     }
 
     /// Internal write with retry logic for leadership changes.
@@ -321,14 +338,21 @@ impl RaftNode {
                             // Wait for a leader to be elected
                             let wait_result = self.wait_for_leader(Duration::from_secs(5)).await;
                             if wait_result.is_err() {
-                                last_error = Some(MetadataError::NotLeader(None));
+                                last_error = Some(MetadataError::NotLeader {
+                                    leader_id: None,
+                                    leader_addr: None,
+                                });
                                 attempt += 1;
                                 tokio::time::sleep(retry_delay).await;
                                 continue;
                             }
                         } else {
                             // There's a different leader - this node shouldn't be handling writes
-                            return Err(MetadataError::NotLeader(leader_id));
+                            let leader_addr = leader_id.and_then(|id| self.get_node_addr(id));
+                            return Err(MetadataError::NotLeader {
+                                leader_id,
+                                leader_addr,
+                            });
                         }
 
                         attempt += 1;

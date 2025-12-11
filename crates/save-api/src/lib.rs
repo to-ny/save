@@ -1,6 +1,7 @@
 use axum::Router;
 
 pub mod auth;
+pub mod forward;
 pub mod gc;
 pub mod handlers;
 pub mod internal_api;
@@ -12,6 +13,7 @@ pub mod state;
 #[cfg(test)]
 pub mod test_helpers;
 
+pub use forward::ForwardingClient;
 pub use gc::{GcConfig, run_gc_worker};
 pub use internal_api::run_server as run_internal_api_server;
 pub use middleware::RequestTracker;
@@ -81,6 +83,10 @@ pub fn app(state: AppState) -> Router {
     router = router.fallback_service(api_routes);
 
     router
+        .layer(axum::middleware::from_fn_with_state(
+            state.clone(),
+            middleware::forward_to_leader,
+        ))
         .layer(axum::middleware::from_fn_with_state(
             state,
             middleware::track_requests,

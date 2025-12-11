@@ -5,10 +5,12 @@ use save_common::tracing::{
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Instant;
-use tracing::{Span, debug};
+use tracing::{Span, debug, warn};
 use uuid::Uuid;
 
+use crate::forward::{is_already_forwarded, is_write_method};
 use crate::metrics::{http_request_duration_seconds, http_requests_total};
+use axum::response::IntoResponse;
 
 /// Create a trace context from incoming HTTP headers.
 fn trace_context_from_headers(headers: &axum::http::HeaderMap) -> TraceContext {
@@ -180,6 +182,67 @@ fn normalize_endpoint(path: &str) -> &'static str {
     }
 }
 
+/// Forwards write requests to the Raft leader if this node is not the leader.
+pub async fn forward_to_leader(
+    axum::extract::State(state): axum::extract::State<crate::AppState>,
+    request: Request,
+    next: Next,
+) -> Response {
+    let path = request.uri().path();
+
+    // Skip forwarding for health/metrics endpoints
+    if matches!(
+        path,
+        "/metrics" | "/health" | "/health/ready" | "/cluster/status"
+    ) {
+        return next.run(request).await;
+    }
+
+    // Only forward write operations
+    if !is_write_method(request.method()) {
+        return next.run(request).await;
+    }
+
+    // Prevent forwarding loops
+    if is_already_forwarded(request.headers()) {
+        warn!("Request already forwarded, processing locally");
+        return next.run(request).await;
+    }
+
+    // Check if we're the leader
+    if state.raft_node.is_leader().await {
+        return next.run(request).await;
+    }
+
+    // Not the leader - forward to leader
+    let leader_addr = match state.raft_node.leader_addr().await {
+        Some(addr) => addr,
+        None => {
+            debug!("No leader available, attempting local processing");
+            return next.run(request).await;
+        }
+    };
+
+    let method = request.method().to_string();
+    let start = Instant::now();
+
+    debug!(leader_addr = %leader_addr, "Forwarding request to leader");
+
+    match state.forwarding_client.forward(&leader_addr, request).await {
+        Ok(response) => {
+            crate::metrics::record_forwarded_request(true);
+            crate::metrics::record_forwarding_latency(&method, start.elapsed().as_secs_f64());
+            response
+        }
+        Err(e) => {
+            crate::metrics::record_forwarded_request(false);
+            crate::metrics::record_forwarding_latency(&method, start.elapsed().as_secs_f64());
+            warn!(error = %e, "Failed to forward request to leader");
+            e.into_response()
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -250,4 +313,5 @@ mod tests {
         assert_eq!(ctx.request_id, "req-456");
         assert!(!ctx.span_id.is_empty()); // New span ID generated
     }
+
 }
