@@ -81,6 +81,7 @@ Transform the single-node S3-compatible store into a distributed, replicated sys
 - [x] Implement split-brain prevention logic
 - [x] Add cluster topology management
 - [x] Create cluster status API endpoint `/cluster/status`
+- [ ] Implement transparent request forwarding to leader for non-leader nodes
 
 ---
 
@@ -144,8 +145,8 @@ Transform the single-node S3-compatible store into a distributed, replicated sys
 - [ ] Document cluster upgrade strategy (rolling upgrades)
 - [ ] Add troubleshooting guide (partition recovery, replication lag)
 - [ ] Create runbook for leader failure scenarios
-- [ ] Update Docker Compose for multi-node local testing
-- [ ] Create Kubernetes manifests for cluster deployment
+- [x] Update Docker Compose for multi-node local testing (dev/test only)
+- [ ] Create Helm chart for Kubernetes deployment (production-ready)
 - [ ] Add backup/restore procedures for distributed cluster
 - [ ] Document disaster recovery scenarios (quorum loss)
 
