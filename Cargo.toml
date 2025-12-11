@@ -14,13 +14,12 @@ members = [
     "tests/loadtest",
 ]
 
-# TODO Update with accurate data
 [workspace.package]
 version = "0.1.0"
 edition = "2024"
-authors = ["Save Contributors"]
+authors = ["to-ny"]
 license = "Apache-2.0"
-repository = "https://github.com/yourusername/save"
+repository = "https://github.com/to-ny/save"
 
 [workspace.dependencies]
 # Async runtime

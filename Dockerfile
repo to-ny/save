@@ -3,7 +3,7 @@
 # ============================================================================
 # Stage 1: cargo-chef planner - analyzes dependencies
 # ============================================================================
-FROM rustlang/rust:nightly-slim AS chef
+FROM rust:1.91-slim AS chef
 
 # Install cargo-chef
 RUN cargo install cargo-chef --locked
@@ -71,6 +71,7 @@ FROM dependencies AS builder
 # Copy source code
 COPY Cargo.toml Cargo.lock ./
 COPY crates/ ./crates/
+COPY proto/ ./proto/
 
 # Remove test workspace members
 RUN sed -i '/tests\//d' Cargo.toml
