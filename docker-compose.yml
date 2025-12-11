@@ -32,11 +32,20 @@ services:
         max-size: "10m"
         max-file: "5"
         tag: "{{.Name}}/{{.ID}}"
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+          cpus: "2"
+        reservations:
+          memory: 256M
 
-  # Prometheus - Metrics collection and alerting
+  # Prometheus - Metrics collection
   prometheus:
-    image: prom/prometheus
+    image: prom/prometheus:v3.8.0
     container_name: prometheus
+    profiles:
+      - observability
     ports:
       - "9090:9090"
     volumes:
@@ -56,11 +65,20 @@ services:
     depends_on:
       save-api:
         condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+          cpus: "1"
+        reservations:
+          memory: 128M
 
   # Grafana - Dashboards and visualization
   grafana:
-    image: grafana/grafana
+    image: grafana/grafana:12.1
     container_name: grafana
+    profiles:
+      - observability
     ports:
       - "3001:3000"
     volumes:
@@ -79,16 +97,25 @@ services:
     restart: unless-stopped
     depends_on:
       - prometheus
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: "0.5"
+        reservations:
+          memory: 64M
 
   # OpenObserve - Log aggregation and observability
   openobserve:
-    image: public.ecr.aws/zinclabs/openobserve:latest
+    image: public.ecr.aws/zinclabs/openobserve:v0.20.3
     container_name: openobserve
+    profiles:
+      - observability
     ports:
       - "5080:5080"   # Web UI
       - "5081:5081"   # gRPC for ingestion
     environment:
-      - ZO_ROOT_USER_EMAIL=admin
+      - ZO_ROOT_USER_EMAIL=admin@example.com
       - ZO_ROOT_USER_PASSWORD=admin
       - ZO_DATA_DIR=/data
     volumes:
@@ -96,11 +123,21 @@ services:
     networks:
       - save-network
     restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+          cpus: "1"
+        reservations:
+          memory: 128M
 
   # Vector - Log shipping to OpenObserve
+  # Note: Runs as root (user 0:0) to access Docker socket for log collection
   vector:
-    image: timberio/vector:0.41.1-alpine
+    image: timberio/vector:0.51.1-alpine
     container_name: vector
+    profiles:
+      - observability
     user: "0:0"
     command: ["--config", "/etc/vector/vector.toml"]
     volumes:
@@ -112,6 +149,13 @@ services:
     depends_on:
       - openobserve
       - save-api
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: "0.25"
+        reservations:
+          memory: 32M
 
 networks:
   save-network:

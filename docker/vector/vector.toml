@@ -7,17 +7,36 @@ include_containers = ["save"]
 type = "remap"
 inputs = ["save_api_logs"]
 source = '''
-  . = parse_json!(.message)
+  parsed, err = parse_json(.message)
+  if err == null {
+    del(.message)
+    .log_timestamp = parsed.timestamp
+    .level = parsed.level
+    .target = parsed.target
+    .msg = parsed.fields.message
+    .spans = parsed.spans
+    # Flatten all extra fields from the tracing "fields" object
+    if is_object(parsed.fields) {
+      for_each(object!(parsed.fields)) -> |key, value| {
+        if key != "message" {
+          . = set!(., [key], value)
+        }
+      }
+    }
+  }
   .container_name = "save-api"
 '''
 
 [sinks.openobserve]
 type = "http"
 inputs = ["parse_json"]
-uri = "http://openobserve:5080/api/default/save-api/_json"
+uri = "http://openobserve:5080/api/default/save_api/_json"
 encoding.codec = "json"
+framing.method = "bytes"
+payload_prefix = "["
+payload_suffix = "]"
 auth.strategy = "basic"
-auth.user = "admin"
+auth.user = "admin@example.com"
 auth.password = "admin"
-batch.max_bytes = 1048576
-batch.timeout_secs = 5
+batch.max_events = 1
+batch.timeout_secs = 1
