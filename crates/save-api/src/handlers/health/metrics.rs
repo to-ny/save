@@ -1,12 +1,12 @@
 use axum::{extract::State, http::StatusCode, response::IntoResponse};
-use tracing::{error, info, instrument};
+use tracing::{debug, error, instrument};
 
 use crate::metrics;
 use crate::state::AppState;
 
 #[instrument(skip(_state))]
 pub async fn metrics_handler(State(_state): State<AppState>) -> impl IntoResponse {
-    info!("Metrics endpoint requested");
+    debug!("Metrics endpoint requested");
 
     match metrics::encode_metrics() {
         Ok(metrics) => (StatusCode::OK, metrics).into_response(),

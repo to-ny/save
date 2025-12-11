@@ -1,6 +1,6 @@
 use axum::{Json, extract::State};
 use chrono::Utc;
-use tracing::{info, instrument};
+use tracing::{debug, instrument};
 
 use super::HealthResponse;
 use crate::state::AppState;
@@ -8,7 +8,7 @@ use crate::state::AppState;
 #[instrument(skip(state))]
 pub async fn health_check(State(state): State<AppState>) -> Json<HealthResponse> {
     let uptime = state.start_time.elapsed().as_secs();
-    info!(uptime_seconds = uptime, "Health check requested");
+    debug!(uptime_seconds = uptime, "Health check requested");
 
     Json(HealthResponse {
         status: "ok".to_string(),
