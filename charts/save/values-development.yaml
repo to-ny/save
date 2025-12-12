@@ -11,10 +11,16 @@
 # Minimal cluster for development
 replicaCount: 3
 
+# Use local Docker image for development
+image:
+  repository: save
+  tag: latest
+  pullPolicy: Never
+
 # Development credentials (DO NOT USE IN PRODUCTION)
 auth:
-  accessKey: "dev-access-key"
-  secretKey: "dev-secret-key"
+  accessKey: "test-access-key"
+  secretKey: "test-secret-key"
 
 # Minimal storage for local development
 persistence:

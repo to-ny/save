@@ -7,7 +7,7 @@ replicaCount: 3
 
 image:
   # -- Container image repository
-  repository: ghcr.io/save/save-api
+  repository: ghcr.io/tony/save
   # -- Image pull policy
   pullPolicy: IfNotPresent
   # -- Overrides the image tag (default is Chart.appVersion)
