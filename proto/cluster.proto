@@ -18,9 +18,6 @@ service ClusterAdmin {
   // Remove a node from the cluster
   rpc RemoveNode(RemoveNodeRequest) returns (RemoveNodeResponse);
 
-  // Transfer leadership to another node
-  rpc TransferLeader(TransferLeaderRequest) returns (TransferLeaderResponse);
-
   // Drain node for graceful shutdown (rejects new requests, waits for in-flight)
   rpc DrainNode(DrainNodeRequest) returns (DrainNodeResponse);
 
@@ -81,18 +78,6 @@ message RemoveNodeRequest {
 message RemoveNodeResponse {
   bool success = 1;
   string error_message = 2;
-}
-
-// Leader transfer messages
-
-message TransferLeaderRequest {
-  uint64 target_node_id = 1;  // Node to transfer leadership to (0 = auto-select)
-}
-
-message TransferLeaderResponse {
-  bool success = 1;
-  string error_message = 2;
-  uint64 new_leader_id = 3;
 }
 
 // Node drain messages

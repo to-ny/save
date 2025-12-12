@@ -143,9 +143,6 @@ where
                 "/cluster.ClusterAdmin/RemoveNode" => {
                     handle_remove_node(&inner, body.to_vec()).await
                 }
-                "/cluster.ClusterAdmin/TransferLeader" => {
-                    handle_transfer_leader(&inner, body.to_vec()).await
-                }
                 "/cluster.ClusterAdmin/DrainNode" => handle_drain_node(&inner, body.to_vec()).await,
                 "/cluster.ClusterAdmin/GetDebugInfo" => {
                     handle_get_debug_info(&inner, body.to_vec()).await
@@ -195,11 +192,6 @@ trait ClusterAdminTrait: Clone + Send + Sync + 'static {
         req: proto::RemoveNodeRequest,
     ) -> impl std::future::Future<Output = proto::RemoveNodeResponse> + Send;
 
-    fn transfer_leader(
-        &self,
-        req: proto::TransferLeaderRequest,
-    ) -> impl std::future::Future<Output = proto::TransferLeaderResponse> + Send;
-
     fn drain_node(
         &self,
         req: proto::DrainNodeRequest,
@@ -229,13 +221,6 @@ impl ClusterAdminTrait for ServiceWrapper {
 
     async fn remove_node(&self, req: proto::RemoveNodeRequest) -> proto::RemoveNodeResponse {
         self.service.remove_node(req).await
-    }
-
-    async fn transfer_leader(
-        &self,
-        req: proto::TransferLeaderRequest,
-    ) -> proto::TransferLeaderResponse {
-        self.service.transfer_leader(req).await
     }
 
     async fn drain_node(&self, req: proto::DrainNodeRequest) -> proto::DrainNodeResponse {
@@ -326,12 +311,6 @@ define_grpc_handler!(
     ClusterAdminTrait,
     remove_node,
     proto::RemoveNodeRequest
-);
-define_grpc_handler!(
-    handle_transfer_leader,
-    ClusterAdminTrait,
-    transfer_leader,
-    proto::TransferLeaderRequest
 );
 define_grpc_handler!(
     handle_drain_node,

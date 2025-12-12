@@ -91,10 +91,9 @@ Transform the single-node S3-compatible store into a distributed, replicated sys
 - [x] Implement gRPC middleware for request logging (via metrics)
 - [x] Add gRPC interceptors for authentication (mTLS validation)
 - [x] Create internal API for cluster management operations
-- [x] Add Raft-specific endpoints (add node, remove node, leader transfer)
+- [x] Add Raft-specific endpoints (add node, remove node)
 - [x] Implement node drain API for graceful shutdown
 - [x] Add debug endpoints for cluster state inspection
-- [ ] Implement leader transfer functionality (stub exists, needs openraft API)
 
 ---
 
@@ -204,6 +203,7 @@ All Phase 1 critical tasks must be complete before starting Phase 2 core work:
 - [x] Basic observability (metrics, logging)
 
 ### Deferred to Phase 3+
+- Leader transfer API (requires OpenRaft 0.10+ with trigger_transfer_leader)
 - Erasure coding (replace 3× replication with ~1.5× EC)
 - Self-healing and automatic rebalancing
 - Data reconstruction after node loss

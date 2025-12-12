@@ -147,52 +147,6 @@ impl ClusterAdminService {
         }
     }
 
-    pub async fn transfer_leader(
-        &self,
-        req: proto::TransferLeaderRequest,
-    ) -> proto::TransferLeaderResponse {
-        // Check if we're the leader
-        if !self.state.raft_node.is_leader().await {
-            return proto::TransferLeaderResponse {
-                success: false,
-                error_message: "Not the leader".to_string(),
-                new_leader_id: 0,
-            };
-        }
-
-        let target = if req.target_node_id == 0 {
-            // Auto-select: pick first voter that isn't us
-            let status = self.state.raft_node.get_status();
-            status
-                .voters
-                .iter()
-                .find(|&&id| id != status.node_id)
-                .copied()
-        } else {
-            Some(req.target_node_id)
-        };
-
-        let Some(target_id) = target else {
-            return proto::TransferLeaderResponse {
-                success: false,
-                error_message: "No eligible target node for leadership transfer".to_string(),
-                new_leader_id: 0,
-            };
-        };
-
-        info!(target_node_id = target_id, "Initiating leadership transfer");
-
-        // Openraft doesn't have a direct transfer_leader API exposed in our wrapper.
-        // For now, we'll step down and let election happen. In production, you'd
-        // want to implement proper leadership transfer.
-        // TODO: Implement proper leadership transfer when openraft API is available
-        proto::TransferLeaderResponse {
-            success: false,
-            error_message: "Leadership transfer not yet implemented".to_string(),
-            new_leader_id: 0,
-        }
-    }
-
     pub async fn drain_node(&self, req: proto::DrainNodeRequest) -> proto::DrainNodeResponse {
         let timeout_secs = if req.timeout_secs == 0 {
             self.state.config.shutdown.drain_timeout_secs
@@ -378,23 +332,6 @@ mod tests {
 
         assert!(!response.success);
         assert!(response.error_message.contains("node_id must be > 0"));
-    }
-
-    #[tokio::test]
-    async fn test_transfer_leader_not_leader() {
-        let (state, _tmp) = crate::test_helpers::test_setup_empty().await;
-        let service = ClusterAdminService::new(state);
-
-        // Wait briefly for Raft state to stabilize
-        tokio::time::sleep(Duration::from_millis(50)).await;
-
-        // In a single-node cluster that just started, we're the leader
-        // but trying to transfer to node 0 (auto-select) with no other voters should fail
-        let req = proto::TransferLeaderRequest { target_node_id: 0 };
-        let response = service.transfer_leader(req).await;
-
-        // Either "not the leader" or "no eligible target" or "not implemented"
-        assert!(!response.success);
     }
 
     #[tokio::test]
