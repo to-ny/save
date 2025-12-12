@@ -416,7 +416,7 @@ async fn test_rapid_succession_failures() {
             .key(&key)
             .send()
             .await
-            .expect(&format!("Should read object-{}", i));
+            .unwrap_or_else(|_| panic!("Should read object-{}", i));
 
         let body = result.body.collect().await.expect("Should read body");
         let expected = format!("data-{}", i);
@@ -503,6 +503,7 @@ async fn create_fresh_client(port: u16) -> aws_sdk_s3::Client {
 }
 
 // Helper function to write an object directly to a specific port
+#[allow(dead_code)]
 async fn write_object_to_port(port: u16, bucket: &str, key: &str) -> bool {
     let credentials = aws_sdk_s3::config::Credentials::new(
         "test-access-key",

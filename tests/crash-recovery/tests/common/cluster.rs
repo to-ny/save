@@ -246,16 +246,13 @@ impl ClusterEnv {
                     continue;
                 }
 
-                if let Ok(status) = self.get_node_status(node.config.node_id).await {
-                    if let Some(leader_id) = status.current_leader {
-                        // Verify the reported leader is actually running
-                        if let Some(leader_node) = self.nodes.get(&leader_id) {
-                            if leader_node.child.is_some() {
-                                tracing::info!("Leader elected: node {}", leader_id);
-                                return Ok(leader_id);
-                            }
-                        }
-                    }
+                if let Ok(status) = self.get_node_status(node.config.node_id).await
+                    && let Some(leader_id) = status.current_leader
+                    && let Some(leader_node) = self.nodes.get(&leader_id)
+                    && leader_node.child.is_some()
+                {
+                    tracing::info!("Leader elected: node {}", leader_id);
+                    return Ok(leader_id);
                 }
             }
 
