@@ -82,6 +82,7 @@ Transform the single-node S3-compatible store into a distributed, replicated sys
 - [x] Add cluster topology management
 - [x] Create cluster status API endpoint `/cluster/status`
 - [x] Implement transparent request forwarding to leader for non-leader nodes
+- [ ] Reject client requests (except /cluster/initialize, health, metrics) when cluster is not initialized
 
 ---
 
