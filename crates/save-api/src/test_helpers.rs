@@ -54,6 +54,34 @@ pub async fn test_setup() -> (AppState, TempDir) {
     (state, temp_dir)
 }
 
+/// Create a test AppState with an UNINITIALIZED Raft cluster.
+/// This is useful for testing middleware that requires initialization checks.
+pub async fn test_setup_uninitialized() -> (AppState, TempDir) {
+    let temp_dir = TempDir::new().unwrap();
+    let data_path = temp_dir.path().join("data");
+    let metadata_path = temp_dir.path().join("metadata");
+
+    let mut config = SaveConfig::default();
+    config.storage.data_path = data_path.to_str().unwrap().to_string();
+    config.storage.metadata_path = metadata_path.to_str().unwrap().to_string();
+
+    // Configure cluster for single-node test
+    let raft_port = next_test_port();
+    config.cluster.node_id = 1;
+    config.cluster.raft_bind_addr = format!("127.0.0.1:{}", raft_port);
+
+    let storage = LocalBackend::new(&config.storage.data_path).await.unwrap();
+    let metadata = MetadataStore::new(&config.storage.metadata_path).unwrap();
+
+    // Create RaftNode but do NOT initialize it
+    let raft_node = RaftNode::from_cluster_config(metadata.db(), &config.cluster)
+        .await
+        .unwrap();
+
+    let state = AppState::new(storage, metadata, config, raft_node);
+    (state, temp_dir)
+}
+
 pub fn auth_header() -> (&'static str, &'static str) {
     (
         "Authorization",

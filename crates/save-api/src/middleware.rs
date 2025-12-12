@@ -10,7 +10,9 @@ use uuid::Uuid;
 
 use crate::forward::{is_already_forwarded, is_write_method};
 use crate::metrics::{http_request_duration_seconds, http_requests_total};
+use axum::http::{StatusCode, header};
 use axum::response::IntoResponse;
+use save_common::s3_error::S3Error;
 
 /// Create a trace context from incoming HTTP headers.
 fn trace_context_from_headers(headers: &axum::http::HeaderMap) -> TraceContext {
@@ -243,6 +245,82 @@ pub async fn forward_to_leader(
     }
 }
 
+/// Paths exempt from the cluster initialization check.
+const EXEMPT_PATHS: &[&str] = &[
+    "/cluster/initialize",
+    "/cluster/status",
+    "/cluster/members",
+    "/cluster/members/promote",
+    "/health",
+    "/health/ready",
+    "/metrics",
+];
+
+/// Check if a path is exempt from cluster initialization check.
+fn is_exempt_from_initialization_check(path: &str) -> bool {
+    // Exact matches
+    if EXEMPT_PATHS.contains(&path) {
+        return true;
+    }
+    // Pattern match for /cluster/members/{node_id} (DELETE endpoint)
+    if path.starts_with("/cluster/members/") && path != "/cluster/members/promote" {
+        return true;
+    }
+    false
+}
+
+/// Rejects client requests when the Raft cluster is not initialized.
+/// Returns HTTP 503 Service Unavailable with an S3-compatible XML error response.
+pub async fn require_initialized_cluster(
+    axum::extract::State(state): axum::extract::State<crate::AppState>,
+    request: Request,
+    next: Next,
+) -> Response {
+    let path = request.uri().path();
+
+    // Allow exempt paths regardless of initialization state
+    if is_exempt_from_initialization_check(path) {
+        return next.run(request).await;
+    }
+
+    // Check if cluster is initialized
+    if state.raft_node.is_initialized() {
+        return next.run(request).await;
+    }
+
+    // Cluster is not initialized - reject the request
+    warn!(path = %path, "Rejecting request: cluster is not initialized");
+
+    let error = S3Error::service_unavailable(
+        "Cluster is not initialized. Please initialize the cluster first.",
+    );
+
+    // Get request ID from extensions if available
+    let request_id = request
+        .extensions()
+        .get::<save_common::tracing::TraceContext>()
+        .map(|ctx| ctx.request_id.clone());
+
+    let error = if let Some(req_id) = request_id {
+        error.with_request_id(req_id)
+    } else {
+        error
+    };
+
+    (
+        StatusCode::SERVICE_UNAVAILABLE,
+        [
+            (header::CONTENT_TYPE, "application/xml"),
+            (
+                header::HeaderName::from_static("x-amz-request-id"),
+                error.request_id.as_str(),
+            ),
+        ],
+        error.to_xml(),
+    )
+        .into_response()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -314,4 +392,185 @@ mod tests {
         assert!(!ctx.span_id.is_empty()); // New span ID generated
     }
 
+    #[test]
+    fn test_is_exempt_from_initialization_check() {
+        // Exempt paths - exact matches
+        assert!(is_exempt_from_initialization_check("/cluster/initialize"));
+        assert!(is_exempt_from_initialization_check("/cluster/status"));
+        assert!(is_exempt_from_initialization_check("/cluster/members"));
+        assert!(is_exempt_from_initialization_check(
+            "/cluster/members/promote"
+        ));
+        assert!(is_exempt_from_initialization_check("/health"));
+        assert!(is_exempt_from_initialization_check("/health/ready"));
+        assert!(is_exempt_from_initialization_check("/metrics"));
+
+        // Exempt paths - pattern match for /cluster/members/{node_id}
+        assert!(is_exempt_from_initialization_check("/cluster/members/1"));
+        assert!(is_exempt_from_initialization_check(
+            "/cluster/members/node-123"
+        ));
+
+        // Non-exempt paths - S3 API
+        assert!(!is_exempt_from_initialization_check("/"));
+        assert!(!is_exempt_from_initialization_check("/my-bucket"));
+        assert!(!is_exempt_from_initialization_check("/my-bucket/my-key"));
+        assert!(!is_exempt_from_initialization_check(
+            "/test-bucket/folder/object.txt"
+        ));
+    }
+
+    #[tokio::test]
+    async fn test_require_initialized_cluster_allows_exempt_paths_when_uninitialized() {
+        use axum::{Router, body::Body, routing::get};
+        use tower::ServiceExt;
+
+        let (state, _temp_dir) = crate::test_helpers::test_setup_uninitialized().await;
+
+        // Verify cluster is uninitialized
+        assert!(!state.raft_node.is_initialized());
+
+        async fn handler() -> &'static str {
+            "OK"
+        }
+
+        let app = Router::new()
+            .route("/health", get(handler))
+            .route("/health/ready", get(handler))
+            .route("/metrics", get(handler))
+            .route("/cluster/status", get(handler))
+            .route("/cluster/initialize", get(handler))
+            .route("/cluster/members", get(handler))
+            .route("/cluster/members/promote", get(handler))
+            .route("/cluster/members/{node_id}", get(handler))
+            .layer(axum::middleware::from_fn_with_state(
+                state.clone(),
+                require_initialized_cluster,
+            ))
+            .with_state(state);
+
+        // All exempt paths should return 200 OK
+        for path in [
+            "/health",
+            "/health/ready",
+            "/metrics",
+            "/cluster/status",
+            "/cluster/initialize",
+            "/cluster/members",
+            "/cluster/members/promote",
+            "/cluster/members/1",
+        ] {
+            let request = Request::builder().uri(path).body(Body::empty()).unwrap();
+
+            let response = app.clone().oneshot(request).await.unwrap();
+            assert_eq!(
+                response.status(),
+                StatusCode::OK,
+                "Exempt path {} should return 200 OK when uninitialized",
+                path
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn test_require_initialized_cluster_rejects_s3_paths_when_uninitialized() {
+        use axum::{Router, body::Body, routing::get};
+        use http_body_util::BodyExt;
+        use tower::ServiceExt;
+
+        let (state, _temp_dir) = crate::test_helpers::test_setup_uninitialized().await;
+
+        // Verify cluster is uninitialized
+        assert!(!state.raft_node.is_initialized());
+
+        async fn handler() -> &'static str {
+            "OK"
+        }
+
+        let app = Router::new()
+            .route("/", get(handler))
+            .route("/{bucket}", get(handler))
+            .route("/{bucket}/{key}", get(handler))
+            .layer(axum::middleware::from_fn_with_state(
+                state.clone(),
+                require_initialized_cluster,
+            ))
+            .with_state(state);
+
+        // Non-exempt paths should return 503 Service Unavailable
+        for path in ["/", "/my-bucket", "/my-bucket/my-key"] {
+            let request = Request::builder().uri(path).body(Body::empty()).unwrap();
+
+            let response = app.clone().oneshot(request).await.unwrap();
+            assert_eq!(
+                response.status(),
+                StatusCode::SERVICE_UNAVAILABLE,
+                "Non-exempt path {} should return 503 when uninitialized",
+                path
+            );
+
+            // Verify Content-Type header
+            assert_eq!(
+                response.headers().get(header::CONTENT_TYPE).unwrap(),
+                "application/xml"
+            );
+
+            // Verify x-amz-request-id header is present
+            assert!(
+                response.headers().contains_key("x-amz-request-id"),
+                "Response should have x-amz-request-id header"
+            );
+
+            // Verify XML body contains S3 error
+            let body = response.into_body().collect().await.unwrap().to_bytes();
+            let body_str = String::from_utf8_lossy(&body);
+            assert!(
+                body_str.contains("<Code>ServiceUnavailable</Code>"),
+                "Response body should contain ServiceUnavailable error code"
+            );
+            assert!(
+                body_str.contains("Cluster is not initialized"),
+                "Response body should contain initialization message"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn test_require_initialized_cluster_allows_all_paths_when_initialized() {
+        use axum::{Router, body::Body, routing::get};
+        use tower::ServiceExt;
+
+        let (state, _temp_dir) = crate::test_helpers::test_setup_empty().await;
+
+        // Verify cluster is initialized
+        assert!(state.raft_node.is_initialized());
+
+        async fn handler() -> &'static str {
+            "OK"
+        }
+
+        let app = Router::new()
+            .route("/", get(handler))
+            .route("/health", get(handler))
+            .route("/{bucket}", get(handler))
+            .route("/{bucket}/{key}", get(handler))
+            .layer(axum::middleware::from_fn_with_state(
+                state.clone(),
+                require_initialized_cluster,
+            ))
+            .with_state(state);
+
+        // All paths should return 200 OK when initialized
+        for path in ["/", "/health", "/my-bucket", "/my-bucket/my-key"] {
+            let request = Request::builder().uri(path).body(Body::empty()).unwrap();
+
+            let response = app.clone().oneshot(request).await.unwrap();
+            assert_eq!(
+                response.status(),
+                StatusCode::OK,
+                "Path {} should return 200 OK when initialized",
+                path
+            );
+        }
+    }
 }

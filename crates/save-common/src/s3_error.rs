@@ -25,6 +25,7 @@ pub enum S3ErrorCode {
     NoSuchBucket,
     NoSuchKey,
     RequestTimeTooSkewed,
+    ServiceUnavailable,
     SignatureDoesNotMatch,
 }
 
@@ -48,6 +49,7 @@ impl std::fmt::Display for S3ErrorCode {
             S3ErrorCode::NoSuchBucket => write!(f, "NoSuchBucket"),
             S3ErrorCode::NoSuchKey => write!(f, "NoSuchKey"),
             S3ErrorCode::RequestTimeTooSkewed => write!(f, "RequestTimeTooSkewed"),
+            S3ErrorCode::ServiceUnavailable => write!(f, "ServiceUnavailable"),
             S3ErrorCode::SignatureDoesNotMatch => write!(f, "SignatureDoesNotMatch"),
         }
     }
@@ -132,6 +134,10 @@ impl S3Error {
             "The difference between the request time and the server's time is too large",
             "/",
         )
+    }
+
+    pub fn service_unavailable(message: impl Into<String>) -> Self {
+        Self::new(S3ErrorCode::ServiceUnavailable, message, "/")
     }
 
     pub fn signature_does_not_match() -> Self {

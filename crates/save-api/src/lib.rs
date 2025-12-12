@@ -85,6 +85,10 @@ pub fn app(state: AppState) -> Router {
     router
         .layer(axum::middleware::from_fn_with_state(
             state.clone(),
+            middleware::require_initialized_cluster,
+        ))
+        .layer(axum::middleware::from_fn_with_state(
+            state.clone(),
             middleware::forward_to_leader,
         ))
         .layer(axum::middleware::from_fn_with_state(

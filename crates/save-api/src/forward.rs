@@ -301,10 +301,7 @@ mod tests {
         assert_eq!(err.to_string(), "forward request failed: timeout");
 
         let err = ForwardError::ResponseRead("incomplete".to_string());
-        assert_eq!(
-            err.to_string(),
-            "failed to read response body: incomplete"
-        );
+        assert_eq!(err.to_string(), "failed to read response body: incomplete");
 
         let err = ForwardError::InvalidUri("bad uri".to_string());
         assert_eq!(err.to_string(), "invalid target URI: bad uri");
@@ -329,10 +326,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_forwarding_client_to_unreachable_host() {
-        let client = ForwardingClient::new(
-            Duration::from_millis(100),
-            Duration::from_millis(50),
-        );
+        let client = ForwardingClient::new(Duration::from_millis(100), Duration::from_millis(50));
 
         let request = Request::builder()
             .method("PUT")
@@ -350,10 +344,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_forwarding_client_invalid_uri() {
-        let client = ForwardingClient::new(
-            Duration::from_secs(5),
-            Duration::from_secs(2),
-        );
+        let client = ForwardingClient::new(Duration::from_secs(5), Duration::from_secs(2));
 
         let request = Request::builder()
             .method("PUT")
