@@ -17,6 +17,9 @@ crates/
 ├── save-cli/       # CLI tool
 └── save-proto/     # gRPC protocol definitions
 
+charts/
+└── save/           # Helm chart for Kubernetes
+
 tests/
 ├── aws-sdk-compat/ # AWS SDK compatibility
 ├── aws-cli-compat/ # AWS CLI compatibility
@@ -87,3 +90,15 @@ docker compose up -d           # Full stack (Prometheus, Grafana, OpenObserve)
 ```
 
 See [Docker README](./docker/README.md) for more information.
+
+### Kubernetes (Helm)
+
+```bash
+make helm-lint                 # Validate chart
+make helm-template             # Render templates locally
+
+# Deploy to cluster
+helm install save ./charts/save -f charts/save/values-development.yaml
+```
+
+See [Helm Chart README](./charts/save/README.md) for full documentation.

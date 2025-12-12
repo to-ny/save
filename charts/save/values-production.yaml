@@ -1,0 +1,121 @@
+# Production values for Save distributed object store
+# Usage: helm install save ./charts/save -f charts/save/values-production.yaml
+#
+# IMPORTANT: Before deploying to production, you MUST:
+# 1. Create a secret with S3 credentials:
+#    kubectl create secret generic save-credentials \
+#      --from-literal=access-key=YOUR_ACCESS_KEY \
+#      --from-literal=secret-key=YOUR_SECRET_KEY
+# 2. Update auth.existingSecret below to reference your secret
+
+# Production cluster sizing (5 nodes for better fault tolerance)
+replicaCount: 5
+
+# REQUIRED: Reference your pre-created credentials secret
+auth:
+  existingSecret: "save-credentials"
+
+# Production storage sizing
+persistence:
+  enabled: true
+  # Use a production-grade storage class (e.g., gp3, premium-rwo)
+  storageClass: ""
+  dataSize: 100Gi
+  metadataSize: 20Gi
+
+# Production resource allocation
+resources:
+  requests:
+    memory: "2Gi"
+    cpu: "1"
+  limits:
+    memory: "8Gi"
+    cpu: "4"
+
+# Performance tuning for production workloads
+server:
+  workerThreads: 8
+  maxBlockingThreads: 1024
+
+metadata:
+  writeBufferSizeMb: 256
+  maxWriteBufferNumber: 6
+  blockCacheSizeMb: 512
+  maxBackgroundJobs: 8
+
+# Enable observability
+metrics:
+  enabled: true
+  serviceMonitor:
+    enabled: true
+    interval: 15s
+    labels:
+      release: prometheus
+
+# Pod disruption budget for HA
+podDisruptionBudget:
+  enabled: true
+  maxUnavailable: 1
+
+# Spread pods across nodes and zones
+affinity:
+  podAntiAffinity:
+    requiredDuringSchedulingIgnoredDuringExecution:
+      - labelSelector:
+          matchLabels:
+            app.kubernetes.io/name: save
+        topologyKey: kubernetes.io/hostname
+    preferredDuringSchedulingIgnoredDuringExecution:
+      - weight: 100
+        podAffinityTerm:
+          labelSelector:
+            matchLabels:
+              app.kubernetes.io/name: save
+          topologyKey: topology.kubernetes.io/zone
+
+# Topology spread for even distribution
+topologySpreadConstraints:
+  - maxSkew: 1
+    topologyKey: topology.kubernetes.io/zone
+    whenUnsatisfiable: ScheduleAnyway
+    labelSelector:
+      matchLabels:
+        app.kubernetes.io/name: save
+
+# Network policy for security isolation
+networkPolicy:
+  enabled: true
+
+# Longer termination grace period for production
+terminationGracePeriodSeconds: 120
+
+shutdown:
+  drainTimeoutSecs: 90
+
+# Enable mTLS for inter-node communication (recommended)
+# Create TLS secret first:
+# kubectl create secret generic save-tls \
+#   --from-file=tls.crt=server.crt \
+#   --from-file=tls.key=server.key \
+#   --from-file=ca.crt=ca.crt
+tls:
+  enabled: false
+  existingSecret: "save-tls"
+
+# Production health check tuning
+livenessProbe:
+  initialDelaySeconds: 30
+  periodSeconds: 15
+  timeoutSeconds: 10
+  failureThreshold: 5
+
+readinessProbe:
+  initialDelaySeconds: 10
+  periodSeconds: 10
+  timeoutSeconds: 5
+  failureThreshold: 3
+
+startupProbe:
+  initialDelaySeconds: 10
+  periodSeconds: 10
+  failureThreshold: 60

@@ -146,7 +146,7 @@ Transform the single-node S3-compatible store into a distributed, replicated sys
 - [ ] Add troubleshooting guide (partition recovery, replication lag)
 - [ ] Create runbook for leader failure scenarios
 - [x] Update Docker Compose for multi-node local testing (dev/test only)
-- [ ] Create Helm chart for Kubernetes deployment (production-ready)
+- [x] Create Helm chart for Kubernetes deployment (production-ready)
 - [ ] Add backup/restore procedures for distributed cluster
 - [ ] Document disaster recovery scenarios (quorum loss)
 

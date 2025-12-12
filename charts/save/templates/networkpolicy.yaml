@@ -1,0 +1,71 @@
+{{- if .Values.networkPolicy.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "save.fullname" . }}
+  labels:
+    {{- include "save.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "save.selectorLabels" . | nindent 6 }}
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # Allow S3 API traffic from specified sources
+    - ports:
+        - port: 9000
+          protocol: TCP
+      {{- if or .Values.networkPolicy.ingressNamespaceSelector .Values.networkPolicy.ingressPodSelector }}
+      from:
+        {{- if .Values.networkPolicy.ingressNamespaceSelector }}
+        - namespaceSelector:
+            {{- toYaml .Values.networkPolicy.ingressNamespaceSelector | nindent 12 }}
+        {{- end }}
+        {{- if .Values.networkPolicy.ingressPodSelector }}
+        - podSelector:
+            {{- toYaml .Values.networkPolicy.ingressPodSelector | nindent 12 }}
+        {{- end }}
+      {{- end }}
+    # Allow Raft and replication traffic between cluster members
+    - ports:
+        - port: 9001
+          protocol: TCP
+        - port: 9002
+          protocol: TCP
+      from:
+        - podSelector:
+            matchLabels:
+              {{- include "save.selectorLabels" . | nindent 14 }}
+    # Allow metrics scraping from Prometheus
+    - ports:
+        - port: 9000
+          protocol: TCP
+      from:
+        - namespaceSelector: {}
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: prometheus
+  egress:
+    # Allow DNS resolution
+    - ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+      to:
+        - namespaceSelector: {}
+    # Allow communication between cluster members
+    - ports:
+        - port: 9000
+          protocol: TCP
+        - port: 9001
+          protocol: TCP
+        - port: 9002
+          protocol: TCP
+      to:
+        - podSelector:
+            matchLabels:
+              {{- include "save.selectorLabels" . | nindent 14 }}
+{{- end }}

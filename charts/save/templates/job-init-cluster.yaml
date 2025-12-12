@@ -1,0 +1,150 @@
+{{- if .Values.clusterInit.enabled }}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "save.fullname" . }}-init
+  labels:
+    {{- include "save.labels" . | nindent 4 }}
+  annotations:
+    "helm.sh/hook": post-install
+    "helm.sh/hook-weight": "5"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  backoffLimit: {{ .Values.clusterInit.backoffLimit }}
+  {{- if .Values.clusterInit.ttlSecondsAfterFinished }}
+  ttlSecondsAfterFinished: {{ .Values.clusterInit.ttlSecondsAfterFinished }}
+  {{- end }}
+  template:
+    metadata:
+      labels:
+        {{- include "save.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: cluster-init
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "save.serviceAccountName" . }}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      restartPolicy: OnFailure
+      containers:
+        - name: init-cluster
+          image: {{ include "save.initImage" . }}
+          imagePullPolicy: {{ .Values.clusterInit.image.pullPolicy }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          command:
+            - /bin/sh
+            - -c
+            - |
+              set -e
+
+              FULLNAME="{{ include "save.fullname" . }}"
+              HEADLESS="{{ include "save.headlessServiceName" . }}"
+              NAMESPACE="{{ .Release.Namespace }}"
+              REPLICAS={{ .Values.replicaCount }}
+
+              echo "Waiting for all ${REPLICAS} Save pods to be ready..."
+
+              # Wait for all pods to respond to health checks
+              for i in $(seq 0 $((REPLICAS - 1))); do
+                POD_HOST="${FULLNAME}-${i}.${HEADLESS}.${NAMESPACE}.svc.cluster.local"
+                echo "Waiting for ${POD_HOST}..."
+
+                RETRIES=0
+                MAX_RETRIES=60
+                until curl -sf --connect-timeout 5 "http://${POD_HOST}:9000/health" > /dev/null 2>&1; do
+                  RETRIES=$((RETRIES + 1))
+                  if [ $RETRIES -ge $MAX_RETRIES ]; then
+                    echo "ERROR: Timeout waiting for ${POD_HOST}"
+                    exit 1
+                  fi
+                  echo "  Waiting for ${POD_HOST} (attempt ${RETRIES}/${MAX_RETRIES})..."
+                  sleep 5
+                done
+                echo "  ${POD_HOST} is healthy"
+              done
+
+              echo "All pods are ready. Initializing cluster..."
+
+              # Build members JSON array
+              MEMBERS=""
+              for i in $(seq 0 $((REPLICAS - 1))); do
+                NODE_ID=$((i + 1))
+                POD_HOST="${FULLNAME}-${i}.${HEADLESS}.${NAMESPACE}.svc.cluster.local"
+                if [ -n "$MEMBERS" ]; then
+                  MEMBERS="${MEMBERS},"
+                fi
+                MEMBERS="${MEMBERS}\"${NODE_ID}:${POD_HOST}:9001\""
+              done
+
+              # Target the first node for initialization
+              INIT_HOST="${FULLNAME}-0.${HEADLESS}.${NAMESPACE}.svc.cluster.local"
+
+              echo "Sending cluster initialization request to ${INIT_HOST}..."
+              echo "Members: [${MEMBERS}]"
+
+              # Initialize cluster - returns 409 if already initialized (which is fine)
+              HTTP_CODE=$(curl -sf -w "%{http_code}" -o /tmp/response.txt \
+                -X POST "http://${INIT_HOST}:9000/cluster/initialize" \
+                -H "Content-Type: application/json" \
+                -d "{\"members\": [${MEMBERS}]}" || echo $?)
+
+              if [ "$HTTP_CODE" = "200" ] || [ "$HTTP_CODE" = "201" ]; then
+                echo "Cluster initialized successfully!"
+                cat /tmp/response.txt
+              elif [ "$HTTP_CODE" = "409" ]; then
+                echo "Cluster was already initialized (409 Conflict) - this is OK"
+              elif [ "$HTTP_CODE" = "22" ]; then
+                # curl exit code 22 is HTTP error, check if it was 409
+                if grep -q "already initialized\|409" /tmp/response.txt 2>/dev/null; then
+                  echo "Cluster was already initialized - this is OK"
+                else
+                  echo "ERROR: Cluster initialization failed"
+                  cat /tmp/response.txt 2>/dev/null || true
+                  exit 1
+                fi
+              else
+                echo "ERROR: Unexpected response code: ${HTTP_CODE}"
+                cat /tmp/response.txt 2>/dev/null || true
+                exit 1
+              fi
+
+              # Verify cluster status
+              echo ""
+              echo "Verifying cluster status..."
+              sleep 3
+
+              curl -sf "http://${INIT_HOST}:9000/cluster/status" || echo "Could not fetch cluster status (non-fatal)"
+
+              echo ""
+              echo "Cluster initialization complete!"
+          env:
+            - name: HOME
+              value: /tmp
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+          resources:
+            {{- toYaml .Values.clusterInit.resources | nindent 12 }}
+      volumes:
+        - name: tmp
+          emptyDir: {}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}

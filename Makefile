@@ -1,4 +1,4 @@
-.PHONY: build test fmt clippy docker-build
+.PHONY: build test fmt clippy docker-build helm-lint helm-template
 
 IMAGE_NAME ?= save
 IMAGE_TAG ?= latest
@@ -20,3 +20,9 @@ docker-build:
 		--build-arg BUILDKIT_INLINE_CACHE=1 \
 		-t $(IMAGE_NAME):$(IMAGE_TAG) \
 		.
+
+helm-lint:
+	helm lint charts/save
+
+helm-template:
+	helm template save charts/save

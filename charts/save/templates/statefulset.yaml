@@ -1,0 +1,259 @@
+{{- include "save.validateReplicaCount" . -}}
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "save.fullname" . }}
+  labels:
+    {{- include "save.labels" . | nindent 4 }}
+spec:
+  serviceName: {{ include "save.headlessServiceName" . }}
+  replicas: {{ .Values.replicaCount }}
+  podManagementPolicy: Parallel
+  updateStrategy:
+    type: RollingUpdate
+  selector:
+    matchLabels:
+      {{- include "save.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+        checksum/secret: {{ include (print $.Template.BasePath "/secret.yaml") . | sha256sum }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      labels:
+        {{- include "save.labels" . | nindent 8 }}
+        {{- with .Values.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "save.serviceAccountName" . }}
+      {{- if .Values.priorityClassName }}
+      priorityClassName: {{ .Values.priorityClassName | quote }}
+      {{- end }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      terminationGracePeriodSeconds: {{ .Values.terminationGracePeriodSeconds }}
+      initContainers:
+        - name: init-config
+          image: busybox:1.36
+          imagePullPolicy: IfNotPresent
+          command:
+            - /bin/sh
+            - -c
+            - |
+              set -e
+
+              # Extract pod ordinal from hostname (e.g., save-0 -> 0)
+              ORDINAL=$(echo $HOSTNAME | rev | cut -d'-' -f1 | rev)
+              NODE_ID=$((ORDINAL + 1))
+
+              # Generate peer list (all nodes except self)
+              PEERS=""
+              for i in $(seq 0 $((REPLICAS - 1))); do
+                if [ $i -ne $ORDINAL ]; then
+                  PEER_ID=$((i + 1))
+                  PEER_HOST="${POD_NAME_PREFIX}-${i}.${HEADLESS_SERVICE}.${NAMESPACE}.svc.cluster.local"
+                  if [ -n "$PEERS" ]; then
+                    PEERS="${PEERS}, "
+                  fi
+                  PEERS="${PEERS}\"${PEER_ID}:${PEER_HOST}:9001\""
+                fi
+              done
+
+              # Read template and substitute variables
+              sed -e "s/\${NODE_ID}/${NODE_ID}/g" \
+                  -e "s/\${PEERS}/${PEERS}/g" \
+                  -e "s/\${ACCESS_KEY}/${ACCESS_KEY}/g" \
+                  -e "s/\${SECRET_KEY}/${SECRET_KEY}/g" \
+                  /config-template/save.toml.tpl > /config/save.toml
+
+              echo "Generated config for node ${NODE_ID}:"
+              # Show config but mask credentials
+              sed -e 's/access_key = ".*"/access_key = "[REDACTED]"/' \
+                  -e 's/secret_key = ".*"/secret_key = "[REDACTED]"/' \
+                  /config/save.toml
+          env:
+            - name: HOSTNAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: REPLICAS
+              value: {{ .Values.replicaCount | quote }}
+            - name: POD_NAME_PREFIX
+              value: {{ include "save.fullname" . }}
+            - name: HEADLESS_SERVICE
+              value: {{ include "save.headlessServiceName" . }}
+            - name: ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "save.secretName" . }}
+                  key: access-key
+            - name: SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "save.secretName" . }}
+                  key: secret-key
+          volumeMounts:
+            - name: config-template
+              mountPath: /config-template
+            - name: config
+              mountPath: /config
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 1000
+            capabilities:
+              drop:
+                - ALL
+        {{- with .Values.extraInitContainers }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      containers:
+        - name: save
+          image: {{ include "save.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          env:
+            - name: SAVE_CONFIG
+              value: /etc/save/save.toml
+            - name: RUST_LOG
+              value: "save_api=info,save_storage=info,save_metadata=info"
+            - name: LOG_FORMAT
+              value: "json"
+            - name: SAVE_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "save.secretName" . }}
+                  key: access-key
+            - name: SAVE_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "save.secretName" . }}
+                  key: secret-key
+            {{- with .Values.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          ports:
+            - name: http
+              containerPort: 9000
+              protocol: TCP
+            - name: raft
+              containerPort: 9001
+              protocol: TCP
+            - name: replication
+              containerPort: 9002
+              protocol: TCP
+          livenessProbe:
+            {{- toYaml .Values.livenessProbe | nindent 12 }}
+          readinessProbe:
+            {{- toYaml .Values.readinessProbe | nindent 12 }}
+          startupProbe:
+            {{- toYaml .Values.startupProbe | nindent 12 }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            - name: config
+              mountPath: /etc/save
+              readOnly: true
+            - name: data
+              mountPath: /var/lib/save/data
+            - name: metadata
+              mountPath: /var/lib/save/metadata
+            - name: tmp
+              mountPath: /tmp
+            {{- if .Values.tls.enabled }}
+            - name: tls
+              mountPath: /certs
+              readOnly: true
+            {{- end }}
+            {{- with .Values.extraVolumeMounts }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          lifecycle:
+            preStop:
+              exec:
+                command:
+                  - /bin/sh
+                  - -c
+                  - |
+                    # Signal graceful shutdown - the app should drain connections
+                    # Sleep to allow load balancer to remove pod from rotation
+                    sleep 5
+        {{- with .Values.extraContainers }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      volumes:
+        - name: config-template
+          configMap:
+            name: {{ include "save.configMapName" . }}
+        - name: config
+          emptyDir: {}
+        - name: tmp
+          emptyDir: {}
+        {{- if .Values.tls.enabled }}
+        - name: tls
+          secret:
+            secretName: {{ include "save.tlsSecretName" . }}
+        {{- end }}
+        {{- with .Values.extraVolumes }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      affinity:
+        {{- include "save.affinity" . | nindent 8 }}
+      {{- with .Values.topologySpreadConstraints }}
+      topologySpreadConstraints:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+  volumeClaimTemplates:
+    {{- if .Values.persistence.enabled }}
+    - metadata:
+        name: data
+        {{- with .Values.persistence.annotations }}
+        annotations:
+          {{- toYaml . | nindent 10 }}
+        {{- end }}
+      spec:
+        accessModes:
+          {{- toYaml .Values.persistence.accessModes | nindent 10 }}
+        {{- if .Values.persistence.storageClass }}
+        storageClassName: {{ .Values.persistence.storageClass | quote }}
+        {{- end }}
+        resources:
+          requests:
+            storage: {{ .Values.persistence.dataSize }}
+    - metadata:
+        name: metadata
+        {{- with .Values.persistence.annotations }}
+        annotations:
+          {{- toYaml . | nindent 10 }}
+        {{- end }}
+      spec:
+        accessModes:
+          {{- toYaml .Values.persistence.accessModes | nindent 10 }}
+        {{- if .Values.persistence.storageClass }}
+        storageClassName: {{ .Values.persistence.storageClass | quote }}
+        {{- end }}
+        resources:
+          requests:
+            storage: {{ .Values.persistence.metadataSize }}
+    {{- end }}

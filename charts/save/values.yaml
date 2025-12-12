@@ -1,0 +1,414 @@
+# Default values for Save distributed object store
+# This is a YAML-formatted file.
+
+# -- Number of replicas for the StatefulSet
+# Must be odd for Raft quorum (1, 3, 5, 7)
+replicaCount: 3
+
+image:
+  # -- Container image repository
+  repository: ghcr.io/save/save-api
+  # -- Image pull policy
+  pullPolicy: IfNotPresent
+  # -- Overrides the image tag (default is Chart.appVersion)
+  tag: ""
+
+# -- Image pull secrets for private registries
+imagePullSecrets: []
+
+# -- Override the name of the chart
+nameOverride: ""
+
+# -- Override the full name of the chart
+fullnameOverride: ""
+
+# =============================================================================
+# Authentication
+# =============================================================================
+auth:
+  # -- S3 access key (only for dev/test - use existingSecret in production)
+  accessKey: ""
+  # -- S3 secret key (only for dev/test - use existingSecret in production)
+  secretKey: ""
+  # -- Name of existing secret containing 'access-key' and 'secret-key' keys
+  # RECOMMENDED for production deployments
+  existingSecret: ""
+
+# =============================================================================
+# Server Configuration
+# =============================================================================
+server:
+  # -- Number of worker threads for the HTTP server
+  workerThreads: 4
+  # -- Maximum number of blocking threads
+  maxBlockingThreads: 512
+  # -- Bucket cache TTL in seconds
+  bucketCacheTtlSecs: 60
+
+# =============================================================================
+# Storage Configuration
+# =============================================================================
+storage:
+  # -- Fsync mode for data durability: "none", "data", or "all"
+  fsyncMode: "data"
+  # -- Garbage collection interval in seconds
+  gcIntervalSecs: 300
+  # -- Maximum age of temporary files before GC cleanup (seconds)
+  gcTempFileMaxAgeSecs: 3600
+
+# =============================================================================
+# Metadata (RocksDB) Configuration
+# =============================================================================
+metadata:
+  # -- Write buffer size in MB
+  writeBufferSizeMb: 128
+  # -- Maximum number of write buffers
+  maxWriteBufferNumber: 4
+  # -- Block cache size in MB
+  blockCacheSizeMb: 256
+  # -- Maximum background jobs for compaction/flush
+  maxBackgroundJobs: 4
+
+# =============================================================================
+# Shutdown Configuration
+# =============================================================================
+shutdown:
+  # -- Drain timeout in seconds for graceful shutdown
+  drainTimeoutSecs: 30
+
+# =============================================================================
+# Cluster Configuration
+# =============================================================================
+cluster:
+  # -- Number of replicas for object data
+  replicationFactor: 3
+
+# =============================================================================
+# mTLS Configuration for inter-node communication
+# =============================================================================
+tls:
+  # -- Enable mTLS for Raft and replication traffic
+  enabled: false
+  # -- Name of existing secret containing tls.crt, tls.key, and ca.crt
+  existingSecret: ""
+  # -- Generate self-signed certificates (development only)
+  generate: false
+
+# =============================================================================
+# Persistence Configuration
+# =============================================================================
+persistence:
+  # -- Enable persistence using PVCs
+  enabled: true
+  # -- Storage class for dynamic provisioning (empty = default)
+  storageClass: ""
+  # -- Access modes for PVCs
+  accessModes:
+    - ReadWriteOnce
+  # -- Size of the data volume
+  dataSize: 10Gi
+  # -- Size of the metadata volume
+  metadataSize: 5Gi
+  # -- Annotations for PVCs
+  annotations: {}
+
+# =============================================================================
+# Service Configuration
+# =============================================================================
+service:
+  # -- Service type (ClusterIP, NodePort)
+  type: ClusterIP
+  # -- S3 API port
+  port: 9000
+  # -- Service annotations
+  annotations: {}
+
+# =============================================================================
+# Headless Service (for StatefulSet DNS)
+# =============================================================================
+headlessService:
+  # -- Annotations for headless service
+  annotations: {}
+
+# =============================================================================
+# Load Balancer Service (optional)
+# =============================================================================
+loadBalancer:
+  # -- Enable external LoadBalancer service
+  enabled: false
+  # -- LoadBalancer type (LoadBalancer or NodePort)
+  type: LoadBalancer
+  # -- LoadBalancer service annotations (e.g., for cloud provider config)
+  annotations: {}
+  # -- External traffic policy (Cluster or Local)
+  externalTrafficPolicy: Cluster
+
+# =============================================================================
+# Ingress Configuration
+# =============================================================================
+ingress:
+  # -- Enable ingress
+  enabled: false
+  # -- Ingress class name
+  className: ""
+  # -- Ingress annotations
+  annotations: {}
+  # -- Ingress hosts configuration
+  hosts:
+    - host: save.local
+      paths:
+        - path: /
+          pathType: Prefix
+  # -- TLS configuration for ingress
+  tls: []
+  #  - secretName: save-tls
+  #    hosts:
+  #      - save.local
+
+# =============================================================================
+# Metrics and Observability
+# =============================================================================
+metrics:
+  # -- Enable metrics endpoint
+  enabled: true
+  # -- Metrics port (same as S3 API)
+  port: 9000
+  # -- Metrics path
+  path: /metrics
+
+  serviceMonitor:
+    # -- Enable ServiceMonitor for Prometheus Operator
+    enabled: false
+    # -- Namespace for ServiceMonitor (default: release namespace)
+    namespace: ""
+    # -- Scrape interval
+    interval: 30s
+    # -- Scrape timeout
+    scrapeTimeout: 10s
+    # -- Additional labels for ServiceMonitor
+    labels: {}
+    # -- Honor labels from the target
+    honorLabels: false
+    # -- Relabeling configs
+    relabelings: []
+    # -- Metric relabeling configs
+    metricRelabelings: []
+
+  podMonitor:
+    # -- Enable PodMonitor for Prometheus Operator (alternative to ServiceMonitor)
+    enabled: false
+    # -- Namespace for PodMonitor (default: release namespace)
+    namespace: ""
+    # -- Scrape interval
+    interval: 30s
+    # -- Additional labels for PodMonitor
+    labels: {}
+
+# =============================================================================
+# Prometheus Rules (Alerting)
+# =============================================================================
+prometheusRule:
+  # -- Enable PrometheusRule for alerting
+  enabled: false
+  # -- Namespace for PrometheusRule (default: release namespace)
+  namespace: ""
+  # -- Additional labels for PrometheusRule
+  labels: {}
+  # -- Include default alerting rules
+  defaultRules: true
+
+# =============================================================================
+# Pod Configuration
+# =============================================================================
+# -- Annotations to add to pods
+podAnnotations: {}
+
+# -- Labels to add to pods
+podLabels: {}
+
+# -- Node selector for pod scheduling
+nodeSelector: {}
+
+# -- Tolerations for pod scheduling
+tolerations: []
+
+# -- Affinity rules for pod scheduling
+# Default anti-affinity is added in template if not specified
+affinity: {}
+
+# -- Topology spread constraints for pod scheduling
+topologySpreadConstraints: []
+
+# -- Priority class name for pods
+priorityClassName: ""
+
+# -- Termination grace period in seconds
+terminationGracePeriodSeconds: 60
+
+# =============================================================================
+# Security Context
+# =============================================================================
+podSecurityContext:
+  # -- Run as non-root user
+  runAsNonRoot: true
+  # -- User ID to run as
+  runAsUser: 1000
+  # -- Group ID to run as
+  runAsGroup: 1000
+  # -- Filesystem group ID
+  fsGroup: 1000
+  # -- Seccomp profile
+  seccompProfile:
+    type: RuntimeDefault
+
+securityContext:
+  # -- Disallow privilege escalation
+  allowPrivilegeEscalation: false
+  # -- Read-only root filesystem
+  readOnlyRootFilesystem: true
+  # -- Capabilities to drop
+  capabilities:
+    drop:
+      - ALL
+
+# =============================================================================
+# Resource Management
+# =============================================================================
+resources:
+  requests:
+    # -- Memory request
+    memory: "512Mi"
+    # -- CPU request
+    cpu: "500m"
+  limits:
+    # -- Memory limit
+    memory: "2Gi"
+    # -- CPU limit
+    cpu: "2"
+
+# =============================================================================
+# Health Probes
+# =============================================================================
+livenessProbe:
+  httpGet:
+    path: /health
+    port: http
+  # -- Initial delay before liveness checks start
+  initialDelaySeconds: 10
+  # -- Period between liveness checks
+  periodSeconds: 10
+  # -- Timeout for liveness checks
+  timeoutSeconds: 5
+  # -- Number of failures before pod is restarted
+  failureThreshold: 3
+  # -- Number of successes to mark as healthy
+  successThreshold: 1
+
+readinessProbe:
+  httpGet:
+    path: /health/ready
+    port: http
+  # -- Initial delay before readiness checks start
+  initialDelaySeconds: 5
+  # -- Period between readiness checks
+  periodSeconds: 5
+  # -- Timeout for readiness checks
+  timeoutSeconds: 3
+  # -- Number of failures before pod is marked unready
+  failureThreshold: 3
+  # -- Number of successes to mark as ready
+  successThreshold: 1
+
+startupProbe:
+  httpGet:
+    path: /health
+    port: http
+  # -- Initial delay before startup checks start
+  initialDelaySeconds: 5
+  # -- Period between startup checks
+  periodSeconds: 5
+  # -- Timeout for startup checks
+  timeoutSeconds: 3
+  # -- Number of failures before giving up
+  failureThreshold: 30
+  # -- Number of successes to pass
+  successThreshold: 1
+
+# =============================================================================
+# Pod Disruption Budget
+# =============================================================================
+podDisruptionBudget:
+  # -- Enable PodDisruptionBudget
+  enabled: true
+  # -- Minimum available pods (takes precedence over maxUnavailable)
+  minAvailable: ""
+  # -- Maximum unavailable pods (default: 1 for HA clusters)
+  maxUnavailable: 1
+
+# =============================================================================
+# Cluster Initialization Job
+# =============================================================================
+clusterInit:
+  # -- Enable automatic cluster initialization
+  enabled: true
+  # -- Number of retries before job fails
+  backoffLimit: 10
+  # -- Time to keep completed job before deletion (seconds)
+  ttlSecondsAfterFinished: 300
+  # -- Image for the init job
+  image:
+    repository: curlimages/curl
+    tag: "8.11.0"
+    pullPolicy: IfNotPresent
+  # -- Resources for init job
+  resources:
+    requests:
+      memory: "32Mi"
+      cpu: "50m"
+    limits:
+      memory: "64Mi"
+      cpu: "100m"
+
+# =============================================================================
+# Network Policy
+# =============================================================================
+networkPolicy:
+  # -- Enable NetworkPolicy
+  enabled: false
+  # -- Allow ingress from specific namespaces (empty = all namespaces)
+  ingressNamespaceSelector: {}
+  # -- Allow ingress from specific pods (empty = all pods)
+  ingressPodSelector: {}
+
+# =============================================================================
+# Service Account
+# =============================================================================
+serviceAccount:
+  # -- Create a service account
+  create: true
+  # -- Annotations for the service account
+  annotations: {}
+  # -- Name of the service account (auto-generated if empty)
+  name: ""
+  # -- Automount API credentials
+  automountServiceAccountToken: false
+
+# =============================================================================
+# Extra Configuration
+# =============================================================================
+# -- Extra environment variables for pods
+extraEnv: []
+#  - name: RUST_LOG
+#    value: "save_api=debug"
+
+# -- Extra volume mounts for pods
+extraVolumeMounts: []
+
+# -- Extra volumes for pods
+extraVolumes: []
+
+# -- Extra init containers
+extraInitContainers: []
+
+# -- Extra containers (sidecars)
+extraContainers: []

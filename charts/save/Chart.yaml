@@ -1,0 +1,27 @@
+apiVersion: v2
+name: save
+description: Save - A high-performance, S3-compatible distributed object store built in Rust
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+kubeVersion: ">=1.23.0-0"
+
+home: https://github.com/save/save
+sources:
+  - https://github.com/save/save
+
+maintainers:
+  - name: Save Team
+    email: maintainers@save.io
+
+keywords:
+  - s3
+  - object-storage
+  - distributed
+  - raft
+  - minio-compatible
+  - rust
+
+annotations:
+  category: Storage
+  licenses: Apache-2.0

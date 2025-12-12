@@ -1,0 +1,127 @@
+
+===============================================================================
+  Save - S3-Compatible Distributed Object Store
+===============================================================================
+
+Congratulations! Save has been deployed to your Kubernetes cluster.
+
+{{- if .Values.clusterInit.enabled }}
+
+CLUSTER INITIALIZATION
+----------------------
+A post-install job will automatically initialize the Raft cluster.
+Check the job status:
+
+  kubectl get jobs -l app.kubernetes.io/name={{ include "save.name" . }} -n {{ .Release.Namespace }}
+
+View initialization logs:
+
+  kubectl logs -l app.kubernetes.io/component=cluster-init -n {{ .Release.Namespace }}
+
+{{- end }}
+
+CLUSTER STATUS
+--------------
+Check cluster health:
+
+  kubectl get pods -l app.kubernetes.io/name={{ include "save.name" . }} -n {{ .Release.Namespace }}
+
+View cluster status via API:
+
+  kubectl exec -it {{ include "save.fullname" . }}-0 -n {{ .Release.Namespace }} -- \
+    curl -s http://localhost:9000/cluster/status | jq
+
+ACCESSING THE S3 API
+--------------------
+{{- if .Values.loadBalancer.enabled }}
+External LoadBalancer:
+
+  export SERVICE_IP=$(kubectl get svc {{ include "save.fullname" . }}-lb -n {{ .Release.Namespace }} -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
+  echo "S3 Endpoint: http://${SERVICE_IP}:{{ .Values.service.port }}"
+
+{{- else if .Values.ingress.enabled }}
+Via Ingress:
+{{- range .Values.ingress.hosts }}
+  http{{ if $.Values.ingress.tls }}s{{ end }}://{{ .host }}
+{{- end }}
+
+{{- else }}
+Internal access (ClusterIP):
+
+  kubectl port-forward svc/{{ include "save.fullname" . }} 9000:{{ .Values.service.port }} -n {{ .Release.Namespace }}
+
+Then access at: http://localhost:9000
+
+{{- end }}
+
+CREDENTIALS
+-----------
+{{- if .Values.auth.existingSecret }}
+Using existing secret: {{ .Values.auth.existingSecret }}
+{{- else }}
+Retrieve auto-generated credentials:
+
+  export ACCESS_KEY=$(kubectl get secret {{ include "save.fullname" . }}-credentials -n {{ .Release.Namespace }} -o jsonpath='{.data.access-key}' | base64 -d)
+  export SECRET_KEY=$(kubectl get secret {{ include "save.fullname" . }}-credentials -n {{ .Release.Namespace }} -o jsonpath='{.data.secret-key}' | base64 -d)
+  echo "Access Key: $ACCESS_KEY"
+  echo "Secret Key: $SECRET_KEY"
+
+{{- end }}
+
+USING AWS CLI
+-------------
+Configure AWS CLI to use Save:
+
+  aws configure --profile save
+  # Enter your access key and secret key when prompted
+  # Region can be anything (e.g., us-east-1)
+
+  # Use with --endpoint-url
+  aws --endpoint-url http://localhost:9000 --profile save s3 ls
+
+METRICS & MONITORING
+--------------------
+{{- if .Values.metrics.enabled }}
+Metrics are exposed at /metrics on port {{ .Values.metrics.port }}
+
+{{- if .Values.metrics.serviceMonitor.enabled }}
+ServiceMonitor is enabled - Prometheus Operator will auto-discover.
+{{- end }}
+{{- if .Values.metrics.podMonitor.enabled }}
+PodMonitor is enabled - Prometheus Operator will auto-discover.
+{{- end }}
+
+View metrics manually:
+
+  kubectl port-forward svc/{{ include "save.fullname" . }} 9000:{{ .Values.service.port }} -n {{ .Release.Namespace }}
+  curl http://localhost:9000/metrics
+
+{{- else }}
+Metrics are disabled. Enable with: --set metrics.enabled=true
+{{- end }}
+
+TROUBLESHOOTING
+---------------
+View pod logs:
+
+  kubectl logs -f {{ include "save.fullname" . }}-0 -n {{ .Release.Namespace }}
+
+Check Raft state:
+
+  kubectl exec -it {{ include "save.fullname" . }}-0 -n {{ .Release.Namespace }} -- \
+    curl -s http://localhost:9000/cluster/status
+
+Check all node health:
+
+  for i in $(seq 0 {{ sub .Values.replicaCount 1 }}); do
+    echo "=== Node $i ==="
+    kubectl exec {{ include "save.fullname" . }}-$i -n {{ .Release.Namespace }} -- curl -s http://localhost:9000/health
+  done
+
+DOCUMENTATION
+-------------
+For more information, see the Save documentation:
+- GitHub: https://github.com/to-ny/save
+- Helm Chart README: charts/save/README.md
+
+===============================================================================

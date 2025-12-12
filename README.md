@@ -53,6 +53,28 @@ aws --endpoint-url http://localhost:9000 s3 cp file.txt s3://my-bucket/
 aws --endpoint-url http://localhost:9000 s3 ls s3://my-bucket/
 ```
 
+## Kubernetes Deployment
+
+Deploy a 3-node cluster using Helm:
+
+```bash
+helm install save ./charts/save -f charts/save/values-development.yaml
+```
+
+For production, create a credentials secret first:
+
+```bash
+kubectl create secret generic save-credentials \
+  --from-literal=access-key=YOUR_ACCESS_KEY \
+  --from-literal=secret-key=YOUR_SECRET_KEY
+
+helm install save ./charts/save \
+  -f charts/save/values-production.yaml \
+  --set auth.existingSecret=save-credentials
+```
+
+See [charts/save/README.md](charts/save/README.md) for full documentation.
+
 ## Configuration
 
 Mount your config file to `/app/save.toml` in the container.
