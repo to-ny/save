@@ -1,8 +1,7 @@
 //! Raft network layer implementation using gRPC.
 
 use super::rpc::RaftRpcClient;
-use super::types::{NodeId, NodeTypeConfig};
-use openraft::BasicNode;
+use super::types::{NodeId, NodeTypeConfig, SaveNode};
 use openraft::error::{NetworkError, RPCError, RaftError};
 use openraft::network::{RPCOption, RaftNetwork, RaftNetworkFactory};
 use openraft::raft::{
@@ -26,7 +25,10 @@ pub struct Network {
 
 impl Network {
     /// Create a new network with default timeouts.
-    pub fn with_peers(node_id: NodeId, peers: Vec<(NodeId, String)>) -> Self {
+    ///
+    /// Peers are specified as (node_id, raft_addr, http_addr) tuples.
+    /// Only the raft_addr is used for Raft RPC connections.
+    pub fn with_peers(node_id: NodeId, peers: Vec<(NodeId, String, String)>) -> Self {
         Self::with_peers_and_timeouts(
             node_id,
             peers,
@@ -36,13 +38,20 @@ impl Network {
     }
 
     /// Create a new network with custom timeouts.
+    ///
+    /// Peers are specified as (node_id, raft_addr, http_addr) tuples.
+    /// Only the raft_addr is used for Raft RPC connections.
     pub fn with_peers_and_timeouts(
         node_id: NodeId,
-        peers: Vec<(NodeId, String)>,
+        peers: Vec<(NodeId, String, String)>,
         connect_timeout: Duration,
         rpc_timeout: Duration,
     ) -> Self {
-        let peer_map: HashMap<NodeId, String> = peers.into_iter().collect();
+        // Extract only the Raft addresses for the peer map (used for Raft RPC)
+        let peer_map: HashMap<NodeId, String> = peers
+            .into_iter()
+            .map(|(id, raft_addr, _http_addr)| (id, raft_addr))
+            .collect();
         Self {
             node_id,
             peers: Arc::new(std::sync::RwLock::new(peer_map)),
@@ -54,9 +63,9 @@ impl Network {
 
     /// Adds a peer to the network. Used for cluster membership changes.
     #[allow(dead_code)]
-    pub fn add_peer(&self, node_id: NodeId, addr: String) {
+    pub fn add_peer(&self, node_id: NodeId, raft_addr: String) {
         let mut peers = self.peers.write().unwrap();
-        peers.insert(node_id, addr);
+        peers.insert(node_id, raft_addr);
     }
 
     /// Removes a peer from the network. Used for cluster membership changes.
@@ -70,19 +79,19 @@ impl Network {
 impl RaftNetworkFactory<NodeTypeConfig> for Network {
     type Network = NetworkConnection;
 
-    async fn new_client(&mut self, target: NodeId, node: &BasicNode) -> Self::Network {
+    async fn new_client(&mut self, target: NodeId, node: &SaveNode) -> Self::Network {
         let addr = {
             let peers = self.peers.read().unwrap();
             peers.get(&target).cloned()
         };
 
-        // Use peer map address if available, otherwise use node.addr from membership.
-        // node.addr may already have "http://" prefix from initialization.
+        // Use peer map address if available, otherwise use node.raft_addr from membership.
+        // node.raft_addr may already have "http://" prefix from initialization.
         let endpoint = addr.unwrap_or_else(|| {
-            if node.addr.starts_with("http://") || node.addr.starts_with("https://") {
-                node.addr.clone()
+            if node.raft_addr.starts_with("http://") || node.raft_addr.starts_with("https://") {
+                node.raft_addr.clone()
             } else {
-                format!("http://{}", node.addr)
+                format!("http://{}", node.raft_addr)
             }
         });
 
@@ -125,7 +134,7 @@ impl RaftNetwork<NodeTypeConfig> for NetworkConnection {
         &mut self,
         req: AppendEntriesRequest<NodeTypeConfig>,
         _option: RPCOption,
-    ) -> Result<AppendEntriesResponse<NodeId>, RPCError<NodeId, BasicNode, RaftError<NodeId>>> {
+    ) -> Result<AppendEntriesResponse<NodeId>, RPCError<NodeId, SaveNode, RaftError<NodeId>>> {
         self.client
             .append_entries(req)
             .await
@@ -138,7 +147,7 @@ impl RaftNetwork<NodeTypeConfig> for NetworkConnection {
         _option: RPCOption,
     ) -> Result<
         InstallSnapshotResponse<NodeId>,
-        RPCError<NodeId, BasicNode, RaftError<NodeId, openraft::error::InstallSnapshotError>>,
+        RPCError<NodeId, SaveNode, RaftError<NodeId, openraft::error::InstallSnapshotError>>,
     > {
         self.client
             .install_snapshot(req)
@@ -150,7 +159,7 @@ impl RaftNetwork<NodeTypeConfig> for NetworkConnection {
         &mut self,
         req: VoteRequest<NodeId>,
         _option: RPCOption,
-    ) -> Result<VoteResponse<NodeId>, RPCError<NodeId, BasicNode, RaftError<NodeId>>> {
+    ) -> Result<VoteResponse<NodeId>, RPCError<NodeId, SaveNode, RaftError<NodeId>>> {
         self.client
             .vote(req)
             .await

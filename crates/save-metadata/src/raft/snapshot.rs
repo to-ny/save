@@ -1,6 +1,6 @@
 //! Raft snapshot implementation using RocksDB checkpoints.
 
-use super::types::{NodeId, NodeTypeConfig};
+use super::types::{NodeId, NodeTypeConfig, SaveNode};
 use crate::keys::DATA_PREFIXES;
 use flate2::Compression;
 use flate2::read::GzDecoder;
@@ -19,7 +19,7 @@ const SNAPSHOT_DATA_KEY: &[u8] = b"snapshot_data";
 
 type AppliedState = (
     Option<openraft::LogId<NodeId>>,
-    StoredMembership<NodeId, openraft::BasicNode>,
+    StoredMembership<NodeId, SaveNode>,
 );
 
 fn read_err<E: ToString>(e: E) -> StorageError<NodeId> {
@@ -161,7 +161,7 @@ pub fn get_current_snapshot(
         None => return Ok(None),
     };
 
-    let meta: SnapshotMeta<NodeId, openraft::BasicNode> =
+    let meta: SnapshotMeta<NodeId, SaveNode> =
         serde_json::from_slice(&meta_bytes).map_err(read_err)?;
 
     Ok(Some(Snapshot {
@@ -174,7 +174,7 @@ pub fn get_current_snapshot(
 #[allow(clippy::result_large_err, clippy::boxed_local)]
 pub fn install_snapshot(
     db: &rocksdb::DB,
-    meta: &SnapshotMeta<NodeId, openraft::BasicNode>,
+    meta: &SnapshotMeta<NodeId, SaveNode>,
     snapshot: Box<Cursor<Vec<u8>>>,
 ) -> Result<(), StorageError<NodeId>> {
     info!(
@@ -252,7 +252,7 @@ fn restore_default_cf(
 #[allow(clippy::result_large_err)]
 fn update_raft_state_from_snapshot(
     db: &rocksdb::DB,
-    meta: &SnapshotMeta<NodeId, openraft::BasicNode>,
+    meta: &SnapshotMeta<NodeId, SaveNode>,
 ) -> Result<(), StorageError<NodeId>> {
     let cf = db
         .cf_handle("raft_state")

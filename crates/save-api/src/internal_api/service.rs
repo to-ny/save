@@ -48,15 +48,18 @@ impl ClusterAdminService {
             };
         }
 
-        let addr = if req.address.starts_with("http://") || req.address.starts_with("https://") {
-            req.address.clone()
-        } else {
-            format!("http://{}", req.address)
-        };
+        // Parse the address to extract host and derive both Raft and HTTP addresses
+        // Expected format: "host:raft_port" or "http://host:raft_port"
+        let (raft_addr, http_addr) = derive_addresses(&req.address);
 
-        info!(node_id = req.node_id, address = %addr, "Adding learner node");
+        info!(node_id = req.node_id, raft_addr = %raft_addr, http_addr = %http_addr, "Adding learner node");
 
-        match self.state.raft_node.add_learner(req.node_id, addr).await {
+        match self
+            .state
+            .raft_node
+            .add_learner(req.node_id, raft_addr, http_addr)
+            .await
+        {
             Ok(()) => {
                 info!(node_id = req.node_id, "Learner node added successfully");
                 proto::AddLearnerResponse {
@@ -237,6 +240,37 @@ fn raft_state_to_proto(state: RaftState) -> proto::RaftState {
         RaftState::Candidate => proto::RaftState::Candidate,
         RaftState::Learner => proto::RaftState::Learner,
         RaftState::Shutdown => proto::RaftState::Shutdown,
+    }
+}
+
+/// Derives both Raft and HTTP addresses from a single address input.
+///
+/// Accepts formats like "host:port" or "http://host:port".
+/// Returns (raft_addr, http_addr) where:
+/// - raft_addr is the input address with "http://" prefix
+/// - http_addr uses the same host with port 9000 (default HTTP port)
+fn derive_addresses(address: &str) -> (String, String) {
+    // Strip http:// or https:// prefix if present
+    let addr_without_scheme = address
+        .strip_prefix("http://")
+        .or_else(|| address.strip_prefix("https://"))
+        .unwrap_or(address);
+
+    // Parse host and port
+    if let Some((host, _port_str)) = addr_without_scheme.rsplit_once(':') {
+        let raft_addr = if address.starts_with("http://") || address.starts_with("https://") {
+            address.to_string()
+        } else {
+            format!("http://{}", address)
+        };
+        // Default HTTP port is 9000
+        let http_addr = format!("http://{}:9000", host);
+        (raft_addr, http_addr)
+    } else {
+        // No port in address, assume it's just a host, use defaults
+        let raft_addr = format!("http://{}:9001", addr_without_scheme);
+        let http_addr = format!("http://{}:9000", addr_without_scheme);
+        (raft_addr, http_addr)
     }
 }
 

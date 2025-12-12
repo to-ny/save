@@ -1,7 +1,6 @@
 //! Raft gRPC service implementation.
 
-use super::types::{NodeId, NodeTypeConfig, Raft};
-use openraft::BasicNode;
+use super::types::{NodeId, NodeTypeConfig, Raft, SaveNode};
 use openraft::raft::{
     AppendEntriesRequest, AppendEntriesResponse, InstallSnapshotRequest, InstallSnapshotResponse,
     VoteRequest, VoteResponse,
@@ -167,7 +166,7 @@ fn convert_install_snapshot_request(
     meta: proto::SnapshotMeta,
     data: Vec<u8>,
 ) -> Result<InstallSnapshotRequest<NodeTypeConfig>, Status> {
-    let membership: openraft::StoredMembership<NodeId, BasicNode> = meta
+    let membership: openraft::StoredMembership<NodeId, SaveNode> = meta
         .last_membership
         .map(|m| {
             serde_json::from_slice(&m.config)

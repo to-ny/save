@@ -54,6 +54,7 @@ spec:
               NODE_ID=$((ORDINAL + 1))
 
               # Generate peer list (all nodes except self)
+              # Format: "node_id:host:raft_port:http_port"
               PEERS=""
               for i in $(seq 0 $((REPLICAS - 1))); do
                 if [ $i -ne $ORDINAL ]; then
@@ -62,7 +63,7 @@ spec:
                   if [ -n "$PEERS" ]; then
                     PEERS="${PEERS}, "
                   fi
-                  PEERS="${PEERS}\"${PEER_ID}:${PEER_HOST}:9001\""
+                  PEERS="${PEERS}\"${PEER_ID}:${PEER_HOST}:9001:9000\""
                 fi
               done
 

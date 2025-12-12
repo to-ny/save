@@ -712,7 +712,7 @@ secret_key = "secret123"
         config.cluster.peers = vec!["2:192.168.1.10:99999".to_string()];
         let result = config.validate();
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("Invalid port"));
+        assert!(result.unwrap_err().to_string().contains("Invalid raft_port"));
     }
 
     #[test]

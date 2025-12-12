@@ -27,8 +27,8 @@ pub async fn add_learner(
             .into_response();
     }
 
-    let (node_id, addr) = match parse_peer(&request.node) {
-        Ok(info) => (info.node_id, info.http_addr()),
+    let peer_info = match parse_peer(&request.node) {
+        Ok(info) => info,
         Err(e) => {
             return (
                 StatusCode::BAD_REQUEST,
@@ -41,14 +41,22 @@ pub async fn add_learner(
         }
     };
 
-    match state.raft_node.add_learner(node_id, addr).await {
+    match state
+        .raft_node
+        .add_learner(
+            peer_info.node_id,
+            peer_info.raft_addr(),
+            peer_info.http_addr(),
+        )
+        .await
+    {
         Ok(()) => {
-            info!("Learner node {} added successfully", node_id);
+            info!("Learner node {} added successfully", peer_info.node_id);
             (
                 StatusCode::OK,
                 Json(MembershipResponse {
                     success: true,
-                    message: format!("Node {} added as learner", node_id),
+                    message: format!("Node {} added as learner", peer_info.node_id),
                 }),
             )
                 .into_response()

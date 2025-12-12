@@ -5,7 +5,7 @@
 use super::log_store::LogStore;
 use super::snapshot::SnapshotStorage;
 use super::state_machine::apply_command;
-use super::types::{Entry, LogId, NodeId, NodeTypeConfig, Vote};
+use super::types::{Entry, LogId, NodeId, NodeTypeConfig, SaveNode, Vote};
 use openraft::{
     LogState, RaftLogReader, RaftStorage, Snapshot, SnapshotMeta, StorageError, StorageIOError,
     StoredMembership,
@@ -134,8 +134,7 @@ impl RaftStorage<NodeTypeConfig> for Storage {
 
     async fn last_applied_state(
         &mut self,
-    ) -> Result<(Option<LogId>, StoredMembership<NodeId, openraft::BasicNode>), StorageError<NodeId>>
-    {
+    ) -> Result<(Option<LogId>, StoredMembership<NodeId, SaveNode>), StorageError<NodeId>> {
         let last_applied = self.log_store.read_log_id(b"last_applied_log_id")?;
 
         let cf = self.state_cf()?;
@@ -202,7 +201,7 @@ impl RaftStorage<NodeTypeConfig> for Storage {
 
     async fn install_snapshot(
         &mut self,
-        meta: &SnapshotMeta<NodeId, openraft::BasicNode>,
+        meta: &SnapshotMeta<NodeId, SaveNode>,
         snapshot: Box<std::io::Cursor<Vec<u8>>>,
     ) -> Result<(), StorageError<NodeId>> {
         let db = Arc::clone(self.db());

@@ -130,8 +130,6 @@ Transform the single-node S3-compatible store into a distributed, replicated sys
 - [x] Chaos test: Network partition during multipart upload
 - [ ] Load test: Multi-node cluster with replication overhead
 - [ ] Performance test: Replication latency P50/P90/P99
-- [ ] Benchmark: Compare Phase 1 vs Phase 2 write throughput
-- [ ] Benchmark: Cluster coordination overhead (add to save-storage/benches)
 
 ---
 

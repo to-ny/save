@@ -216,8 +216,8 @@ pub async fn forward_to_leader(
         return next.run(request).await;
     }
 
-    // Not the leader - forward to leader
-    let leader_addr = match state.raft_node.leader_addr().await {
+    // Not the leader - forward to leader using their HTTP API address
+    let leader_addr = match state.raft_node.leader_http_addr().await {
         Some(addr) => addr,
         None => {
             debug!("No leader available, attempting local processing");

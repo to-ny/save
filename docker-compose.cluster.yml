@@ -144,9 +144,9 @@ services:
           -H "Content-Type: application/json" \
           -d '{
             "members": [
-              "1:save-node1:9001",
-              "2:save-node2:9001",
-              "3:save-node3:9001"
+              "1:save-node1:9001:9000",
+              "2:save-node2:9001:9000",
+              "3:save-node3:9001:9000"
             ]
           }' && echo "Cluster initialized successfully" || echo "Cluster may already be initialized"
 

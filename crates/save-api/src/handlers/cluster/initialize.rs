@@ -27,12 +27,12 @@ pub async fn cluster_initialize(
             .into_response();
     }
 
-    let members: Vec<(u64, String)> = match request
+    let members: Vec<(u64, String, String)> = match request
         .members
         .iter()
         .map(|m| {
             parse_peer(m)
-                .map(|info| (info.node_id, info.http_addr()))
+                .map(|info| (info.node_id, info.raft_addr(), info.http_addr()))
                 .map_err(|e| e.to_string())
         })
         .collect::<Result<Vec<_>, String>>()
@@ -52,9 +52,9 @@ pub async fn cluster_initialize(
 
     let my_node_id = state.raft_node.node_id();
 
-    // Find this node's address from the members list
-    let my_addr = match members.iter().find(|(id, _)| *id == my_node_id) {
-        Some((_, addr)) => addr.clone(),
+    // Find this node's addresses from the members list
+    let (my_raft_addr, my_http_addr) = match members.iter().find(|(id, _, _)| *id == my_node_id) {
+        Some((_, raft_addr, http_addr)) => (raft_addr.clone(), http_addr.clone()),
         None => {
             return (
                 StatusCode::BAD_REQUEST,
@@ -72,7 +72,7 @@ pub async fn cluster_initialize(
 
     // Step 1: Initialize this node as a single-node cluster first.
     // This allows this node to become leader immediately.
-    let initial_member = vec![(my_node_id, my_addr)];
+    let initial_member = vec![(my_node_id, my_raft_addr, my_http_addr)];
     if let Err(e) = state.raft_node.initialize(initial_member).await {
         error!("Failed to initialize single-node cluster: {}", e);
         return (
@@ -107,15 +107,19 @@ pub async fn cluster_initialize(
     info!("Became leader, adding other nodes");
 
     // Step 3: Add other nodes as learners and promote to voters
-    let other_members: Vec<(u64, String)> = members
+    let other_members: Vec<(u64, String, String)> = members
         .into_iter()
-        .filter(|(id, _)| *id != my_node_id)
+        .filter(|(id, _, _)| *id != my_node_id)
         .collect();
 
     if !other_members.is_empty() {
         // Add all other nodes as learners first
-        for (node_id, addr) in &other_members {
-            if let Err(e) = state.raft_node.add_learner(*node_id, addr.clone()).await {
+        for (node_id, raft_addr, http_addr) in &other_members {
+            if let Err(e) = state
+                .raft_node
+                .add_learner(*node_id, raft_addr.clone(), http_addr.clone())
+                .await
+            {
                 error!("Failed to add learner {}: {}", node_id, e);
                 return (
                     StatusCode::INTERNAL_SERVER_ERROR,
@@ -133,7 +137,7 @@ pub async fn cluster_initialize(
         tokio::time::sleep(Duration::from_millis(100)).await;
 
         // Promote all learners to voters
-        let learner_ids: Vec<u64> = other_members.iter().map(|(id, _)| *id).collect();
+        let learner_ids: Vec<u64> = other_members.iter().map(|(id, _, _)| *id).collect();
         if let Err(e) = state.raft_node.promote_voters(learner_ids.clone()).await {
             error!("Failed to promote voters: {}", e);
             return (

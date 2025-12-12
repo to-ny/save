@@ -122,8 +122,9 @@ async fn async_main_with_config(config: SaveConfig) -> anyhow::Result<()> {
     if config.cluster.peers.is_empty() && !raft_node.is_initialized() {
         info!("Single-node cluster detected, auto-bootstrapping");
         let raft_addr = format!("http://{}", config.cluster.raft_bind_addr);
+        let http_addr = format!("http://{}", config.server.bind_address);
         raft_node
-            .initialize(vec![(config.cluster.node_id, raft_addr)])
+            .initialize(vec![(config.cluster.node_id, raft_addr, http_addr)])
             .await?;
     }
 
