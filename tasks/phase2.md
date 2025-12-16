@@ -105,9 +105,10 @@ Transform the single-node S3-compatible store into a distributed, replicated sys
 - [x] Add gRPC metrics (request latency, stream duration)
 - [x] Implement distributed tracing across nodes (trace IDs propagation)
 - [ ] Update Grafana dashboard with cluster panels
-- [ ] Add alerting rules for cluster degradation
-- [ ] Create replication lag alerts
-- [ ] Add quorum failure alerts
+- [x] Add alerting rules for cluster degradation (Location: `charts/save/templates/prometheusrule.yaml`)
+- [x] Create replication lag alerts (Location: `charts/save/templates/prometheusrule.yaml`)
+- [x] Add quorum failure alerts (Location: `charts/save/templates/prometheusrule.yaml`)
+- [ ] Add observability OOTB for dev/test deployments using Helm chart 
 
 ---
 
@@ -130,6 +131,9 @@ Transform the single-node S3-compatible store into a distributed, replicated sys
 - [x] Chaos test: Network partition during multipart upload
 - [ ] Load test: Multi-node cluster with replication overhead
 - [ ] Performance test: Replication latency P50/P90/P99
+- [ ] Integration test: Auto-join when scaling up (new node joins cluster automatically)
+- [ ] Integration test: Graceful leave when scaling down (node leaves cluster before shutdown)
+- [ ] Integration test: Leader node graceful departure (leadership transfers correctly)
 
 ---
 
@@ -138,8 +142,6 @@ Transform the single-node S3-compatible store into a distributed, replicated sys
 - [ ] Create cluster deployment documentation (3-node, 5-node setups)
 - [ ] Add TLS certificate generation guide for mTLS
 - [ ] Document cluster bootstrap procedure
-- [ ] Create node addition procedure (scaling up)
-- [ ] Create node removal procedure (scaling down)
 - [ ] Document cluster upgrade strategy (rolling upgrades)
 - [ ] Add troubleshooting guide (partition recovery, replication lag)
 - [ ] Create runbook for leader failure scenarios
@@ -147,6 +149,10 @@ Transform the single-node S3-compatible store into a distributed, replicated sys
 - [x] Create Helm chart for Kubernetes deployment (production-ready)
 - [ ] Add backup/restore procedures for distributed cluster
 - [ ] Document disaster recovery scenarios (quorum loss)
+
+### Automatic Cluster Scaling
+- [ ] Implement auto-join: new nodes automatically join the cluster on startup
+- [ ] Implement graceful leave: nodes remove themselves from the cluster on shutdown
 
 ---
 
