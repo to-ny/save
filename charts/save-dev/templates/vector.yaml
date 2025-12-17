@@ -1,0 +1,189 @@
+{{- if .Values.vector.enabled }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Release.Name }}-vector-config
+  labels:
+    app.kubernetes.io/name: vector
+    app.kubernetes.io/instance: {{ .Release.Name }}
+data:
+  vector.toml: |
+    # Vector configuration for Save development environment
+    # Collects logs from Save pods and forwards to OpenObserve
+
+    [sources.kubernetes_logs]
+    type = "kubernetes_logs"
+    # Only collect logs from save pods
+    extra_label_selector = "app.kubernetes.io/name=save"
+
+    [transforms.parse_json]
+    type = "remap"
+    inputs = ["kubernetes_logs"]
+    source = '''
+      # Extract kubernetes metadata first (before clearing event)
+      pod_name = .kubernetes.pod_name
+      namespace = .kubernetes.pod_namespace
+      container = .kubernetes.container_name
+
+      # Parse JSON logs from Save API
+      parsed, err = parse_json(.message)
+      if err == null {
+        # Start fresh with only the fields we want
+        . = {}
+        .log_timestamp = parsed.timestamp
+        .level = parsed.level
+        .target = parsed.target
+        .msg = parsed.fields.message
+        .spans = parsed.spans
+        # Flatten all extra fields from the tracing "fields" object
+        if is_object(parsed.fields) {
+          for_each(object!(parsed.fields)) -> |key, value| {
+            if key != "message" {
+              . = set!(., [key], value)
+            }
+          }
+        }
+        # Add kubernetes metadata
+        .pod_name = pod_name
+        .namespace = namespace
+        .container = container
+      } else {
+        # Non-JSON log - keep message and add metadata
+        msg = .message
+        . = {}
+        .msg = msg
+        .pod_name = pod_name
+        .namespace = namespace
+        .container = container
+      }
+    '''
+
+    # Debug sink to see what's being produced
+    [sinks.console]
+    type = "console"
+    inputs = ["parse_json"]
+    encoding.codec = "json"
+
+    [sinks.openobserve]
+    type = "http"
+    inputs = ["parse_json"]
+    uri = "http://{{ .Release.Name }}-openobserve:{{ .Values.openobserve.service.port }}/api/default/save_api/_json"
+    encoding.codec = "json"
+    framing.method = "bytes"
+    payload_prefix = "["
+    payload_suffix = "]"
+    auth.strategy = "basic"
+    auth.user = {{ .Values.openobserve.auth.rootUser | quote }}
+    auth.password = {{ .Values.openobserve.auth.rootPassword | quote }}
+    batch.max_events = 1
+    batch.timeout_secs = 1
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: {{ .Release.Name }}-vector
+  labels:
+    app.kubernetes.io/name: vector
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/component: log-collector
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: vector
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: vector
+        app.kubernetes.io/instance: {{ .Release.Name }}
+      annotations:
+        checksum/config: {{ .Values.vector | toJson | sha256sum }}
+    spec:
+      serviceAccountName: {{ .Release.Name }}-vector
+      containers:
+        - name: vector
+          image: "{{ .Values.vector.image.repository }}:{{ .Values.vector.image.tag }}"
+          imagePullPolicy: {{ .Values.vector.image.pullPolicy }}
+          args:
+            - --config-dir
+            - /etc/vector/
+          env:
+            - name: VECTOR_SELF_NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+            - name: VECTOR_SELF_POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: VECTOR_SELF_POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+          volumeMounts:
+            - name: config
+              mountPath: /etc/vector/
+              readOnly: true
+            - name: var-log
+              mountPath: /var/log
+              readOnly: true
+            - name: var-lib-docker
+              mountPath: /var/lib/docker
+              readOnly: true
+            - name: data
+              mountPath: /vector-data-dir
+          resources:
+            {{- toYaml .Values.vector.resources | nindent 12 }}
+      volumes:
+        - name: config
+          configMap:
+            name: {{ .Release.Name }}-vector-config
+        - name: var-log
+          hostPath:
+            path: /var/log
+        - name: var-lib-docker
+          hostPath:
+            path: /var/lib/docker
+        - name: data
+          emptyDir: {}
+      tolerations:
+        - effect: NoSchedule
+          operator: Exists
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ .Release.Name }}-vector
+  labels:
+    app.kubernetes.io/name: vector
+    app.kubernetes.io/instance: {{ .Release.Name }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ .Release.Name }}-vector
+  labels:
+    app.kubernetes.io/name: vector
+    app.kubernetes.io/instance: {{ .Release.Name }}
+rules:
+  - apiGroups: [""]
+    resources: ["namespaces", "nodes", "pods"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ .Release.Name }}-vector
+  labels:
+    app.kubernetes.io/name: vector
+    app.kubernetes.io/instance: {{ .Release.Name }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ .Release.Name }}-vector
+subjects:
+  - kind: ServiceAccount
+    name: {{ .Release.Name }}-vector
+    namespace: {{ .Release.Namespace }}
+{{- end }}

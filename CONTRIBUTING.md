@@ -18,7 +18,8 @@ crates/
 └── save-proto/     # gRPC protocol definitions
 
 charts/
-└── save/           # Helm chart for Kubernetes
+├── save/           # Helm chart for Kubernetes (production)
+└── save-dev/       # Development chart with observability stack
 
 tests/
 ├── aws-sdk-compat/ # AWS SDK compatibility
@@ -97,8 +98,25 @@ See [Docker README](./docker/README.md) for more information.
 make helm-lint                 # Validate chart
 make helm-template             # Render templates locally
 
-# Deploy to cluster
-helm install save ./charts/save -f charts/save/values-development.yaml
+# Deploy to cluster (production)
+helm install save ./charts/save -f charts/save/values-production.yaml
 ```
 
 See [Helm Chart README](./charts/save/README.md) for full documentation.
+
+#### Development with Observability
+
+For development with full observability stack (Prometheus, Grafana, OpenObserve, Vector):
+
+```bash
+cd charts/save-dev
+helm dependency update
+helm install save-dev . -n save-dev --create-namespace
+
+# Access services
+kubectl port-forward svc/save-dev-grafana 3000:3000 -n save-dev      # Dashboards
+kubectl port-forward svc/save-dev-openobserve 5080:5080 -n save-dev  # Logs
+kubectl port-forward svc/save-dev-save 8080:8080 -n save-dev         # S3 API
+```
+
+See [Development Chart README](./charts/save-dev/README.md) for more details.

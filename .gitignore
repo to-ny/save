@@ -82,6 +82,10 @@ lcov.info
 .dockerignore
 docker-compose.override.yml
 
+# Helm chart dependencies
+charts/*/charts/*.tgz
+charts/*/*.tgz
+
 # Environment variables (if used)
 .env
 .env.local

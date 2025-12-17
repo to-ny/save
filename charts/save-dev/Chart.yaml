@@ -1,0 +1,43 @@
+apiVersion: v2
+name: save-dev
+description: Save development environment with full observability stack (Prometheus, Grafana, OpenObserve, Vector)
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+
+# This is a development-only chart that bundles the main save chart
+# with an observability stack. DO NOT use in production.
+
+dependencies:
+  # Main save chart
+  - name: save
+    version: "0.1.0"
+    repository: "file://../save"
+
+  # Prometheus for metrics collection
+  - name: prometheus
+    version: "25.27.0"
+    repository: "https://prometheus-community.github.io/helm-charts"
+    condition: prometheus.enabled
+
+  # Grafana for dashboards and visualization
+  - name: grafana
+    version: "8.5.2"
+    repository: "https://grafana.github.io/helm-charts"
+    condition: grafana.enabled
+
+maintainers:
+  - name: Save Team
+    email: maintainers@save.io
+
+keywords:
+  - development
+  - observability
+  - prometheus
+  - grafana
+  - openobserve
+  - vector
+
+annotations:
+  category: Development
+  "artifacthub.io/license": Apache-2.0
