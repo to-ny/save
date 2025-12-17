@@ -39,8 +39,8 @@ data:
     # NODE_ID is substituted by init container based on pod ordinal
     node_id = ${NODE_ID}
     raft_bind_addr = "0.0.0.0:9001"
-    # PEERS is substituted by init container (excludes self)
-    peers = [${PEERS}]
+    # SEED_NODES for initial discovery (substituted by init container, excludes self)
+    seed_nodes = [${SEED_NODES}]
 
     [cluster.replication]
     replication_factor = {{ .Values.cluster.replicationFactor }}

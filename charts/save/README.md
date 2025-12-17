@@ -222,6 +222,22 @@ If quorum is lost (majority of nodes down):
 2. Use that node's data to bootstrap a new single-node cluster
 3. Add additional nodes one at a time
 
+### Cluster Maintenance
+
+**Triggering Leadership Election**
+
+If the current Raft leader is unresponsive or you need to move leadership to another node (e.g., before maintenance), you can trigger an election:
+
+```bash
+# Trigger election on a specific node (it will campaign to become leader)
+kubectl exec -it save-1 -- curl -X POST http://localhost:9000/cluster/trigger-elect
+
+# Verify new leader
+kubectl exec -it save-0 -- curl -s http://localhost:9000/cluster/status | jq '.leader_id'
+```
+
+**Note:** The node receiving the trigger-elect request will attempt to become the new leader. This requires the node to be a voter in the cluster and have up-to-date logs.
+
 ## Monitoring
 
 ### Prometheus Integration

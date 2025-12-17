@@ -8,6 +8,7 @@ pub mod internal_api;
 pub mod metrics;
 pub mod middleware;
 pub mod routes;
+pub mod scaling;
 pub mod state;
 
 #[cfg(test)]

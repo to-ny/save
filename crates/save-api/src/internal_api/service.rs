@@ -231,6 +231,31 @@ impl ClusterAdminService {
             recent_logs,
         }
     }
+
+    pub async fn trigger_elect(
+        &self,
+        _req: proto::TriggerElectRequest,
+    ) -> proto::TriggerElectResponse {
+        let node_id = self.state.raft_node.node_id();
+        info!(node_id = node_id, "Triggering election");
+
+        match self.state.raft_node.trigger_elect().await {
+            Ok(()) => {
+                info!(node_id = node_id, "Election triggered successfully");
+                proto::TriggerElectResponse {
+                    success: true,
+                    error_message: String::new(),
+                }
+            }
+            Err(e) => {
+                warn!(node_id = node_id, error = %e, "Failed to trigger election");
+                proto::TriggerElectResponse {
+                    success: false,
+                    error_message: e.to_string(),
+                }
+            }
+        }
+    }
 }
 
 fn raft_state_to_proto(state: RaftState) -> proto::RaftState {

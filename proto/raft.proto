@@ -23,7 +23,9 @@ message LogId {
 
 message Vote {
   uint64 term = 1;
-  uint64 node_id = 2;
+  // In single-term-leader mode, node_id may not be set (use optional).
+  // When not set, indicates no vote cast yet for this term.
+  optional uint64 node_id = 2;
   bool committed = 3;
 }
 

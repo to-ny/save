@@ -7,9 +7,11 @@ use prost::Message;
 use save_common::TlsConfig;
 use save_common::{BoxBody, create_grpc_error_response, create_grpc_response, parse_grpc_frame};
 use save_proto::cluster as proto;
+use socket2::{Domain, Socket, Type};
 use std::net::SocketAddr;
 use std::time::Instant;
-use tokio::sync::broadcast;
+use tokio::sync::{broadcast, oneshot};
+use tokio_stream::wrappers::TcpListenerStream;
 use tonic::Status;
 use tonic::server::NamedService;
 use tonic::transport::Server;
@@ -18,12 +20,21 @@ use tracing::{debug, info};
 const SERVICE_NAME: &str = "ClusterAdmin";
 
 /// Run the internal gRPC server with optional mTLS.
+///
+/// # Arguments
+/// * `state` - Application state
+/// * `addr` - The address to bind to
+/// * `shutdown_rx` - Optional broadcast receiver for shutdown signal
+/// * `tls_config` - Optional TLS configuration for mTLS
+/// * `require_auth` - Whether to require mTLS authentication
+/// * `ready_tx` - Optional oneshot sender to signal when server is ready to accept connections
 pub async fn run_server(
     state: AppState,
     addr: SocketAddr,
     mut shutdown_rx: Option<broadcast::Receiver<()>>,
     tls_config: Option<&TlsConfig>,
     require_auth: bool,
+    ready_tx: Option<oneshot::Sender<()>>,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     info!(
         "Starting internal gRPC server on {} (TLS: {}, require_auth: {})",
@@ -34,6 +45,27 @@ pub async fn run_server(
 
     let service = ClusterAdminService::new(state);
     let wrapper = ServiceWrapper { service };
+
+    // Create socket with SO_REUSEADDR for faster restart after crash
+    let domain = if addr.is_ipv4() {
+        Domain::IPV4
+    } else {
+        Domain::IPV6
+    };
+    let socket = Socket::new(domain, Type::STREAM, None)?;
+    socket.set_reuse_address(true)?;
+    socket.bind(&addr.into())?;
+    socket.listen(1024)?;
+    socket.set_nonblocking(true)?;
+
+    let std_listener: std::net::TcpListener = socket.into();
+    let listener = tokio::net::TcpListener::from_std(std_listener)?;
+    let incoming = TcpListenerStream::new(listener);
+
+    // Signal that we're ready to accept connections
+    if let Some(tx) = ready_tx {
+        let _ = tx.send(());
+    }
 
     let mut builder = Server::builder();
 
@@ -47,13 +79,13 @@ pub async fn run_server(
     match shutdown_rx.take() {
         Some(mut rx) => {
             server
-                .serve_with_shutdown(addr, async move {
+                .serve_with_incoming_shutdown(incoming, async move {
                     let _ = rx.recv().await;
                     info!("Internal gRPC server shutting down");
                 })
                 .await?
         }
-        None => server.serve(addr).await?,
+        None => server.serve_with_incoming(incoming).await?,
     }
 
     Ok(())
@@ -147,6 +179,9 @@ where
                 "/cluster.ClusterAdmin/GetDebugInfo" => {
                     handle_get_debug_info(&inner, body.to_vec()).await
                 }
+                "/cluster.ClusterAdmin/TriggerElect" => {
+                    handle_trigger_elect(&inner, body.to_vec()).await
+                }
                 _ => {
                     record_request(method, "unimplemented", start.elapsed().as_secs_f64());
                     return Ok(create_grpc_error_response(Status::unimplemented(
@@ -175,32 +210,37 @@ fn record_request(method: &str, status: &str, duration: f64) {
 }
 
 trait ClusterAdminTrait: Clone + Send + Sync + 'static {
-    fn get_status(&self) -> impl std::future::Future<Output = proto::GetStatusResponse> + Send;
+    fn get_status(&self) -> impl Future<Output = proto::GetStatusResponse> + Send;
 
     fn add_learner(
         &self,
         req: proto::AddLearnerRequest,
-    ) -> impl std::future::Future<Output = proto::AddLearnerResponse> + Send;
+    ) -> impl Future<Output = proto::AddLearnerResponse> + Send;
 
     fn promote_voters(
         &self,
         req: proto::PromoteVotersRequest,
-    ) -> impl std::future::Future<Output = proto::PromoteVotersResponse> + Send;
+    ) -> impl Future<Output = proto::PromoteVotersResponse> + Send;
 
     fn remove_node(
         &self,
         req: proto::RemoveNodeRequest,
-    ) -> impl std::future::Future<Output = proto::RemoveNodeResponse> + Send;
+    ) -> impl Future<Output = proto::RemoveNodeResponse> + Send;
 
     fn drain_node(
         &self,
         req: proto::DrainNodeRequest,
-    ) -> impl std::future::Future<Output = proto::DrainNodeResponse> + Send;
+    ) -> impl Future<Output = proto::DrainNodeResponse> + Send;
 
     fn get_debug_info(
         &self,
         req: proto::GetDebugInfoRequest,
-    ) -> impl std::future::Future<Output = proto::GetDebugInfoResponse> + Send;
+    ) -> impl Future<Output = proto::GetDebugInfoResponse> + Send;
+
+    fn trigger_elect(
+        &self,
+        req: proto::TriggerElectRequest,
+    ) -> impl Future<Output = proto::TriggerElectResponse> + Send;
 }
 
 impl ClusterAdminTrait for ServiceWrapper {
@@ -229,6 +269,10 @@ impl ClusterAdminTrait for ServiceWrapper {
 
     async fn get_debug_info(&self, req: proto::GetDebugInfoRequest) -> proto::GetDebugInfoResponse {
         self.service.get_debug_info(req).await
+    }
+
+    async fn trigger_elect(&self, req: proto::TriggerElectRequest) -> proto::TriggerElectResponse {
+        self.service.trigger_elect(req).await
     }
 }
 
@@ -323,6 +367,12 @@ define_grpc_handler!(
     ClusterAdminTrait,
     get_debug_info,
     proto::GetDebugInfoRequest
+);
+define_grpc_handler!(
+    handle_trigger_elect,
+    ClusterAdminTrait,
+    trigger_elect,
+    proto::TriggerElectRequest
 );
 
 #[cfg(test)]

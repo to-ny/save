@@ -5,7 +5,7 @@ use axum::{
     response::IntoResponse,
 };
 use save_common::cluster::parse_peer;
-use tracing::{error, info};
+use tracing::{debug, error, info};
 
 use super::{AddLearnerRequest, MembershipResponse, PromoteVotersRequest};
 use crate::state::AppState;
@@ -133,6 +133,40 @@ pub async fn promote_voters(
     }
 }
 
+/// Trigger an election on this node.
+/// This is useful for forcing leadership transfer when the cluster is stuck.
+pub async fn trigger_elect(State(state): State<AppState>) -> impl IntoResponse {
+    info!("Triggering election on node {}", state.raft_node.node_id());
+
+    match state.raft_node.trigger_elect().await {
+        Ok(()) => {
+            info!(
+                "Election triggered successfully on node {}",
+                state.raft_node.node_id()
+            );
+            (
+                StatusCode::OK,
+                Json(MembershipResponse {
+                    success: true,
+                    message: "Election triggered".to_string(),
+                }),
+            )
+                .into_response()
+        }
+        Err(e) => {
+            error!("Failed to trigger election: {}", e);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(MembershipResponse {
+                    success: false,
+                    message: format!("Failed to trigger election: {}", e),
+                }),
+            )
+                .into_response()
+        }
+    }
+}
+
 pub async fn remove_node(
     State(state): State<AppState>,
     Path(node_id): Path<u64>,
@@ -161,6 +195,28 @@ pub async fn remove_node(
             .into_response();
     }
 
+    // For voters, we need to first demote to learner, then remove.
+    // OpenRaft's RemoveNodes only works directly on learners.
+    let status = state.raft_node.get_status();
+    let is_voter = status.voters.contains(&node_id);
+
+    // Step 1: If voter, demote to learner first
+    if is_voter {
+        if let Err(e) = state.raft_node.remove_voters(vec![node_id]).await {
+            error!("Failed to demote voter {} to learner: {}", node_id, e);
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(MembershipResponse {
+                    success: false,
+                    message: format!("Failed to demote voter to learner: {}", e),
+                }),
+            )
+                .into_response();
+        }
+        debug!("Demoted node {} from voter to learner", node_id);
+    }
+
+    // Step 2: Remove the learner from the cluster
     match state.raft_node.remove_node(node_id).await {
         Ok(()) => {
             info!("Node {} removed from cluster", node_id);

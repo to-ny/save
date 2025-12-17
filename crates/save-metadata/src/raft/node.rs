@@ -14,7 +14,7 @@ use std::collections::BTreeMap;
 use std::collections::BTreeSet;
 use std::sync::Arc;
 use std::time::Duration;
-use tracing::debug;
+use tracing::{debug, info};
 
 /// Raft node state for monitoring.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -94,12 +94,12 @@ impl RaftNode {
         cluster_config: &ClusterConfig,
     ) -> Result<Self> {
         let node_id = cluster_config.node_id;
-        let peers = parse_peers_to_tuples(&cluster_config.peers)?;
+        let peers = parse_peers_to_tuples(&cluster_config.seed_nodes)?;
 
         let config = Config {
-            heartbeat_interval: 150,
-            election_timeout_min: 300,
-            election_timeout_max: 600,
+            heartbeat_interval: cluster_config.heartbeat_interval_ms,
+            election_timeout_min: cluster_config.election_timeout_min_ms,
+            election_timeout_max: cluster_config.election_timeout_max_ms,
             max_in_snapshot_log_to_keep: 1000,
             ..Config::default()
         };
@@ -322,6 +322,21 @@ impl RaftNode {
             .membership()
             .learner_ids()
             .collect()
+    }
+
+    /// Triggers an election on this node.
+    ///
+    /// This causes the node to immediately start a leader election,
+    /// regardless of the election timeout. Useful for expediting
+    /// leadership transfer during graceful shutdown.
+    pub async fn trigger_elect(&self) -> Result<()> {
+        info!(node_id = self.node_id, "Triggering election");
+        self.raft
+            .trigger()
+            .elect()
+            .await
+            .map_err(|e| MetadataError::Raft(e.to_string()))?;
+        Ok(())
     }
 
     /// Submits a command through Raft consensus.

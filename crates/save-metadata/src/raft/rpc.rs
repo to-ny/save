@@ -8,6 +8,7 @@ use openraft::raft::{
 use save_proto::raft as proto;
 use std::sync::Arc;
 use tonic::{Request, Response, Status};
+use tracing::debug;
 
 /// Raft RPC server handling incoming consensus requests.
 pub struct RaftRpcServer {
@@ -28,6 +29,11 @@ impl RaftRpcServer {
         request: Request<proto::AppendEntriesRequest>,
     ) -> Result<Response<proto::AppendEntriesResponse>, Status> {
         let req = request.into_inner();
+        debug!(
+            vote = ?req.vote,
+            entries_count = req.entries.len(),
+            "append_entries: received from leader"
+        );
         let raft_req = convert_append_entries_request(req)?;
 
         let resp = self
@@ -36,6 +42,7 @@ impl RaftRpcServer {
             .await
             .map_err(|e| Status::internal(e.to_string()))?;
 
+        debug!(success = ?resp.is_success(), "append_entries: responding");
         Ok(Response::new(convert_append_entries_response(resp)))
     }
 
@@ -44,6 +51,7 @@ impl RaftRpcServer {
         request: Request<proto::VoteRequest>,
     ) -> Result<Response<proto::VoteResponse>, Status> {
         let req = request.into_inner();
+        debug!(vote = ?req.vote, "vote: received vote request");
         let raft_req = convert_vote_request(req)?;
 
         let resp = self
@@ -52,6 +60,11 @@ impl RaftRpcServer {
             .await
             .map_err(|e| Status::internal(e.to_string()))?;
 
+        debug!(
+            vote_granted = resp.vote_granted,
+            vote = ?resp.vote,
+            "vote: responding"
+        );
         Ok(Response::new(convert_vote_response(resp)))
     }
 
@@ -112,7 +125,13 @@ impl RaftRpcServer {
 // --- Proto to OpenRaft conversions ---
 
 fn convert_vote(v: proto::Vote) -> openraft::Vote<NodeId> {
-    openraft::Vote::new_committed(v.term, v.node_id)
+    // node_id is optional in single-term-leader mode; default to 0 if not set
+    let node_id = v.node_id.unwrap_or(0);
+    if v.committed {
+        openraft::Vote::new_committed(v.term, node_id)
+    } else {
+        openraft::Vote::new(v.term, node_id)
+    }
 }
 
 fn convert_log_id(id: proto::LogId) -> openraft::LogId<NodeId> {
@@ -195,15 +214,30 @@ fn convert_install_snapshot_request(
 fn to_proto_vote(v: &openraft::Vote<NodeId>) -> proto::Vote {
     proto::Vote {
         term: v.leader_id().term,
-        node_id: v.leader_id().node_id,
+        // In single-term-leader mode, voted_for contains the candidate node_id.
+        // We preserve the Option to avoid ambiguity with node_id 0.
+        node_id: v.leader_id().voted_for,
         committed: v.is_committed(),
     }
 }
 
+/// Converts an OpenRaft LogId to proto format.
+///
+/// # Single-Term-Leader Mode Assumption
+///
+/// This code assumes the `single-term-leader` feature is enabled on openraft.
+/// In this mode, `CommittedLeaderId` only contains a `term` field (no `node_id`),
+/// because only one leader can exist per term, making node_id redundant.
+///
+/// If you disable `single-term-leader`, this conversion will lose the node_id
+/// information from log entries, causing consensus failures.
 fn to_proto_log_id(id: &openraft::LogId<NodeId>) -> proto::LogId {
+    // In single-term-leader mode, CommittedLeaderId.node_id doesn't exist.
+    // We set proto node_id to 0 because it's unused in this mode.
+    // The receiver reconstructs using only term + index.
     proto::LogId {
         term: id.leader_id.term,
-        node_id: id.leader_id.node_id,
+        node_id: 0,
         index: id.index,
     }
 }

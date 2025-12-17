@@ -166,30 +166,32 @@ async fn test_multipart_crash_during_complete() -> Result<()> {
         .send()
         .await;
 
-    if get_result.is_err() {
-        // Object not visible, multipart state should still exist
-        tracing::info!("Object not visible, checking multipart state");
-        let _list_uploads = env
-            .client()
-            .list_multipart_uploads()
-            .bucket("test")
-            .send()
-            .await?;
+    match get_result {
+        Ok(obj) => {
+            // Object is complete, verify it
+            tracing::info!("Object completed despite crash");
+            let body = obj.body.collect().await?.into_bytes();
+            assert_eq!(body.len(), 15 * 1024 * 1024, "Object should be complete");
+        }
+        Err(_) => {
+            // Object not visible, multipart state should still exist
+            tracing::info!("Object not visible, checking multipart state");
+            let _list_uploads = env
+                .client()
+                .list_multipart_uploads()
+                .bucket("test")
+                .send()
+                .await?;
 
-        // Can retry complete or abort
-        env.client()
-            .abort_multipart_upload()
-            .bucket("test")
-            .key("multipart-complete-crash.bin")
-            .upload_id(&upload_id)
-            .send()
-            .await?;
-    } else {
-        // Object is complete, verify it
-        tracing::info!("Object completed despite crash");
-        let obj = get_result.unwrap();
-        let body = obj.body.collect().await?.into_bytes();
-        assert_eq!(body.len(), 15 * 1024 * 1024, "Object should be complete");
+            // Can retry complete or abort
+            env.client()
+                .abort_multipart_upload()
+                .bucket("test")
+                .key("multipart-complete-crash.bin")
+                .upload_id(&upload_id)
+                .send()
+                .await?;
+        }
     }
 
     env.verify_consistency().await?;

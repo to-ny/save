@@ -6,7 +6,7 @@ use save_proto::raft as proto;
 use socket2::{Domain, Socket, Type};
 use std::net::SocketAddr;
 use std::sync::Arc;
-use tokio::sync::broadcast;
+use tokio::sync::{broadcast, oneshot};
 use tokio_stream::wrappers::TcpListenerStream;
 use tonic::transport::Server;
 use tonic::{Request, Response, Status};
@@ -20,12 +20,14 @@ type BoxBody = http_body_util::combinators::UnsyncBoxBody<bytes::Bytes, Status>;
 /// * `raft` - The Raft instance to handle RPCs for
 /// * `addr` - The address to bind to
 /// * `shutdown_rx` - Optional broadcast receiver for shutdown signal
+/// * `ready_tx` - Optional oneshot sender to signal when server is ready to accept connections
 ///
 /// Returns early error if binding fails, allowing caller to handle startup failures.
 pub async fn run_server(
     raft: Arc<Raft>,
     addr: SocketAddr,
     mut shutdown_rx: Option<broadcast::Receiver<()>>,
+    ready_tx: Option<oneshot::Sender<()>>,
 ) -> anyhow::Result<()> {
     let service = RaftRpcService::new(raft);
 
@@ -47,6 +49,11 @@ pub async fn run_server(
     let listener = tokio::net::TcpListener::from_std(std_listener)?;
 
     let incoming = TcpListenerStream::new(listener);
+
+    // Signal that we're ready to accept connections
+    if let Some(tx) = ready_tx {
+        let _ = tx.send(());
+    }
 
     let server = Server::builder().add_service(RaftRpcServiceServer::new(service));
 

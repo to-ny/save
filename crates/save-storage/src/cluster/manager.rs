@@ -139,7 +139,7 @@ impl ClusterManager {
     /// Discover and connect to peers from configuration.
     pub async fn discover_peers(&self, peer_strings: &[String]) -> Result<(), StorageError> {
         if peer_strings.is_empty() {
-            debug!("No peers configured, running as single node");
+            debug!("No peers configured, running as standalone cluster");
             return Ok(());
         }
 

@@ -6,7 +6,7 @@ use axum::{
 };
 
 use crate::handlers::cluster::{
-    add_learner, cluster_initialize, cluster_status, promote_voters, remove_node,
+    add_learner, cluster_initialize, cluster_status, promote_voters, remove_node, trigger_elect,
 };
 use crate::state::AppState;
 
@@ -17,6 +17,7 @@ pub fn routes() -> Router<AppState> {
         .route("/cluster/members", post(add_learner))
         .route("/cluster/members/promote", post(promote_voters))
         .route("/cluster/members/{node_id}", delete(remove_node))
+        .route("/cluster/trigger-elect", post(trigger_elect))
 }
 
 #[cfg(test)]

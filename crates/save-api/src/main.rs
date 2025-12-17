@@ -8,7 +8,9 @@ use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::signal;
-use tracing::{error, info};
+use tokio::sync::{broadcast, oneshot};
+use tokio::task::JoinHandle;
+use tracing::{debug, error, info, warn};
 
 fn init_tracing() {
     let env_filter = tracing_subscriber::EnvFilter::try_from_default_env()
@@ -18,13 +20,17 @@ fn init_tracing() {
         Ok("json") => {
             tracing_subscriber::fmt()
                 .json()
+                .with_writer(std::io::stderr)
                 .with_env_filter(env_filter)
                 .with_target(true)
                 .with_current_span(false)
                 .init();
         }
         _ => {
-            tracing_subscriber::fmt().with_env_filter(env_filter).init();
+            tracing_subscriber::fmt()
+                .with_writer(std::io::stderr)
+                .with_env_filter(env_filter)
+                .init();
         }
     }
 }
@@ -56,9 +62,8 @@ fn main() -> anyhow::Result<()> {
     runtime.block_on(async_main_with_config(config))
 }
 
-async fn async_main_with_config(config: SaveConfig) -> anyhow::Result<()> {
-    info!("Starting save object storage server");
-
+/// Initialize storage and metadata backends.
+async fn init_storage(config: &SaveConfig) -> anyhow::Result<(LocalBackend, MetadataStore)> {
     info!("Initializing storage at: {}", config.storage.data_path);
     let storage =
         LocalBackend::new_with_fsync_mode(&config.storage.data_path, &config.storage.fsync_mode)
@@ -73,10 +78,11 @@ async fn async_main_with_config(config: SaveConfig) -> anyhow::Result<()> {
     );
     let metadata = MetadataStore::new_with_config(&config.storage.metadata_path, &config.metadata)?;
 
-    // Shutdown channel - we'll subscribe workers to this
-    let (shutdown_tx, _shutdown_rx) = tokio::sync::broadcast::channel(1);
+    Ok((storage, metadata))
+}
 
-    // Initialize Raft cluster
+/// Initialize Raft node with error recovery for corrupted state.
+async fn init_raft_node(metadata: &MetadataStore, config: &SaveConfig) -> anyhow::Result<RaftNode> {
     info!(
         "Initializing Raft cluster - node_id: {}, raft_bind_addr: {}",
         config.cluster.node_id, config.cluster.raft_bind_addr
@@ -85,16 +91,8 @@ async fn async_main_with_config(config: SaveConfig) -> anyhow::Result<()> {
     let raft_node = match RaftNode::from_cluster_config(metadata.db(), &config.cluster).await {
         Ok(node) => node,
         Err(e) => {
-            // Check if this is a recoverable corruption error
-            let is_recoverable = e.is_recoverable_raft_corruption();
-            let auto_recovery_enabled = config.cluster.allow_auto_recovery;
-
-            if is_recoverable && auto_recovery_enabled {
-                error!(
-                    "Raft initialization failed with recoverable error: {}. \
-                     Auto-recovery is enabled, clearing corrupted state...",
-                    e
-                );
+            if e.is_recoverable_raft_corruption() {
+                warn!("Raft state corrupted: {}. Clearing and recovering...", e);
 
                 if let Err(clear_err) = metadata.clear_raft_state() {
                     error!("Failed to clear Raft state: {}", clear_err);
@@ -103,14 +101,6 @@ async fn async_main_with_config(config: SaveConfig) -> anyhow::Result<()> {
 
                 info!("Cleared corrupted Raft state, retrying initialization...");
                 RaftNode::from_cluster_config(metadata.db(), &config.cluster).await?
-            } else if is_recoverable {
-                error!(
-                    "Raft initialization failed with recoverable corruption: {}. \
-                     Set cluster.allow_auto_recovery = true in config to enable \
-                     automatic recovery (WARNING: may lose uncommitted entries).",
-                    e
-                );
-                return Err(e.into());
             } else {
                 error!("Raft initialization failed: {}", e);
                 return Err(e.into());
@@ -118,9 +108,9 @@ async fn async_main_with_config(config: SaveConfig) -> anyhow::Result<()> {
         }
     };
 
-    // Auto-bootstrap single-node clusters
-    if config.cluster.peers.is_empty() && !raft_node.is_initialized() {
-        info!("Single-node cluster detected, auto-bootstrapping");
+    // Auto-bootstrap standalone clusters (no seed_nodes configured)
+    if config.cluster.seed_nodes.is_empty() && !raft_node.is_initialized() {
+        info!("Standalone cluster, auto-bootstrapping Raft with single member");
         let raft_addr = format!("http://{}", config.cluster.raft_bind_addr);
         let http_addr = format!("http://{}", config.server.bind_address);
         raft_node
@@ -128,12 +118,23 @@ async fn async_main_with_config(config: SaveConfig) -> anyhow::Result<()> {
             .await?;
     }
 
-    // Start Raft gRPC server with shutdown support
-    let raft_addr: SocketAddr = config.cluster.raft_bind_addr.parse()?;
+    Ok(raft_node)
+}
+
+/// Start the Raft gRPC server with readiness signaling.
+///
+/// Returns the server handle. Waits for the server to signal readiness or fail.
+async fn start_raft_server(
+    raft_node: &RaftNode,
+    addr: SocketAddr,
+    shutdown_tx: &broadcast::Sender<()>,
+) -> anyhow::Result<JoinHandle<Result<(), anyhow::Error>>> {
     let raft = raft_node.raft().clone();
-    let raft_shutdown_rx = shutdown_tx.subscribe();
-    let raft_handle = tokio::spawn(async move {
-        if let Err(e) = run_raft_server(raft, raft_addr, Some(raft_shutdown_rx)).await {
+    let shutdown_rx = shutdown_tx.subscribe();
+    let (ready_tx, ready_rx) = oneshot::channel();
+
+    let handle = tokio::spawn(async move {
+        if let Err(e) = run_raft_server(raft, addr, Some(shutdown_rx), Some(ready_tx)).await {
             error!("Raft server failed: {}", e);
             Err(e)
         } else {
@@ -141,36 +142,111 @@ async fn async_main_with_config(config: SaveConfig) -> anyhow::Result<()> {
         }
     });
 
-    // Give the Raft server a moment to bind and verify it started
-    tokio::time::sleep(Duration::from_millis(50)).await;
-    if raft_handle.is_finished() {
-        // Server failed to start - get the error
-        let result = raft_handle.await;
-        match result {
-            Ok(Err(e)) => {
-                return Err(anyhow::anyhow!("Raft server failed to start: {}", e));
-            }
-            Err(e) => {
-                return Err(anyhow::anyhow!("Raft server task panicked: {}", e));
-            }
-            Ok(Ok(())) => {
-                return Err(anyhow::anyhow!("Raft server exited unexpectedly"));
+    // Wait for either readiness signal or server failure
+    tokio::select! {
+        _ = ready_rx => {
+            info!("Raft gRPC server started successfully on {}", addr);
+            Ok(handle)
+        }
+        result = &mut Box::pin(async { handle.is_finished().then_some(()) }) => {
+            // If handle finished before ready signal, server failed
+            if result.is_some() {
+                let join_result = handle.await;
+                match join_result {
+                    Ok(Err(e)) => Err(anyhow::anyhow!("Raft server failed to start: {}", e)),
+                    Err(e) => Err(anyhow::anyhow!("Raft server task panicked: {}", e)),
+                    Ok(Ok(())) => Err(anyhow::anyhow!("Raft server exited unexpectedly")),
+                }
+            } else {
+                // This shouldn't happen but handle it
+                Ok(handle)
             }
         }
     }
+}
 
-    info!("Raft gRPC server started successfully on {}", raft_addr);
+/// Start the internal gRPC API server with readiness signaling.
+///
+/// Returns the server handle if configured, or None if disabled.
+async fn start_internal_api_server(
+    state: &save_api::AppState,
+    config: &SaveConfig,
+    shutdown_tx: &broadcast::Sender<()>,
+) -> anyhow::Result<Option<JoinHandle<()>>> {
+    if config.cluster.internal_api.bind_addr.is_empty() {
+        info!("Internal API server disabled (no bind address configured)");
+        return Ok(None);
+    }
 
-    let bind_addr = config.server.bind_address.clone();
-    let temp_dir = storage.temp_dir();
+    let addr: SocketAddr = config.cluster.internal_api.bind_addr.parse()?;
+    let internal_api_state = state.clone();
+    let shutdown_rx = shutdown_tx.subscribe();
+    let tls_config = config
+        .cluster
+        .internal_api
+        .tls
+        .as_ref()
+        .or(config.cluster.replication.tls.as_ref())
+        .cloned();
+    let require_auth = config.cluster.internal_api.require_auth;
+    let (ready_tx, ready_rx) = oneshot::channel();
 
-    let state = save_api::AppState::new(storage, metadata, config.clone(), raft_node);
+    let handle = tokio::spawn(async move {
+        if let Err(e) = save_api::run_internal_api_server(
+            internal_api_state,
+            addr,
+            Some(shutdown_rx),
+            tls_config.as_ref(),
+            require_auth,
+            Some(ready_tx),
+        )
+        .await
+        {
+            error!("Internal API server failed: {}", e);
+        }
+    });
 
+    // Wait for either readiness signal or server failure
+    tokio::select! {
+        _ = ready_rx => {
+            info!("Internal gRPC API server started on {}", addr);
+            Ok(Some(handle))
+        }
+        _ = async {
+            while !handle.is_finished() {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        } => {
+            let result = handle.await;
+            match result {
+                Ok(()) => Err(anyhow::anyhow!("Internal API server exited unexpectedly")),
+                Err(e) => Err(anyhow::anyhow!("Internal API server task panicked: {}", e)),
+            }
+        }
+    }
+}
+
+/// Background workers that run for the lifetime of the server.
+struct BackgroundWorkers {
+    gc_handle: JoinHandle<()>,
+    metrics_handle: JoinHandle<()>,
+    cache_cleanup_handle: JoinHandle<()>,
+}
+
+/// Spawn all background workers (GC, metrics, cache cleanup).
+fn spawn_background_workers(
+    state: &save_api::AppState,
+    config: &SaveConfig,
+    shutdown_tx: &broadcast::Sender<()>,
+    temp_dir: std::path::PathBuf,
+) -> BackgroundWorkers {
+    // GC worker
     let gc_config = save_api::GcConfig {
         interval: Duration::from_secs(config.storage.gc_interval_secs),
         temp_file_max_age: Duration::from_secs(config.storage.gc_temp_file_max_age_secs),
     };
     let gc_metadata = Arc::clone(&state.metadata);
+    let gc_shutdown_rx = shutdown_tx.subscribe();
 
     info!(
         interval_secs = gc_config.interval.as_secs(),
@@ -178,7 +254,6 @@ async fn async_main_with_config(config: SaveConfig) -> anyhow::Result<()> {
         "Starting GC worker"
     );
 
-    let gc_shutdown_rx = shutdown_tx.subscribe();
     let gc_handle = tokio::spawn(async move {
         if let Err(e) =
             save_api::run_gc_worker(gc_metadata, temp_dir, gc_config, gc_shutdown_rx).await
@@ -187,61 +262,17 @@ async fn async_main_with_config(config: SaveConfig) -> anyhow::Result<()> {
         }
     });
 
-    // Start internal gRPC server if configured
-    let internal_api_handle = if !config.cluster.internal_api.bind_addr.is_empty() {
-        let internal_api_addr: SocketAddr = config.cluster.internal_api.bind_addr.parse()?;
-        let internal_api_state = state.clone();
-        let internal_api_shutdown_rx = shutdown_tx.subscribe();
-        let internal_api_tls = config
-            .cluster
-            .internal_api
-            .tls
-            .as_ref()
-            .or(config.cluster.replication.tls.as_ref())
-            .cloned();
-        let internal_api_require_auth = config.cluster.internal_api.require_auth;
-
-        let handle = tokio::spawn(async move {
-            if let Err(e) = save_api::run_internal_api_server(
-                internal_api_state,
-                internal_api_addr,
-                Some(internal_api_shutdown_rx),
-                internal_api_tls.as_ref(),
-                internal_api_require_auth,
-            )
-            .await
-            {
-                error!("Internal API server failed: {}", e);
-            }
-        });
-
-        // Give the server a moment to bind and verify it started
-        tokio::time::sleep(Duration::from_millis(50)).await;
-        if handle.is_finished() {
-            let result = handle.await;
-            match result {
-                Ok(()) => {
-                    return Err(anyhow::anyhow!("Internal API server exited unexpectedly"));
-                }
-                Err(e) => {
-                    return Err(anyhow::anyhow!("Internal API server task panicked: {}", e));
-                }
-            }
-        }
-
-        info!("Internal gRPC API server started on {}", internal_api_addr);
-        Some(handle)
-    } else {
-        info!("Internal API server disabled (no bind address configured)");
-        None
-    };
-
+    // Metrics worker
     let metrics_state = state.clone();
     let mut metrics_shutdown = shutdown_tx.subscribe();
-    info!("Starting metrics collection worker");
+    let metrics_interval_secs = config.server.metrics_interval_secs;
+    info!(
+        interval_secs = metrics_interval_secs,
+        "Starting metrics collection worker"
+    );
 
     let metrics_handle = tokio::spawn(async move {
-        let mut interval = tokio::time::interval(Duration::from_secs(60));
+        let mut interval = tokio::time::interval(Duration::from_secs(metrics_interval_secs));
         interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 
         loop {
@@ -257,6 +288,7 @@ async fn async_main_with_config(config: SaveConfig) -> anyhow::Result<()> {
         }
     });
 
+    // Cache cleanup worker
     let cache_cleanup_state = state.clone();
     let mut cache_cleanup_shutdown = shutdown_tx.subscribe();
     let cache_cleanup_interval_secs = config.server.bucket_cache_ttl_secs.max(60);
@@ -282,15 +314,15 @@ async fn async_main_with_config(config: SaveConfig) -> anyhow::Result<()> {
         }
     });
 
-    let request_tracker = Arc::clone(&state.request_tracker);
-    let drain_timeout = Duration::from_secs(config.shutdown.drain_timeout_secs);
+    BackgroundWorkers {
+        gc_handle,
+        metrics_handle,
+        cache_cleanup_handle,
+    }
+}
 
-    let app = save_api::app(state);
-    let addr: SocketAddr = bind_addr.parse()?;
-
-    info!("Starting save-api server on {}", addr);
-
-    // Create socket with SO_REUSEADDR for faster restart after crash
+/// Create a TCP listener with SO_REUSEADDR for faster restart after crash.
+fn create_tcp_listener(addr: SocketAddr) -> anyhow::Result<tokio::net::TcpListener> {
     let domain = if addr.is_ipv4() {
         Domain::IPV4
     } else {
@@ -302,46 +334,203 @@ async fn async_main_with_config(config: SaveConfig) -> anyhow::Result<()> {
     socket.listen(1024)?;
     socket.set_nonblocking(true)?;
     let listener = tokio::net::TcpListener::from_std(socket.into())?;
+    Ok(listener)
+}
 
+/// Spawn the auto-join worker for multi-node clusters.
+fn spawn_auto_join_worker(
+    raft_node: Arc<RaftNode>,
+    config: &SaveConfig,
+    shutdown_tx: &broadcast::Sender<()>,
+) -> Option<JoinHandle<()>> {
+    if config.cluster.seed_nodes.is_empty() {
+        return None;
+    }
+
+    let join_config = config.cluster.clone();
+    let join_http_addr = format!("http://{}", config.server.bind_address);
+    let join_shutdown_rx = shutdown_tx.subscribe();
+
+    Some(tokio::spawn(async move {
+        save_api::scaling::run_auto_join_worker(
+            raft_node,
+            join_config,
+            join_http_addr,
+            join_shutdown_rx,
+        )
+        .await;
+    }))
+}
+
+/// Handle graceful shutdown: drain requests and leave cluster if multi-node.
+async fn handle_graceful_shutdown(
+    shutdown_tx: broadcast::Sender<()>,
+    request_tracker: Arc<save_api::RequestTracker>,
+    drain_timeout: Duration,
+    auto_join_handle: Option<JoinHandle<()>>,
+    raft_node: Arc<RaftNode>,
+    config: &SaveConfig,
+) {
+    // Register signal handlers
+    #[cfg(unix)]
+    let mut sigterm = {
+        use tokio::signal::unix::{SignalKind, signal};
+        signal(SignalKind::terminate()).expect("Failed to register SIGTERM handler")
+    };
+
+    // Wait for shutdown signal
+    #[cfg(unix)]
+    {
+        tokio::select! {
+            _ = signal::ctrl_c() => {},
+            _ = sigterm.recv() => {},
+        }
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = signal::ctrl_c().await;
+    }
+
+    debug!("Shutdown signal received");
+    info!("Shutdown signal received, initiating graceful shutdown");
+
+    let _ = shutdown_tx.send(());
+
+    let is_multi_node = !config.cluster.seed_nodes.is_empty();
+
+    // Wait for auto-join worker to complete before graceful leave.
+    // This prevents race conditions where auto-join re-adds us after we leave.
+    if let Some(handle) = auto_join_handle {
+        debug!("Waiting for auto-join worker to complete before graceful leave");
+        let join_timeout = Duration::from_secs(config.cluster.join_timeout_secs);
+        match tokio::time::timeout(join_timeout, handle).await {
+            Ok(Ok(())) => debug!("Auto-join worker completed"),
+            Ok(Err(e)) => warn!("Auto-join worker panicked: {}", e),
+            Err(_) => warn!("Auto-join worker didn't complete within timeout"),
+        }
+    }
+
+    // Drain in-flight requests
+    info!(
+        "Draining in-flight requests (timeout: {}s)",
+        drain_timeout.as_secs()
+    );
+
+    let start = tokio::time::Instant::now();
+    loop {
+        let in_flight = request_tracker.in_flight_count();
+        if in_flight == 0 {
+            info!("All requests drained");
+            break;
+        }
+
+        if start.elapsed() >= drain_timeout {
+            info!(
+                in_flight_requests = in_flight,
+                "Drain timeout reached, forcing shutdown"
+            );
+            break;
+        }
+
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+
+    // Graceful leave: remove node from cluster before shutdown (multi-node only)
+    if is_multi_node {
+        debug!("Multi-node cluster, initiating graceful leave");
+        info!("Removing node from cluster before shutdown");
+        match save_api::scaling::graceful_leave(raft_node, &config.cluster).await {
+            Ok(true) => {
+                info!("Successfully left cluster");
+            }
+            Ok(false) => {
+                debug!("Node was not a cluster member");
+            }
+            Err(e) => {
+                error!(
+                    error = %e,
+                    "Graceful leave failed. Node may remain in cluster membership \
+                     until manually removed or cluster detects it as unhealthy."
+                );
+            }
+        }
+    } else {
+        debug!("Standalone cluster, no other nodes to notify");
+    }
+}
+
+async fn async_main_with_config(config: SaveConfig) -> anyhow::Result<()> {
+    info!("Starting save object storage server");
+
+    // Initialize storage and metadata
+    let (storage, metadata) = init_storage(&config).await?;
+
+    // Shutdown channel for coordinating graceful shutdown
+    let (shutdown_tx, _shutdown_rx) = broadcast::channel(1);
+
+    // Initialize Raft
+    let raft_node = init_raft_node(&metadata, &config).await?;
+
+    // Start Raft gRPC server
+    let raft_addr: SocketAddr = config.cluster.raft_bind_addr.parse()?;
+    let raft_handle = start_raft_server(&raft_node, raft_addr, &shutdown_tx).await?;
+
+    // Mark standalone clusters as joined immediately
+    if config.cluster.seed_nodes.is_empty() {
+        save_api::scaling::CLUSTER_JOINED.store(true, std::sync::atomic::Ordering::Release);
+    }
+
+    // Get temp_dir before moving storage into AppState
+    let temp_dir = storage.temp_dir();
+
+    // Create application state
+    let state = save_api::AppState::new(storage, metadata, config.clone(), raft_node);
+
+    // Start internal gRPC API server
+    let internal_api_handle = start_internal_api_server(&state, &config, &shutdown_tx).await?;
+
+    // Start background workers
+    let workers = spawn_background_workers(&state, &config, &shutdown_tx, temp_dir);
+
+    // Create TCP listener for HTTP server
+    let addr: SocketAddr = config.server.bind_address.parse()?;
+    let listener = create_tcp_listener(addr)?;
     info!("Server listening on http://{}", addr);
 
+    // Spawn auto-join worker (after HTTP server is ready so health checks pass)
+    let auto_join_handle =
+        spawn_auto_join_worker(Arc::clone(&state.raft_node), &config, &shutdown_tx);
+
+    // Prepare shutdown handler context
+    let request_tracker = Arc::clone(&state.request_tracker);
+    let drain_timeout = Duration::from_secs(config.shutdown.drain_timeout_secs);
+    let raft_node_for_leave = Arc::clone(&state.raft_node);
+    let config_for_shutdown = config.clone();
+
+    // Build the application
+    let app = save_api::app(state);
+
+    info!("Starting save-api server on {}", addr);
+
+    // Run server with graceful shutdown
     let graceful = axum::serve(listener, app).with_graceful_shutdown(async move {
-        let _ = signal::ctrl_c().await;
-        info!("Shutdown signal received, initiating graceful shutdown");
-
-        let _ = shutdown_tx.send(());
-
-        info!(
-            "Draining in-flight requests (timeout: {}s)",
-            drain_timeout.as_secs()
-        );
-
-        let start = tokio::time::Instant::now();
-        loop {
-            let in_flight = request_tracker.in_flight_count();
-            if in_flight == 0 {
-                info!("All requests drained");
-                break;
-            }
-
-            if start.elapsed() >= drain_timeout {
-                info!(
-                    in_flight_requests = in_flight,
-                    "Drain timeout reached, forcing shutdown"
-                );
-                break;
-            }
-
-            tokio::time::sleep(Duration::from_millis(100)).await;
-        }
+        handle_graceful_shutdown(
+            shutdown_tx,
+            request_tracker,
+            drain_timeout,
+            auto_join_handle,
+            raft_node_for_leave,
+            &config_for_shutdown,
+        )
+        .await;
     });
 
     match graceful.await {
         Ok(_) => {
             info!("Server shutdown gracefully");
-            let _ = gc_handle.await;
-            let _ = metrics_handle.await;
-            let _ = cache_cleanup_handle.await;
+            let _ = workers.gc_handle.await;
+            let _ = workers.metrics_handle.await;
+            let _ = workers.cache_cleanup_handle.await;
             if let Some(handle) = internal_api_handle {
                 info!("Waiting for internal API server to shutdown");
                 let _ = handle.await;

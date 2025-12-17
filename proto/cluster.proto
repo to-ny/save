@@ -23,6 +23,9 @@ service ClusterAdmin {
 
   // Get debug information about cluster state
   rpc GetDebugInfo(GetDebugInfoRequest) returns (GetDebugInfoResponse);
+
+  // Trigger an election on this node (useful for leadership transfer)
+  rpc TriggerElect(TriggerElectRequest) returns (TriggerElectResponse);
 }
 
 // Status messages
@@ -110,4 +113,13 @@ message LogEntry {
   uint64 index = 2;
   string entry_type = 3;         // Command type
   uint64 timestamp_ms = 4;
+}
+
+// Election trigger messages
+
+message TriggerElectRequest {}
+
+message TriggerElectResponse {
+  bool success = 1;
+  string error_message = 2;
 }

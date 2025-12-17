@@ -3,10 +3,12 @@ use chrono::Utc;
 use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
+use std::sync::atomic::Ordering;
 use tracing::{error, info, instrument, warn};
 
 use super::{ComponentHealth, ComponentStatus, ReadinessResponse};
 use crate::metrics;
+use crate::scaling::CLUSTER_JOINED;
 use crate::state::AppState;
 
 async fn check_rocksdb(state: &AppState) -> ComponentHealth {
@@ -124,6 +126,58 @@ async fn check_disk_space(state: &AppState) -> ComponentHealth {
     }
 }
 
+fn check_cluster_membership(state: &AppState) -> ComponentHealth {
+    let is_joined = CLUSTER_JOINED.load(Ordering::Acquire);
+    let node_id = state.config.cluster.node_id;
+
+    // Check actual Raft membership status
+    let raft_status = state.raft_node.get_status();
+    let is_voter = raft_status.voters.contains(&node_id);
+    let is_learner = raft_status.learners.contains(&node_id);
+    let is_raft_member = is_voter || is_learner;
+
+    let mut details = HashMap::new();
+    details.insert("node_id".to_string(), node_id.to_string());
+    details.insert("is_voter".to_string(), is_voter.to_string());
+    details.insert("voters".to_string(), format!("{:?}", raft_status.voters));
+
+    if is_raft_member {
+        // Node is in the Raft membership - ready to serve
+        let role = if is_voter { "voter" } else { "learner" };
+        ComponentHealth {
+            status: ComponentStatus::Healthy,
+            message: Some(format!("Cluster member ({})", role)),
+            details: Some(details),
+        }
+    } else if is_joined {
+        // CLUSTER_JOINED is set but we're not in membership - transient state
+        // This can happen briefly during shutdown/removal
+        ComponentHealth {
+            status: ComponentStatus::Degraded,
+            message: Some("Marked as joined but not in current membership".to_string()),
+            details: Some(details),
+        }
+    } else {
+        // Not joined yet - check if we're configured to join
+        let has_seed_nodes = !state.config.cluster.seed_nodes.is_empty();
+        if has_seed_nodes {
+            ComponentHealth {
+                status: ComponentStatus::Unhealthy,
+                message: Some("Waiting to join cluster".to_string()),
+                details: Some(details),
+            }
+        } else {
+            // No seed nodes and not in membership - likely just starting up
+            // This is a brief transient state before bootstrap completes
+            ComponentHealth {
+                status: ComponentStatus::Degraded,
+                message: Some("Initializing cluster".to_string()),
+                details: Some(details),
+            }
+        }
+    }
+}
+
 async fn check_gc_worker(state: &AppState) -> ComponentHealth {
     let gc_last_run = metrics::gc_last_run_seconds().get();
 
@@ -196,6 +250,10 @@ pub async fn readiness_check(State(state): State<AppState>) -> impl IntoResponse
     components.insert("filesystem".to_string(), check_filesystem(&state).await);
     components.insert("disk_space".to_string(), check_disk_space(&state).await);
     components.insert("gc_worker".to_string(), check_gc_worker(&state).await);
+    components.insert(
+        "cluster_membership".to_string(),
+        check_cluster_membership(&state),
+    );
 
     let overall_status = if components
         .values()

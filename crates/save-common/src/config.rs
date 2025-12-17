@@ -38,6 +38,9 @@ pub struct ServerConfig {
     /// Higher values = less DB load but stale cache after bucket deletion
     #[serde(default = "default_bucket_cache_ttl_secs")]
     pub bucket_cache_ttl_secs: u64,
+    /// Metrics collection interval in seconds (default: 60)
+    #[serde(default = "default_metrics_interval_secs")]
+    pub metrics_interval_secs: u64,
 }
 
 fn default_max_body_size() -> usize {
@@ -53,6 +56,10 @@ fn default_max_blocking_threads() -> usize {
 }
 
 fn default_bucket_cache_ttl_secs() -> u64 {
+    60
+}
+
+fn default_metrics_interval_secs() -> u64 {
     60
 }
 
@@ -225,12 +232,10 @@ pub struct ClusterConfig {
     #[serde(default = "default_raft_bind_addr")]
     pub raft_bind_addr: String,
 
-    /// List of peer node addresses for cluster formation
-    /// Format: ["node_id:host:port", "node_id:host:port"]
-    /// Example: ["2:192.168.1.11:9001", "3:192.168.1.12:9001"]
-    /// Empty list = single-node cluster (auto-bootstraps)
+    /// Seed nodes for initial cluster discovery (not the actual membership).
+    /// Format: "node_id:host:raft_port:http_port". Empty = standalone cluster.
     #[serde(default)]
-    pub peers: Vec<String>,
+    pub seed_nodes: Vec<String>,
 
     /// Consistency mode for read operations
     #[serde(default)]
@@ -244,17 +249,34 @@ pub struct ClusterConfig {
     #[serde(default = "default_rpc_timeout_secs")]
     pub rpc_timeout_secs: u64,
 
-    /// Allow automatic recovery from corrupted Raft state (default: false)
-    ///
-    /// When enabled, the node will automatically clear corrupted Raft state
-    /// (e.g., from serialization incompatibilities after upgrades) and
-    /// re-initialize. This may cause data loss of uncommitted entries.
-    ///
-    /// WARNING: In multi-node clusters, prefer manual recovery via snapshot
-    /// transfer from healthy peers. Only enable this for single-node deployments
-    /// or when you understand the implications.
-    #[serde(default)]
-    pub allow_auto_recovery: bool,
+    /// Raft heartbeat interval in milliseconds (default: 50)
+    #[serde(default = "default_heartbeat_interval_ms")]
+    pub heartbeat_interval_ms: u64,
+
+    /// Minimum Raft election timeout in milliseconds (default: 150)
+    #[serde(default = "default_election_timeout_min_ms")]
+    pub election_timeout_min_ms: u64,
+
+    /// Maximum Raft election timeout in milliseconds (default: 300)
+    #[serde(default = "default_election_timeout_max_ms")]
+    pub election_timeout_max_ms: u64,
+
+    /// Timeout for cluster join on startup in seconds (default: 30)
+    #[serde(default = "default_join_timeout_secs")]
+    pub join_timeout_secs: u64,
+
+    /// Timeout for graceful leave on shutdown in seconds (default: 30)
+    #[serde(default = "default_leave_timeout_secs")]
+    pub leave_timeout_secs: u64,
+
+    /// Delay before promoting learner to voter in milliseconds (default: 200).
+    /// Allows time for the learner to catch up with the Raft log.
+    #[serde(default = "default_learner_catchup_delay_ms")]
+    pub learner_catchup_delay_ms: u64,
+
+    /// Maximum retry attempts for cluster join operations (default: 3)
+    #[serde(default = "default_join_max_retries")]
+    pub join_max_retries: u32,
 
     /// Replication configuration
     #[serde(default)]
@@ -409,6 +431,34 @@ fn default_rpc_timeout_secs() -> u64 {
     30
 }
 
+fn default_heartbeat_interval_ms() -> u64 {
+    50
+}
+
+fn default_election_timeout_min_ms() -> u64 {
+    150
+}
+
+fn default_election_timeout_max_ms() -> u64 {
+    300
+}
+
+fn default_join_timeout_secs() -> u64 {
+    30
+}
+
+fn default_leave_timeout_secs() -> u64 {
+    30
+}
+
+fn default_learner_catchup_delay_ms() -> u64 {
+    200
+}
+
+fn default_join_max_retries() -> u32 {
+    3
+}
+
 fn default_node_id() -> u64 {
     1
 }
@@ -422,11 +472,17 @@ impl Default for ClusterConfig {
         Self {
             node_id: default_node_id(),
             raft_bind_addr: default_raft_bind_addr(),
-            peers: vec![],
+            seed_nodes: vec![],
             consistency_mode: ConsistencyMode::default(),
             connect_timeout_secs: default_connect_timeout_secs(),
             rpc_timeout_secs: default_rpc_timeout_secs(),
-            allow_auto_recovery: false,
+            heartbeat_interval_ms: default_heartbeat_interval_ms(),
+            election_timeout_min_ms: default_election_timeout_min_ms(),
+            election_timeout_max_ms: default_election_timeout_max_ms(),
+            join_timeout_secs: default_join_timeout_secs(),
+            leave_timeout_secs: default_leave_timeout_secs(),
+            learner_catchup_delay_ms: default_learner_catchup_delay_ms(),
+            join_max_retries: default_join_max_retries(),
             replication: ReplicationConfig::default(),
             internal_api: InternalApiConfig::default(),
         }
@@ -495,7 +551,7 @@ impl SaveConfig {
         }
 
         // Validate peer format using shared utility
-        for peer in &self.cluster.peers {
+        for peer in &self.cluster.seed_nodes {
             crate::cluster::parse_peer(peer)?;
         }
 
@@ -517,6 +573,7 @@ impl Default for SaveConfig {
                 worker_threads: default_worker_threads(),
                 max_blocking_threads: default_max_blocking_threads(),
                 bucket_cache_ttl_secs: default_bucket_cache_ttl_secs(),
+                metrics_interval_secs: default_metrics_interval_secs(),
             },
             storage: StorageConfig {
                 data_path: "/tmp/save/data".to_string(),
@@ -661,7 +718,7 @@ secret_key = "secret123"
         let config = SaveConfig::test_default();
         assert_eq!(config.cluster.node_id, 1);
         assert_eq!(config.cluster.raft_bind_addr, "0.0.0.0:9001");
-        assert!(config.cluster.peers.is_empty());
+        assert!(config.cluster.seed_nodes.is_empty());
         assert_eq!(config.cluster.consistency_mode, ConsistencyMode::Strong);
     }
 
@@ -686,7 +743,7 @@ secret_key = "secret123"
     #[test]
     fn test_cluster_config_validation_invalid_peer_format() {
         let mut config = SaveConfig::test_default();
-        config.cluster.peers = vec!["invalid-format".to_string()];
+        config.cluster.seed_nodes = vec!["invalid-format".to_string()];
         let result = config.validate();
         assert!(result.is_err());
         assert!(
@@ -700,7 +757,7 @@ secret_key = "secret123"
     #[test]
     fn test_cluster_config_validation_invalid_peer_node_id() {
         let mut config = SaveConfig::test_default();
-        config.cluster.peers = vec!["abc:192.168.1.10:9001".to_string()];
+        config.cluster.seed_nodes = vec!["abc:192.168.1.10:9001".to_string()];
         let result = config.validate();
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("Invalid node_id"));
@@ -709,10 +766,15 @@ secret_key = "secret123"
     #[test]
     fn test_cluster_config_validation_invalid_peer_port() {
         let mut config = SaveConfig::test_default();
-        config.cluster.peers = vec!["2:192.168.1.10:99999".to_string()];
+        config.cluster.seed_nodes = vec!["2:192.168.1.10:99999".to_string()];
         let result = config.validate();
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("Invalid raft_port"));
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("Invalid raft_port")
+        );
     }
 
     #[test]
@@ -726,7 +788,7 @@ secret_key = "secret123"
     #[test]
     fn test_cluster_config_validation_valid_multi_node() {
         let mut config = SaveConfig::test_default();
-        config.cluster.peers = vec![
+        config.cluster.seed_nodes = vec![
             "2:192.168.1.11:9001".to_string(),
             "3:192.168.1.12:9001".to_string(),
         ];
@@ -738,7 +800,7 @@ secret_key = "secret123"
     #[test]
     fn test_cluster_config_serialization() {
         let mut config = SaveConfig::test_default();
-        config.cluster.peers = vec!["2:192.168.1.11:9001".to_string()];
+        config.cluster.seed_nodes = vec!["2:192.168.1.11:9001".to_string()];
         config.cluster.consistency_mode = ConsistencyMode::Eventual;
 
         let toml_str = toml::to_string(&config).unwrap();

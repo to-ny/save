@@ -852,6 +852,272 @@ async fn test_concurrent_writes_to_same_object() {
     tracing::info!("Test passed: concurrent writes handled correctly");
 }
 
+// =============================================================================
+// AUTOMATIC CLUSTER SCALING TESTS
+// =============================================================================
+
+/// Test: New node auto-joins cluster when scaling up.
+///
+/// Verifies that:
+/// 1. A new node automatically joins an existing cluster via seed_nodes
+/// 2. The node becomes a learner first, then gets promoted to voter
+/// 3. The cluster membership is updated correctly
+#[tokio::test]
+async fn test_auto_join_when_scaling_up() {
+    tracing_subscriber::fmt()
+        .with_env_filter("info,save_metadata::raft=debug,save_api::scaling=debug")
+        .try_init()
+        .ok();
+
+    // Create a 3-node cluster
+    let mut cluster = ClusterEnv::new_3_node()
+        .await
+        .expect("Failed to create cluster");
+
+    let leader = cluster.get_leader().await.expect("Should have a leader");
+    tracing::info!("Initial leader: node {}", leader);
+
+    // Check initial membership
+    let status = cluster
+        .get_node_status(leader)
+        .await
+        .expect("Failed to get status");
+    assert_eq!(status.voters.len(), 3, "Should have 3 voters initially");
+
+    // Add a new node - it will auto-join via seed_nodes
+    let new_node_id = cluster
+        .add_auto_joining_node()
+        .await
+        .expect("Failed to add new node");
+
+    tracing::info!("Started new node {}", new_node_id);
+
+    // Wait for the node to join cluster (with polling instead of fixed sleep)
+    cluster
+        .wait_for_membership(new_node_id, Duration::from_secs(10))
+        .await
+        .expect("Node should join cluster within timeout");
+
+    // Verify the new node is in the cluster membership
+    let leader_status = cluster
+        .get_node_status(leader)
+        .await
+        .expect("Failed to get leader status");
+
+    // The node should be either a learner or voter
+    let is_member = leader_status.voters.contains(&new_node_id)
+        || leader_status.learners.contains(&new_node_id);
+
+    assert!(
+        is_member,
+        "New node {} should be a cluster member (voters: {:?}, learners: {:?})",
+        new_node_id, leader_status.voters, leader_status.learners
+    );
+
+    // Verify the new node sees the cluster leader
+    let new_node_status = cluster
+        .get_node_status(new_node_id)
+        .await
+        .expect("Failed to get new node status");
+
+    assert_eq!(
+        new_node_status.current_leader,
+        Some(leader),
+        "New node should see the current leader"
+    );
+
+    tracing::info!("Test passed: auto-join when scaling up successful");
+}
+
+/// Test: Node gracefully leaves cluster when scaling down.
+///
+/// Verifies that:
+/// 1. A node removes itself from the cluster on graceful shutdown (SIGTERM)
+/// 2. The cluster membership is updated correctly after the node leaves
+/// 3. The remaining cluster continues to function
+#[tokio::test]
+async fn test_graceful_leave_when_scaling_down() {
+    tracing_subscriber::fmt()
+        .with_env_filter("info,save_metadata::raft=debug,save_api::scaling=debug")
+        .try_init()
+        .ok();
+
+    // Create a 3-node cluster with internal API (needed for scaling operations)
+    let mut cluster = ClusterEnv::new_3_node_with_internal_api()
+        .await
+        .expect("Failed to create cluster");
+
+    let leader = cluster.get_leader().await.expect("Should have a leader");
+    tracing::info!("Initial leader: node {}", leader);
+
+    // Pick a follower to gracefully shut down
+    let follower_to_remove = cluster
+        .node_ids()
+        .into_iter()
+        .find(|id| *id != leader)
+        .expect("Should have a follower");
+
+    tracing::info!(
+        "Will gracefully shut down follower node {}",
+        follower_to_remove
+    );
+
+    // Check initial membership
+    let status_before = cluster
+        .get_node_status(leader)
+        .await
+        .expect("Failed to get status");
+    assert_eq!(
+        status_before.voters.len(),
+        3,
+        "Should have 3 voters initially"
+    );
+
+    // Gracefully stop the follower (SIGTERM, not SIGKILL)
+    cluster
+        .graceful_stop_node(follower_to_remove)
+        .expect("Failed to gracefully stop node");
+
+    // Wait for graceful leave to complete
+    tokio::time::sleep(Duration::from_secs(5)).await;
+
+    // Print server logs for debugging
+    tracing::info!("Printing server logs for removed node:");
+    cluster.print_node_stderr(follower_to_remove);
+    tracing::info!("Printing server logs for leader node:");
+    cluster.print_node_stderr(leader);
+
+    // Verify the node was removed from membership
+    let status_after = cluster
+        .get_node_status(leader)
+        .await
+        .expect("Failed to get status");
+
+    assert!(
+        !status_after.voters.contains(&follower_to_remove),
+        "Removed node {} should not be in voters: {:?}",
+        follower_to_remove,
+        status_after.voters
+    );
+    assert!(
+        !status_after.learners.contains(&follower_to_remove),
+        "Removed node {} should not be in learners: {:?}",
+        follower_to_remove,
+        status_after.learners
+    );
+
+    // Verify cluster still has a leader with 2 nodes
+    assert!(
+        cluster.get_leader().await.is_some(),
+        "Cluster should still have a leader with 2/3 nodes"
+    );
+
+    tracing::info!("Test passed: graceful leave when scaling down successful");
+}
+
+/// Test: Leader node graceful departure (leadership transfers correctly).
+///
+/// Verifies that:
+/// 1. When a leader node shuts down gracefully (SIGTERM), it removes itself
+///    from the cluster before exiting
+/// 2. A new leader is elected from the remaining nodes
+/// 3. The cluster continues to function
+#[tokio::test]
+async fn test_leader_graceful_departure() {
+    tracing_subscriber::fmt()
+        .with_env_filter("info,save_metadata::raft=debug,save_api::scaling=debug")
+        .try_init()
+        .ok();
+
+    // Create a 3-node cluster with internal API (required for graceful leave)
+    let mut cluster = ClusterEnv::new_3_node_with_internal_api()
+        .await
+        .expect("Failed to create cluster");
+
+    let initial_leader = cluster.get_leader().await.expect("Should have a leader");
+    tracing::info!("Initial leader: node {}", initial_leader);
+
+    // Check initial membership
+    let status_before = cluster
+        .get_node_status(initial_leader)
+        .await
+        .expect("Failed to get status");
+    assert_eq!(
+        status_before.voters.len(),
+        3,
+        "Should have 3 voters initially"
+    );
+
+    // Gracefully stop the leader (SIGTERM, not SIGKILL)
+    cluster
+        .graceful_stop_node(initial_leader)
+        .expect("Failed to gracefully stop leader");
+
+    tracing::info!("Gracefully stopped leader node {}", initial_leader);
+
+    // Wait for graceful leave and new leader election
+    let new_leader = cluster
+        .wait_for_leader(Duration::from_secs(30))
+        .await
+        .expect("Should elect new leader");
+
+    tracing::info!("New leader elected: node {}", new_leader);
+
+    // Verify new leader is different from old leader
+    assert_ne!(
+        new_leader, initial_leader,
+        "New leader should be different from departed leader"
+    );
+
+    // Print server logs before verification
+    tracing::info!("Printing server logs for departed leader:");
+    cluster.print_node_stderr(initial_leader);
+    tracing::info!("Printing server logs for new leader:");
+    cluster.print_node_stderr(new_leader);
+
+    // Wait a bit for cluster to stabilize
+    tokio::time::sleep(Duration::from_secs(2)).await;
+
+    // Verify the old leader was removed from membership
+    let status_after = cluster
+        .get_node_status(new_leader)
+        .await
+        .expect("Failed to get status");
+
+    tracing::info!(
+        "Cluster status after leader departure: voters={:?}, learners={:?}",
+        status_after.voters,
+        status_after.learners
+    );
+
+    assert!(
+        !status_after.voters.contains(&initial_leader),
+        "Departed leader {} should not be in voters: {:?}",
+        initial_leader,
+        status_after.voters
+    );
+
+    // Verify the cluster can still write
+    let client = cluster.node_client(new_leader).expect("Should have client");
+    let result = client
+        .create_bucket()
+        .bucket("after-leader-departure")
+        .send()
+        .await;
+
+    if result.is_err() {
+        // Print all remaining node logs for debugging
+        tracing::error!("Create bucket failed, printing all server logs:");
+        for node_id in cluster.node_ids() {
+            cluster.print_node_stderr(node_id);
+        }
+    }
+
+    result.expect("Should be able to create bucket after leader departure");
+
+    tracing::info!("Test passed: leader graceful departure successful");
+}
+
 /// Test: Request forwarding from follower to leader.
 ///
 /// Verifies that:

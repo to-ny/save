@@ -3,7 +3,7 @@ mod membership;
 mod status;
 
 pub use initialize::cluster_initialize;
-pub use membership::{add_learner, promote_voters, remove_node};
+pub use membership::{add_learner, promote_voters, remove_node, trigger_elect};
 pub use status::cluster_status;
 
 use serde::{Deserialize, Serialize};

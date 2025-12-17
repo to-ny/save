@@ -69,7 +69,7 @@ This file captures ongoing design decisions, experiments, and ideas for future r
 - `ReplicatedBackend`: Distributed storage implementation
 
 ### Cluster Configuration
-- `node_id`, `peers[]` for cluster formation
+- `node_id`, `seed_nodes[]` for initial cluster discovery
 - Raft and gRPC ports (8081, 8082)
 - Validation: replication_factor <= cluster size
 

@@ -251,6 +251,7 @@ const EXEMPT_PATHS: &[&str] = &[
     "/cluster/status",
     "/cluster/members",
     "/cluster/members/promote",
+    "/cluster/trigger-elect",
     "/health",
     "/health/ready",
     "/metrics",

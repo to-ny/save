@@ -27,7 +27,7 @@ secret_key = "test-secret-key"
 [cluster]
 node_id = 3
 raft_bind_addr = "0.0.0.0:9001"
-peers = ["1:save-node1:9001:9000", "2:save-node2:9001:9000"]
+seed_nodes = ["1:save-node1:9001:9000", "2:save-node2:9001:9000"]
 
 [cluster.replication]
 replication_factor = 3

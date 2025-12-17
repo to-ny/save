@@ -27,4 +27,4 @@ secret_key = "test-secret-key"
 [cluster]
 node_id = 1
 raft_bind_addr = "0.0.0.0:9001"
-# peers = []  # Empty = single-node cluster (auto-bootstraps)
+# seed_nodes = []  # Empty = standalone cluster (auto-bootstraps)

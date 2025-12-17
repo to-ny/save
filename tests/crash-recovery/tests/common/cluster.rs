@@ -62,6 +62,8 @@ pub struct NodeConfig {
     pub node_id: u64,
     pub api_port: u16,
     pub raft_port: u16,
+    /// Optional internal API port. When set, enables internal cluster API.
+    pub internal_api_port: Option<u16>,
 }
 
 /// A single node in the cluster.
@@ -135,6 +137,7 @@ impl ClusterEnv {
                 node_id,
                 api_port,
                 raft_port,
+                internal_api_port: None,
             });
         }
 
@@ -178,10 +181,16 @@ impl ClusterEnv {
         }
 
         // Build members list for initialization
+        // Format: node_id:host:raft_port:http_port
         let members: Vec<String> = self
             .nodes
             .values()
-            .map(|n| format!("{}:127.0.0.1:{}", n.config.node_id, n.config.raft_port))
+            .map(|n| {
+                format!(
+                    "{}:127.0.0.1:{}:{}",
+                    n.config.node_id, n.config.raft_port, n.config.api_port
+                )
+            })
             .collect();
 
         // Call /cluster/initialize on node 1 to bootstrap the cluster
@@ -251,8 +260,14 @@ impl ClusterEnv {
                     && let Some(leader_node) = self.nodes.get(&leader_id)
                     && leader_node.child.is_some()
                 {
-                    tracing::info!("Leader elected: node {}", leader_id);
-                    return Ok(leader_id);
+                    // Verify the reported leader is actually in Leader state
+                    // by checking the leader's own status
+                    if let Ok(leader_status) = self.get_node_status(leader_id).await
+                        && leader_status.state == "leader"
+                    {
+                        tracing::info!("Leader elected: node {}", leader_id);
+                        return Ok(leader_id);
+                    }
                 }
             }
 
@@ -287,6 +302,42 @@ impl ClusterEnv {
             }
         }
         None
+    }
+
+    /// Wait for a node to become a cluster member (voter or learner).
+    /// Polls until the node appears in membership or timeout is reached.
+    pub async fn wait_for_membership(&self, node_id: u64, timeout: Duration) -> Result<()> {
+        let start = Instant::now();
+
+        loop {
+            if start.elapsed() > timeout {
+                anyhow::bail!(
+                    "Timeout waiting for node {} to join cluster membership",
+                    node_id
+                );
+            }
+
+            // Check any running node for membership info
+            for node in self.nodes.values() {
+                if node.child.is_none() {
+                    continue;
+                }
+
+                if let Ok(status) = self.get_node_status(node.config.node_id).await
+                    && (status.voters.contains(&node_id) || status.learners.contains(&node_id))
+                {
+                    tracing::info!(
+                        "Node {} is now a cluster member (voters: {:?}, learners: {:?})",
+                        node_id,
+                        status.voters,
+                        status.learners
+                    );
+                    return Ok(());
+                }
+            }
+
+            tokio::time::sleep(Duration::from_millis(200)).await;
+        }
     }
 
     /// Kill a specific node (simulating crash).
@@ -457,8 +508,8 @@ impl ClusterEnv {
         Ok(resp)
     }
 
-    /// Start and add a new node to the cluster dynamically.
-    /// The node starts as a learner and can be promoted to voter.
+    /// Start and add a new node to the cluster manually (as learner).
+    /// Use `add_auto_joining_node` for automatic cluster join.
     pub async fn add_new_node(&mut self) -> Result<u64> {
         // Find max existing node_id and add 1
         let new_node_id = self.nodes.keys().max().unwrap_or(&0) + 1;
@@ -471,6 +522,7 @@ impl ClusterEnv {
             node_id: new_node_id,
             api_port,
             raft_port,
+            internal_api_port: None,
         };
 
         // Build peer list from existing nodes
@@ -499,6 +551,125 @@ impl ClusterEnv {
     /// Get the Raft port for a node.
     pub fn raft_port(&self, node_id: u64) -> Option<u16> {
         self.nodes.get(&node_id).map(|n| n.config.raft_port)
+    }
+
+    /// Print server stderr logs for a specific node (for debugging).
+    pub fn print_node_stderr(&self, node_id: u64) {
+        if let Some(node) = self.nodes.get(&node_id) {
+            if let Ok(content) = std::fs::read_to_string(&node.stderr_path) {
+                tracing::info!("=== Server stderr for node {} ===\n{}", node_id, content);
+            } else {
+                tracing::warn!("Could not read stderr for node {}", node_id);
+            }
+        }
+    }
+
+    /// Creates and starts a 3-node cluster with internal API enabled.
+    /// Use this for tests that need graceful scaling (auto-join/graceful-leave).
+    pub async fn new_3_node_with_internal_api() -> Result<Self> {
+        ensure_binary_built()?;
+        Self::new_with_internal_api(3).await
+    }
+
+    /// Creates a cluster with internal API enabled on all nodes.
+    async fn new_with_internal_api(node_count: usize) -> Result<Self> {
+        assert!(node_count >= 1, "Must have at least 1 node");
+
+        // Allocate ports for all nodes
+        let mut configs = Vec::with_capacity(node_count);
+        for i in 0..node_count {
+            let node_id = (i + 1) as u64;
+            let api_port = find_free_port()?;
+            let raft_port = find_free_port()?;
+            let internal_api_port = find_free_port()?;
+            configs.push(NodeConfig {
+                node_id,
+                api_port,
+                raft_port,
+                internal_api_port: Some(internal_api_port),
+            });
+        }
+
+        // Generate peer strings for cluster configuration
+        let peer_strings: Vec<String> = configs
+            .iter()
+            .map(|c| format!("{}:127.0.0.1:{}:{}", c.node_id, c.raft_port, c.api_port))
+            .collect();
+
+        // Start all nodes
+        let mut nodes = HashMap::new();
+        for config in &configs {
+            let node = start_node(config, &peer_strings).await?;
+            nodes.insert(config.node_id, node);
+        }
+
+        let cluster = Self { nodes, node_count };
+
+        // Initialize cluster on node 1 (bootstrap)
+        cluster.initialize_cluster().await?;
+
+        // Wait for leader election
+        cluster.wait_for_leader(Duration::from_secs(30)).await?;
+
+        Ok(cluster)
+    }
+
+    /// Start and add a new node that will auto-join the cluster.
+    /// The node joins automatically during startup when seed_nodes is configured.
+    pub async fn add_auto_joining_node(&mut self) -> Result<u64> {
+        // Find max existing node_id and add 1
+        let new_node_id = self.nodes.keys().max().unwrap_or(&0) + 1;
+
+        // Allocate ports
+        let api_port = find_free_port()?;
+        let raft_port = find_free_port()?;
+        let internal_api_port = find_free_port()?;
+
+        let config = NodeConfig {
+            node_id: new_node_id,
+            api_port,
+            raft_port,
+            internal_api_port: Some(internal_api_port),
+        };
+
+        // Build peer list from existing nodes (for discovery)
+        let peers: Vec<String> = self
+            .nodes
+            .values()
+            .map(|n| {
+                format!(
+                    "{}:127.0.0.1:{}:{}",
+                    n.config.node_id, n.config.raft_port, n.config.api_port
+                )
+            })
+            .collect();
+
+        // Start the new node - it will auto-join during startup
+        let node = start_node(&config, &peers).await?;
+        self.nodes.insert(new_node_id, node);
+
+        tracing::info!(
+            "Started new node {} (auto-joins via seed_nodes)",
+            new_node_id
+        );
+        Ok(new_node_id)
+    }
+
+    /// Gracefully stop a node (SIGTERM). Node will leave cluster before shutdown.
+    pub fn graceful_stop_node(&mut self, node_id: u64) -> Result<()> {
+        let node = self.nodes.get_mut(&node_id).context("Node not found")?;
+
+        if let Some(ref mut child) = node.child {
+            let pid = Pid::from_raw(child.id() as i32);
+            // Use SIGTERM for graceful shutdown (not SIGKILL)
+            kill(pid, Signal::SIGTERM).context("Failed to send SIGTERM")?;
+            // Wait for the process to exit
+            child.wait().context("Failed to wait for child process")?;
+        }
+        node.child = None;
+
+        tracing::info!("Gracefully stopped node {}", node_id);
+        Ok(())
     }
 }
 
@@ -643,11 +814,22 @@ async fn start_node(config: &NodeConfig, peers: &[String]) -> Result<ClusterNode
         format!("[\"{}\"]", other_peers.join("\", \""))
     };
 
+    // Optional internal API config section
+    let internal_api_section = config
+        .internal_api_port
+        .map(|port| {
+            format!(
+                r#"
+[cluster.internal_api]
+bind_addr = "127.0.0.1:{}"
+require_auth = false
+"#,
+                port
+            )
+        })
+        .unwrap_or_default();
+
     // Create config file
-    // Note: allow_auto_recovery = true enables automatic recovery from corrupted Raft state
-    // after crash tests. This is safe for single-node test environments.
-    // consistency_mode = "eventual" is used for chaos tests where we're testing resilience,
-    // not linearizable reads. This avoids 500 errors during cluster instability.
     let config_content = format!(
         r#"
 [server]
@@ -666,15 +848,16 @@ secret_key = "test-secret-key"
 [cluster]
 node_id = {node_id}
 raft_bind_addr = "127.0.0.1:{raft_port}"
-peers = {peers}
-allow_auto_recovery = true
+seed_nodes = {seed_nodes}
 consistency_mode = "eventual"
+{internal_api}
 "#,
         api_port = config.api_port,
         data_path = data_dir.path().display(),
         node_id = config.node_id,
         raft_port = config.raft_port,
-        peers = peers_toml,
+        seed_nodes = peers_toml,
+        internal_api = internal_api_section,
     );
 
     let config_path = data_dir.path().join("config.toml");
@@ -685,10 +868,16 @@ consistency_mode = "eventual"
     let stderr_file =
         std::fs::File::create(&stderr_path).context("Failed to create stderr log file")?;
 
-    // Spawn server
+    // Spawn server with appropriate log level
+    let log_level = if config.internal_api_port.is_some() {
+        "info,save_metadata::raft=debug,save_api::scaling=debug"
+    } else {
+        "info,save_metadata::raft=debug"
+    };
+
     let child = Command::new(get_binary_path())
         .env("SAVE_CONFIG", &config_path)
-        .env("RUST_LOG", "info,save_metadata::raft=debug")
+        .env("RUST_LOG", log_level)
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::from(stderr_file))
         .spawn()
@@ -713,10 +902,14 @@ consistency_mode = "eventual"
     node.wait_ready().await?;
 
     tracing::info!(
-        "Started node {} on api_port={}, raft_port={}",
+        "Started node {} on api_port={}, raft_port={}{}",
         config.node_id,
         config.api_port,
-        config.raft_port
+        config.raft_port,
+        config
+            .internal_api_port
+            .map(|p| format!(", internal_api_port={}", p))
+            .unwrap_or_default()
     );
 
     Ok(node)
