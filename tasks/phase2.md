@@ -170,6 +170,13 @@ Transform the single-node S3-compatible store into a distributed, replicated sys
 
 ---
 
+## Crate Extraction
+- [ ] Extract `s3-compat` library — validation, SigV4, error/response XML (~1,400 LOC, open-source candidate)
+- [ ] Extract `save-replication` crate — quorum coordinator, health, gRPC client/server (~2,600 LOC)
+- [ ] Extract `rocksdb-raft` library — genericize Raft+RocksDB integration (~2,600 LOC, open-source candidate)
+
+---
+
 ## Phase 1 Cleanup (Optional but Recommended)
 - [ ] Improve directory sharding to 3-level (objects/{hash[0:2]}/{hash[2:4]}/{hash}) for better scalability
 - [ ] Wire up rate limiting middleware (config exists, implementation needed)
