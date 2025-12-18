@@ -59,6 +59,9 @@ Transform the single-node S3-compatible store into a distributed, replicated sys
 - [x] Implement replica preference logic (local > remote)
 - [x] Add consistency level support (eventual vs strong reads)
 - [x] Implement streaming replication for large objects (avoid full memory buffering)
+- [ ] **Wire up replication in main.rs**: Use `create_storage_backend()` factory instead of `LocalBackend::new()` to enable `ReplicatedBackend` based on `replication_factor`
+- [ ] **Start replication gRPC server**: Start replication server on `replication.bind_addr` (port 8081) when configured, so nodes can receive replicated data
+- [ ] **Wire retry settings**: Pass `replication.retry` config to `ReplicationCoordinator`
 
 ---
 
@@ -135,6 +138,7 @@ Transform the single-node S3-compatible store into a distributed, replicated sys
 - [x] Integration test: Auto-join when scaling up (new node joins cluster automatically)
 - [x] Integration test: Graceful leave when scaling down (node leaves cluster before shutdown)
 - [x] Integration test: Leader node graceful departure (leadership transfers correctly)
+- [ ] **Integration test: Data replication to followers** - Write object, kill leader, verify follower can serve data locally (not forwarded). This test would catch missing replication server wiring.
 
 ---
 
@@ -170,6 +174,8 @@ Transform the single-node S3-compatible store into a distributed, replicated sys
 - [ ] Improve directory sharding to 3-level (objects/{hash[0:2]}/{hash[2:4]}/{hash}) for better scalability
 - [ ] Wire up rate limiting middleware (config exists, implementation needed)
 - [ ] Implement connection limits enforcement
+- [ ] Enforce `server.max_body_size` via Tower `DefaultBodyLimit` layer
+- [ ] Validate object size against `storage.max_object_size` during PUT operations
 - [ ] Add backpressure handling (503 on overload)
 - [ ] Create Makefile/Justfile for common development tasks
 - [ ] Add setup/teardown scripts in `scripts/`
