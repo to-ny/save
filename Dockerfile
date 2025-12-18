@@ -71,7 +71,6 @@ FROM dependencies AS builder
 # Copy source code
 COPY Cargo.toml Cargo.lock ./
 COPY crates/ ./crates/
-COPY proto/ ./proto/
 
 # Remove test workspace members
 RUN sed -i '/tests\//d' Cargo.toml

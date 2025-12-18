@@ -30,7 +30,7 @@ Transform the single-node S3-compatible store into a distributed, replicated sys
 ---
 
 ## Replication Infrastructure
-- [x] Create gRPC service definition `proto/replication.proto`
+- [x] Create gRPC service definition `crates/save-proto/proto/replication.proto`
 - [x] Generate Rust code from protobuf (tonic-build in build.rs)
 - [x] Implement ReplicationService gRPC server
 - [x] Add WriteReplica RPC handler (streaming writes)
