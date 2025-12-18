@@ -95,25 +95,16 @@ spec:
               echo "Members: [${MEMBERS}]"
 
               # Initialize cluster - returns 409 if already initialized (which is fine)
-              HTTP_CODE=$(curl -sf -w "%{http_code}" -o /tmp/response.txt \
+              HTTP_CODE=$(curl -s -w "%{http_code}" -o /tmp/response.txt \
                 -X POST "http://${INIT_HOST}:9000/cluster/initialize" \
                 -H "Content-Type: application/json" \
-                -d "{\"members\": [${MEMBERS}]}" || echo $?)
+                -d "{\"members\": [${MEMBERS}]}")
 
               if [ "$HTTP_CODE" = "200" ] || [ "$HTTP_CODE" = "201" ]; then
                 echo "Cluster initialized successfully!"
                 cat /tmp/response.txt
               elif [ "$HTTP_CODE" = "409" ]; then
-                echo "Cluster was already initialized (409 Conflict) - this is OK"
-              elif [ "$HTTP_CODE" = "22" ]; then
-                # curl exit code 22 is HTTP error, check if it was 409
-                if grep -q "already initialized\|409" /tmp/response.txt 2>/dev/null; then
-                  echo "Cluster was already initialized - this is OK"
-                else
-                  echo "ERROR: Cluster initialization failed"
-                  cat /tmp/response.txt 2>/dev/null || true
-                  exit 1
-                fi
+                echo "Cluster was already initialized (409) - this is OK"
               else
                 echo "ERROR: Unexpected response code: ${HTTP_CODE}"
                 cat /tmp/response.txt 2>/dev/null || true

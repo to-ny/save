@@ -1,67 +1,82 @@
-SCRIPTS_DIR := scripts
-TERRAFORM_DIR := terraform
+# Load test infrastructure for Kubernetes
 
-.PHONY: help check deploy-smoke deploy-medium deploy-large teardown status logs logs-follow cleanup cleanup-delete diagnose test-local
+CHARTS_DIR := ../../charts
+HELM_DIR := helm
+K8S_DIR := k8s
+NAMESPACE := save-test
+RELEASE_NAME := save
+IMAGE_NAME := save-loadtest
+IMAGE_TAG := latest
+TEST ?= test_quick_smoke
+
+.PHONY: help check build-image \
+        deploy-smoke deploy-medium deploy-large teardown \
+        run-loadtest save-results logs logs-follow status port-forward
 
 .DEFAULT_GOAL := help
 
 help:
-	@echo "Save Load Test Infrastructure"
+	@echo "Usage: make <target>"
 	@echo ""
-	@echo "Deployment:"
-	@echo "  make deploy-smoke    Deploy smoke test (2 vCPU, 2GB)"
-	@echo "  make deploy-medium   Deploy medium (4 vCPU, 8GB)"
-	@echo "  make deploy-large    Deploy large (8 vCPU, 16GB)"
-	@echo "  make teardown        Destroy infrastructure"
-	@echo ""
-	@echo "Testing:"
-	@echo "  make test-local      Run load tests on server (localhost, no WAN)"
-	@echo ""
-	@echo "Monitoring:"
-	@echo "  make status          Show server status"
-	@echo "  make logs            Show recent logs"
-	@echo "  make logs-follow     Follow logs in real-time"
-	@echo "  make diagnose        Run diagnostics"
-	@echo ""
-	@echo "Utilities:"
-	@echo "  make check           Check prerequisites"
-	@echo "  make cleanup         List orphaned resources"
-	@echo "  make cleanup-delete  Delete orphaned resources"
-	@echo ""
-	@echo "Setup: cp .env.template .env && edit .env && source .env"
+	@echo "Deploy:      deploy-smoke, deploy-medium, deploy-large, teardown"
+	@echo "Load test:   build-image, run-loadtest TEST=<name>, save-results"
+	@echo "Monitor:     status, logs, logs-follow, port-forward"
 
 check:
-	@$(SCRIPTS_DIR)/check-prereqs.sh
+	@command -v kubectl >/dev/null 2>&1 || { echo "kubectl not found"; exit 1; }
+	@command -v helm >/dev/null 2>&1 || { echo "helm not found"; exit 1; }
 
-deploy-smoke:
-	@$(SCRIPTS_DIR)/deploy.sh smoke
+deploy-smoke: check
+	helm upgrade --install $(RELEASE_NAME) $(CHARTS_DIR)/save \
+		-f $(HELM_DIR)/values-smoke.yaml \
+		-n $(NAMESPACE) --create-namespace \
+		--set fullnameOverride=save \
+		--wait --timeout 5m
 
-deploy-medium:
-	@$(SCRIPTS_DIR)/deploy.sh medium
+deploy-medium: check
+	helm upgrade --install $(RELEASE_NAME) $(CHARTS_DIR)/save \
+		-f $(HELM_DIR)/values-medium.yaml \
+		-n $(NAMESPACE) --create-namespace \
+		--set fullnameOverride=save \
+		--wait --timeout 10m
 
-deploy-large:
-	@$(SCRIPTS_DIR)/deploy.sh large
+deploy-large: check
+	helm upgrade --install $(RELEASE_NAME) $(CHARTS_DIR)/save \
+		-f $(HELM_DIR)/values-large.yaml \
+		-n $(NAMESPACE) --create-namespace \
+		--set fullnameOverride=save \
+		--wait --timeout 10m
 
 teardown:
-	@$(SCRIPTS_DIR)/teardown.sh
+	helm uninstall $(RELEASE_NAME) -n $(NAMESPACE) 2>/dev/null || true
+	kubectl delete namespace $(NAMESPACE) --ignore-not-found
+
+build-image:
+	cd ../.. && docker build -f tests/infra/Dockerfile.loadtest -t $(IMAGE_NAME):$(IMAGE_TAG) .
+
+run-loadtest:
+	kubectl delete job save-loadtest -n $(NAMESPACE) --ignore-not-found
+	sed 's/value: "test_quick_smoke"/value: "$(TEST)"/' $(K8S_DIR)/loadtest-job.yaml | kubectl apply -n $(NAMESPACE) -f -
+	kubectl wait --for=condition=complete job/save-loadtest -n $(NAMESPACE) --timeout=30m || \
+		(kubectl logs job/save-loadtest -n $(NAMESPACE) && exit 1)
+	kubectl logs job/save-loadtest -n $(NAMESPACE)
+
+save-results:
+	@mkdir -p results
+	@TIMESTAMP=$$(date +%Y%m%d-%H%M%S); \
+	kubectl logs job/save-loadtest -n $(NAMESPACE) > results/loadtest-$$TIMESTAMP.txt && \
+	echo "Results saved to results/loadtest-$$TIMESTAMP.txt"
 
 status:
-	@cd $(TERRAFORM_DIR) && terraform output 2>/dev/null || echo "No infrastructure deployed"
+	@kubectl get namespace $(NAMESPACE) 2>/dev/null || echo "Namespace not found"
+	@kubectl get pods -n $(NAMESPACE) -o wide 2>/dev/null || true
+	@kubectl get svc -n $(NAMESPACE) 2>/dev/null || true
 
 logs:
-	@$(SCRIPTS_DIR)/logs.sh
+	kubectl logs -l app.kubernetes.io/name=save -n $(NAMESPACE) --tail=100
 
 logs-follow:
-	@$(SCRIPTS_DIR)/logs.sh --follow
+	kubectl logs -l app.kubernetes.io/name=save -n $(NAMESPACE) -f
 
-cleanup:
-	@$(SCRIPTS_DIR)/cleanup-hcloud.sh
-
-cleanup-delete:
-	@$(SCRIPTS_DIR)/cleanup-hcloud.sh --delete
-
-diagnose:
-	@$(SCRIPTS_DIR)/diagnose.sh
-
-test-local:
-	@$(SCRIPTS_DIR)/ssh-test.sh
+port-forward:
+	kubectl port-forward svc/save 9000:9000 -n $(NAMESPACE)

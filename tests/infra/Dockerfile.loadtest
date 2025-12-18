@@ -1,0 +1,35 @@
+# Build: docker build -f tests/infra/Dockerfile.loadtest -t save-loadtest:latest .
+
+FROM rust:1.91-slim AS builder
+
+RUN apt-get update && apt-get install -y pkg-config libssl-dev && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+COPY Cargo.toml Cargo.lock ./
+COPY crates/ ./crates/
+COPY tests/loadtest/ ./tests/loadtest/
+
+RUN sed -i '/tests\/aws/d; /tests\/concurrency/d; /tests\/crash/d' Cargo.toml
+
+RUN cargo build --release -p save-loadtest --features load_tests --tests
+
+RUN mkdir -p /app/bin && \
+    find /app/target/release/deps -name 'load_test-*' -type f -executable | head -1 | xargs -I {} cp {} /app/bin/load_test && \
+    find /app/target/release/deps -name 'benchmark_test-*' -type f -executable | head -1 | xargs -I {} cp {} /app/bin/benchmark_test && \
+    find /app/target/release/deps -name 'soak_test-*' -type f -executable | head -1 | xargs -I {} cp {} /app/bin/soak_test
+
+FROM debian:trixie-slim
+
+RUN apt-get update && apt-get install -y ca-certificates libssl3t64 && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+COPY --from=builder /app/bin/ /app/bin/
+COPY tests/loadtest/config.toml /app/config.toml
+
+ENV SAVE_ENDPOINT=http://save:9000
+ENV SAVE_BUCKET=loadtest
+ENV RUST_LOG=info
+# Note: SAVE_ACCESS_KEY and SAVE_SECRET_KEY must be provided at runtime via K8s secrets
+
+ENTRYPOINT ["/app/bin/load_test"]
+CMD ["--test-threads=1"]

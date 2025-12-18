@@ -1,0 +1,44 @@
+replicaCount: 1
+
+image:
+  repository: save
+  tag: latest
+  pullPolicy: Never
+
+resources:
+  requests:
+    cpu: "500m"
+    memory: "1Gi"
+  limits:
+    cpu: "2"
+    memory: "2Gi"
+
+server:
+  workerThreads: 2
+  maxBlockingThreads: 256
+
+metadata:
+  writeBufferSizeMb: 64
+  maxWriteBufferNumber: 2
+  blockCacheSizeMb: 256
+  maxBackgroundJobs: 2
+
+persistence:
+  dataSize: 10Gi
+  metadataSize: 2Gi
+
+podDisruptionBudget:
+  enabled: false
+
+livenessProbe:
+  initialDelaySeconds: 5
+  periodSeconds: 5
+
+readinessProbe:
+  initialDelaySeconds: 3
+  periodSeconds: 3
+
+startupProbe:
+  initialDelaySeconds: 2
+  periodSeconds: 2
+  failureThreshold: 30

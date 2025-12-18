@@ -1,0 +1,54 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: save-loadtest
+  labels:
+    app.kubernetes.io/name: save-loadtest
+    app.kubernetes.io/component: test
+spec:
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 3600
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: save-loadtest
+        app.kubernetes.io/component: test
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: loadtest
+          image: save-loadtest:latest
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: SAVE_ENDPOINT
+              value: "http://save:9000"
+            - name: SAVE_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: save-credentials
+                  key: access-key
+                  optional: true
+            - name: SAVE_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: save-credentials
+                  key: secret-key
+                  optional: true
+            - name: SAVE_ACCESS_KEY_DEFAULT
+              value: "test-access-key"
+            - name: SAVE_SECRET_KEY_DEFAULT
+              value: "test-secret-key"
+            - name: SAVE_BUCKET
+              value: "loadtest"
+            - name: RUST_LOG
+              value: "info"
+            - name: TEST_FILTER
+              value: "test_quick_smoke"
+          args: ["--test-threads=1", "--nocapture", "$(TEST_FILTER)"]
+          resources:
+            requests:
+              cpu: "500m"
+              memory: "512Mi"
+            limits:
+              cpu: "2"
+              memory: "2Gi"

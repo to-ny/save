@@ -159,9 +159,7 @@ impl RaftNode {
     /// Members are specified as (node_id, raft_addr, http_addr) tuples.
     pub async fn initialize(&self, members: Vec<(NodeId, String, String)>) -> Result<()> {
         if self.is_initialized() {
-            return Err(crate::error::MetadataError::Raft(
-                "cluster already initialized".to_string(),
-            ));
+            return Err(crate::error::MetadataError::AlreadyInitialized);
         }
 
         let mut nodes = BTreeMap::new();

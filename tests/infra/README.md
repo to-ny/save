@@ -1,162 +1,93 @@
-# Save Load Test Infrastructure
+# Load Test Infrastructure
 
-Automated provisioning of remote servers for load testing using Terraform and Hetzner Cloud.
+Kubernetes-based infrastructure for deploying Save and running load tests.
 
 ## Prerequisites
 
-- Terraform >= 1.0
-- Docker
-- Hetzner Cloud account and API token
-- SSH key pair (`~/.ssh/id_rsa.pub`)
-- AWS CLI (optional, for smoke tests)
+- Docker Desktop with Kubernetes enabled (or any K8s cluster)
+- kubectl configured for your cluster
+- helm 3.x
 
 ## Quick Start
 
 ```bash
-cd tests/infra
-cp .env.template .env    # Edit with your credentials
-source .env
-make check
-make deploy-medium
-source .env.loadtest
-cargo test -p save-loadtest --features load_tests
-make teardown
+make deploy-smoke
+make build-image
+make run-loadtest
 ```
 
-## Setup
+## Deployment Profiles
 
-Get Hetzner Cloud API token from https://console.hetzner.cloud/ → Security → API tokens and add to `.env`:
+| Profile | Replicas | CPU | Memory |
+|---------|----------|-----|--------|
+| `smoke` | 1 | 2 | 2GB |
+| `medium` | 3 | 4 | 8GB |
+| `large` | 3 | 8 | 16GB |
+
+## Remote Load Testing
+
+Uses Terraform to provision a managed Kubernetes cluster and run load tests in-cluster.
+
+### Prerequisites
+
+- Terraform >= 1.0
+- DigitalOcean account with API token
+- doctl CLI (for container registry)
+
+### Run Remote Tests
 
 ```bash
-export HCLOUD_TOKEN=your_token
-export SAVE_ACCESS_KEY=your_access_key
-export SAVE_SECRET_KEY=your_secret_key
-export GRAFANA_PASSWORD=your_password  # Optional, defaults to "changeme"
+cd terraform
+export TF_VAR_do_token="dop_v1_xxx"  # or use your shell's secret manager
+
+terraform init
+terraform apply -var="test_name=test_mixed_workload" -var="save_profile=medium"
+
+# Get kubeconfig for manual inspection
+terraform output -raw kubeconfig > ~/.kube/save-loadtest.yaml
+export KUBECONFIG=~/.kube/save-loadtest.yaml
+kubectl logs job/save-loadtest -n save-test
+
+# Destroy when done
+terraform destroy
 ```
 
-Ensure SSH key exists: `ls ~/.ssh/id_rsa.pub || ssh-keygen -t rsa -b 4096`
+### Variables
 
-## Profiles
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `do_token` | - | DigitalOcean API token (required) |
+| `cluster_name` | `save-loadtest` | K8s cluster name |
+| `region` | `nyc1` | DO region |
+| `node_size` | `s-4vcpu-8gb` | Worker node size |
+| `node_count` | `3` | Number of workers |
+| `save_profile` | `medium` | Helm values profile |
+| `test_name` | `test_quick_smoke` | Load test to run |
 
-| Profile | vCPU | RAM | Disk | Cost/mo | Use Case |
-|---------|------|-----|------|---------|----------|
-| smoke   | 2    | 2GB | 40GB | €4.15   | Quick validation |
-| medium  | 4    | 8GB | 160GB | €13.90 | Realistic workloads |
-| large   | 8    | 16GB | 240GB | €26.90 | Stress testing |
+## Configuration
 
-## Project Structure
+Override via environment variables in the Job:
 
-```
-tests/infra/
-├── .env.template
-├── Makefile                   # Main interface
-├── profiles.toml
-├── scripts/                   # Implementation (called by Makefile)
-│   ├── common.sh
-│   ├── deploy.sh
-│   └── ...
-└── terraform/
-    ├── main.tf
-    ├── variables.tf
-    ├── profiles/
-    └── files/                 # Config templates
-```
+- `SAVE_ENDPOINT` - API endpoint (default: `http://save:9000`)
+- `SAVE_ACCESS_KEY` / `SAVE_SECRET_KEY` - Credentials
+- `SAVE_BUCKET` - Target bucket
+- `TEST_FILTER` - Test filter (default: `test_quick_smoke`)
 
-## Security
+Available tests in `load_test`:
+- `test_quick_smoke` - 5 second smoke test (default)
+- `test_mixed_workload` - Mixed read/write
+- `test_read_heavy_workload` - Read-heavy
+- `test_write_heavy_workload` - Write-heavy
 
-**IP Allowlisting**: Deployment auto-detects your public IP and restricts firewall access (SSH, save-api, Prometheus, Grafana). Add more IPs: `export ALLOWED_SOURCE_IPS="203.0.113.0/24"`
-
-**Credentials**: No hardcoded passwords. All credentials via environment variables, marked sensitive in Terraform.
-
-**Profile-Aware Config**: Each profile auto-configures optimal worker threads, buffer sizes, and cache sizes.
-
-**Pinned Versions**: Prometheus v2.54.1, Grafana 11.3.0, Loki 3.0.0, Promtail 3.0.0
-
-## Usage
-
-### Deploy
-
+Run specific test:
 ```bash
-make deploy-medium  # Default
-make deploy-smoke   # Quick validation
-make deploy-large   # Stress testing
-```
-
-The script provisions infrastructure, builds/uploads Docker image, runs smoke tests, and outputs endpoint URL.
-
-To update after code changes, simply re-run the deploy command. Terraform will detect what changed and only update necessary resources:
-
-```bash
-make deploy-medium  # Terraform detects changes and updates automatically
-```
-
-### Load Tests
-
-**Remote testing** (measures WAN + application performance):
-```bash
-source tests/infra/.env.loadtest
-cargo test -p save-loadtest --features load_tests
-```
-
-**Local testing** (measures pure storage + application performance):
-```bash
-make test-local  # Runs tests on server via SSH against localhost
-```
-
-Local testing eliminates WAN bottleneck by running tests directly on the server targeting `localhost:9000`. Results are saved with `-local` suffix. Typical improvement: 16-50x faster than remote testing.
-
-See [load tests' README](../loadtest/README.md) for more information.
-
-### Monitoring
-
-**Grafana**: `http://<server-ip>:3000` (admin/changeme)
-- Metrics from Prometheus
-- Logs from Loki
-- Query example: `{service="save-api"} |= "error"`
-
-**Direct access**:
-- Prometheus: `http://<server-ip>:9090`
-- save-api: `http://<server-ip>:9000`
-
-### Logs
-
-```bash
-make logs          # Recent logs
-make logs-follow   # Follow in real-time
-```
-
-### Teardown
-
-```bash
-make teardown
+make run-loadtest TEST=test_mixed_workload
 ```
 
 ## Troubleshooting
 
-**Diagnose issues**:
 ```bash
-make diagnose
+kubectl describe pod -n save-test
+kubectl logs <pod-name> -n save-test
+make status
 ```
-
-Shows SSH connectivity, Docker status, containers, logs, health endpoints, firewall rules, disk/memory/CPU usage.
-
-**Orphaned resources**:
-```bash
-make cleanup         # List
-make cleanup-delete  # Delete (requires jq)
-```
-
-**Manual access**:
-```bash
-ssh root@<server-ip>
-cd /opt/save && docker-compose logs -f save-api
-docker-compose restart save-api
-curl http://localhost:9000/health
-```
-
-**Health check from outside**:
-```bash
-curl http://<server-ip>:9000/health
-```
-
-If issues persist: `make teardown && make deploy-medium`

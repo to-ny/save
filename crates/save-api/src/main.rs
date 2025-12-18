@@ -1,6 +1,7 @@
 use save_common::config::SaveConfig;
-use save_metadata::MetadataStore;
+use save_metadata::MetadataError;
 use save_metadata::raft::{RaftNode, run_server as run_raft_server};
+use save_metadata::MetadataStore;
 use save_storage::LocalBackend;
 use socket2::{Domain, Socket, Type};
 use std::net::SocketAddr;
@@ -113,9 +114,18 @@ async fn init_raft_node(metadata: &MetadataStore, config: &SaveConfig) -> anyhow
         info!("Standalone cluster, auto-bootstrapping Raft with single member");
         let raft_addr = format!("http://{}", config.cluster.raft_bind_addr);
         let http_addr = format!("http://{}", config.server.bind_address);
-        raft_node
+        match raft_node
             .initialize(vec![(config.cluster.node_id, raft_addr, http_addr)])
-            .await?;
+            .await
+        {
+            Ok(()) => info!("Raft cluster bootstrapped successfully"),
+            Err(MetadataError::AlreadyInitialized) => {
+                info!("Raft cluster already initialized, continuing");
+            }
+            Err(e) => {
+                return Err(e.into());
+            }
+        }
     }
 
     Ok(raft_node)

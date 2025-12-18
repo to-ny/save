@@ -150,7 +150,7 @@ Transform the single-node S3-compatible store into a distributed, replicated sys
 - [ ] Document cluster upgrade strategy (rolling upgrades)
 - [ ] Add troubleshooting guide (partition recovery, replication lag)
 - [ ] Create runbook for leader failure scenarios
-- [x] Update Docker Compose for multi-node local testing (dev/test only)
+- [x] Create Helm chart for local development with observability (charts/save-dev)
 - [x] Create Helm chart for Kubernetes deployment (production-ready)
 - [ ] Add backup/restore procedures for distributed cluster
 - [ ] Document disaster recovery scenarios (quorum loss)

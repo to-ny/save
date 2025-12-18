@@ -79,7 +79,7 @@ See [charts/save/README.md](charts/save/README.md) for full documentation.
 
 Mount your config file to `/app/save.toml` in the container.
 
-See [`docker/save/save.toml`](docker/save/save.toml) for all available options.
+See [`save.toml.example`](save.toml.example) for all available options.
 
 ### Environment Variables
 

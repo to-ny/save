@@ -27,7 +27,7 @@ tests/
 ├── concurrency/    # Multi-threaded access
 ├── crash-recovery/ # Failure injection and recovery
 ├── loadtest/       # Stress testing
-└── infra/          # Terraform for remote deployments
+└── infra/          # Kubernetes-based load testing infrastructure
 ```
 
 ## Build
@@ -81,16 +81,6 @@ cargo run --release --bin save-api
 # Custom config
 SAVE_CONFIG=/path/to/config.toml cargo run --release --bin save-api
 ```
-
-### Docker
-
-```bash
-make docker-build              # Build image
-docker compose up -d save-api  # Run save-api only
-docker compose up -d           # Full stack (Prometheus, Grafana, OpenObserve)
-```
-
-See [Docker README](./docker/README.md) for more information.
 
 ### Kubernetes (Helm)
 
