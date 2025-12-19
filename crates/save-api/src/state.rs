@@ -6,6 +6,7 @@ use save_metadata::MetadataStore;
 use save_metadata::lock::DistributedLockManager;
 use save_metadata::raft::RaftNode;
 use save_storage::StorageBackend;
+use save_storage::replication::ReplicationCoordinator;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -57,6 +58,8 @@ pub struct AppState {
     pub start_time: Instant,
     pub raft_node: Arc<RaftNode>,
     pub forwarding_client: ForwardingClient,
+    /// Replication coordinator for quorum writes (None if replication disabled).
+    pub replication_coordinator: Option<Arc<ReplicationCoordinator>>,
 }
 
 impl AppState {
@@ -65,6 +68,17 @@ impl AppState {
         metadata: MetadataStore,
         config: SaveConfig,
         raft_node: RaftNode,
+    ) -> Self {
+        Self::with_storage(Arc::new(storage), metadata, config, raft_node, None)
+    }
+
+    /// Create AppState with a pre-wrapped Arc storage backend.
+    pub fn with_storage(
+        storage: Arc<dyn StorageBackend>,
+        metadata: MetadataStore,
+        config: SaveConfig,
+        raft_node: RaftNode,
+        replication_coordinator: Option<Arc<ReplicationCoordinator>>,
     ) -> Self {
         let bucket_cache =
             BucketCache::new(Duration::from_secs(config.server.bucket_cache_ttl_secs));
@@ -82,7 +96,7 @@ impl AppState {
         );
 
         Self {
-            storage: Arc::new(storage),
+            storage,
             metadata,
             config: Arc::new(config),
             lock_manager: Arc::new(lock_manager),
@@ -91,6 +105,7 @@ impl AppState {
             start_time: Instant::now(),
             raft_node,
             forwarding_client,
+            replication_coordinator,
         }
     }
 }

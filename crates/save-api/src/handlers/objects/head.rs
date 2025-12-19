@@ -3,8 +3,9 @@ use axum::{
     http::{StatusCode, header},
     response::{IntoResponse, Response},
 };
+use save_common::config::ConsistencyMode;
 use save_common::{validate_bucket_name, validate_object_key};
-use save_metadata::MetadataError;
+use save_metadata::{MetadataError, lock::DistributedReadLockGuard};
 use std::time::Instant;
 use tracing::{debug, info, instrument};
 
@@ -22,11 +23,23 @@ pub async fn head_object(
     validate_bucket_name(&bucket).map_err(|e| ApiError::InvalidRequest(e.to_string()))?;
     validate_object_key(&key).map_err(|e| ApiError::InvalidRequest(e.to_string()))?;
 
-    let _guard = state
-        .lock_manager
-        .acquire_read_lock(&bucket, &key)
-        .await
-        .map_err(|e| ApiError::internal(format!("Failed to acquire object lock: {}", e)))?;
+    // In eventual consistency mode, reads are served locally without distributed locking.
+    // This allows reads to continue even when the Raft leader is unavailable.
+    // In strong consistency mode, we acquire a distributed read lock to ensure
+    // linearizable reads (no stale data during concurrent writes).
+    let _guard: Option<DistributedReadLockGuard> = if state.config.cluster.consistency_mode
+        == ConsistencyMode::Strong
+    {
+        Some(
+            state
+                .lock_manager
+                .acquire_read_lock(&bucket, &key)
+                .await
+                .map_err(|e| ApiError::internal(format!("Failed to acquire object lock: {}", e)))?,
+        )
+    } else {
+        None
+    };
 
     ensure_read_consistency(&state).await?;
 

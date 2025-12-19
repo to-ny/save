@@ -409,7 +409,7 @@ impl Default for ReplicationConfig {
     fn default() -> Self {
         Self {
             replication_factor: default_replication_factor(),
-            bind_addr: String::new(),
+            bind_addr: "0.0.0.0:9002".to_string(),
             tls: None,
             retry: RetrySettings::default(),
         }
@@ -420,6 +420,11 @@ impl ReplicationConfig {
     /// Returns true if replication is enabled (factor > 1)
     pub fn is_enabled(&self) -> bool {
         self.replication_factor > 1
+    }
+
+    /// Returns the replication address as a full URL (e.g., "http://0.0.0.0:9002").
+    pub fn replication_addr(&self) -> String {
+        format!("http://{}", self.bind_addr)
     }
 }
 
@@ -553,6 +558,13 @@ impl SaveConfig {
         // Validate peer format using shared utility
         for peer in &self.cluster.seed_nodes {
             crate::cluster::parse_peer(peer)?;
+        }
+
+        // Replication bind address is always required (cluster must be ready for replication)
+        if self.cluster.replication.bind_addr.is_empty() {
+            return Err(Error::validation(
+                "cluster.replication.bind_addr cannot be empty",
+            ));
         }
 
         Ok(())

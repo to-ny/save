@@ -47,6 +47,7 @@ pub async fn add_learner(
             peer_info.node_id,
             peer_info.raft_addr(),
             peer_info.http_addr(),
+            peer_info.replication_addr(),
         )
         .await
     {

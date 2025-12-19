@@ -78,11 +78,11 @@ pub struct RaftNode {
 impl RaftNode {
     /// Creates a new Raft node with default configuration.
     ///
-    /// Peers are specified as (node_id, raft_addr, http_addr) tuples.
+    /// Peers are specified as (node_id, raft_addr, http_addr, replication_addr) tuples.
     pub async fn new(
         node_id: NodeId,
         db: Arc<rocksdb::DB>,
-        peers: Vec<(NodeId, String, String)>,
+        peers: Vec<(NodeId, String, String, String)>,
     ) -> Result<Self> {
         let config = Config::default();
         Self::with_config(node_id, db, peers, config).await
@@ -109,11 +109,11 @@ impl RaftNode {
 
     /// Creates a new Raft node with custom configuration.
     ///
-    /// Peers are specified as (node_id, raft_addr, http_addr) tuples.
+    /// Peers are specified as (node_id, raft_addr, http_addr, replication_addr) tuples.
     pub async fn with_config(
         node_id: NodeId,
         db: Arc<rocksdb::DB>,
-        peers: Vec<(NodeId, String, String)>,
+        peers: Vec<(NodeId, String, String, String)>,
         config: Config,
     ) -> Result<Self> {
         let storage = Storage::new(Arc::clone(&db));
@@ -156,15 +156,15 @@ impl RaftNode {
     /// Should only be called on the bootstrap node.
     /// Returns an error if already initialized.
     ///
-    /// Members are specified as (node_id, raft_addr, http_addr) tuples.
-    pub async fn initialize(&self, members: Vec<(NodeId, String, String)>) -> Result<()> {
+    /// Members are specified as (node_id, raft_addr, http_addr, replication_addr) tuples.
+    pub async fn initialize(&self, members: Vec<(NodeId, String, String, String)>) -> Result<()> {
         if self.is_initialized() {
             return Err(crate::error::MetadataError::AlreadyInitialized);
         }
 
         let mut nodes = BTreeMap::new();
-        for (id, raft_addr, http_addr) in members {
-            nodes.insert(id, SaveNode::new(raft_addr, http_addr));
+        for (id, raft_addr, http_addr, replication_addr) in members {
+            nodes.insert(id, SaveNode::new(raft_addr, http_addr, replication_addr));
         }
 
         self.raft
@@ -203,6 +203,34 @@ impl RaftNode {
             .membership()
             .get_node(&node_id)
             .map(|node| node.http_addr.clone())
+    }
+
+    /// Returns the replication gRPC address for a given node ID from the membership config.
+    pub fn get_node_replication_addr(&self, node_id: NodeId) -> Option<String> {
+        let metrics = self.raft.metrics().borrow().clone();
+        metrics
+            .membership_config
+            .membership()
+            .get_node(&node_id)
+            .map(|node| node.replication_addr.clone())
+    }
+
+    /// Returns all cluster members with their replication addresses.
+    /// Used for syncing with replication coordinator.
+    /// Returns (node_id, replication_addr) pairs excluding self.
+    pub fn get_cluster_replication_nodes(&self) -> Vec<(NodeId, String)> {
+        let metrics = self.raft.metrics().borrow().clone();
+        let membership = metrics.membership_config.membership();
+
+        let mut nodes = Vec::new();
+        for node_id in membership.voter_ids().chain(membership.learner_ids()) {
+            if node_id != self.node_id
+                && let Some(node) = membership.get_node(&node_id)
+            {
+                nodes.push((node_id, node.replication_addr.clone()));
+            }
+        }
+        nodes
     }
 
     /// Returns the current leader's Raft gRPC address, if known.
@@ -268,8 +296,9 @@ impl RaftNode {
         node_id: NodeId,
         raft_addr: String,
         http_addr: String,
+        replication_addr: String,
     ) -> Result<()> {
-        let node = SaveNode::new(raft_addr, http_addr);
+        let node = SaveNode::new(raft_addr, http_addr, replication_addr);
         self.raft
             .add_learner(node_id, node, true)
             .await
@@ -475,14 +504,19 @@ impl RaftNode {
     }
 }
 
-/// Parses peer strings using the shared utility and converts to (NodeId, raft_addr, http_addr) tuples.
-fn parse_peers_to_tuples(peers: &[String]) -> Result<Vec<(NodeId, String, String)>> {
+/// Parses peer strings using the shared utility and converts to (NodeId, raft_addr, http_addr, replication_addr) tuples.
+fn parse_peers_to_tuples(peers: &[String]) -> Result<Vec<(NodeId, String, String, String)>> {
     peers
         .iter()
         .map(|peer| {
             let info =
                 parse_peer(peer).map_err(|e| crate::error::MetadataError::Raft(e.to_string()))?;
-            Ok((info.node_id, info.raft_addr(), info.http_addr()))
+            Ok((
+                info.node_id,
+                info.raft_addr(),
+                info.http_addr(),
+                info.replication_addr(),
+            ))
         })
         .collect()
 }
@@ -492,10 +526,10 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_parse_peers_to_tuples_new_format() {
+    fn test_parse_peers_to_tuples_full_format() {
         let peers = vec![
-            "1:192.168.1.10:9001:9000".to_string(),
-            "2:192.168.1.11:9001:9000".to_string(),
+            "1:192.168.1.10:9001:9000:9002".to_string(),
+            "2:192.168.1.11:9001:9000:9002".to_string(),
         ];
         let result = parse_peers_to_tuples(&peers).unwrap();
         assert_eq!(result.len(), 2);
@@ -504,7 +538,8 @@ mod tests {
             (
                 1,
                 "http://192.168.1.10:9001".to_string(),
-                "http://192.168.1.10:9000".to_string()
+                "http://192.168.1.10:9000".to_string(),
+                "http://192.168.1.10:9002".to_string()
             )
         );
         assert_eq!(
@@ -512,7 +547,8 @@ mod tests {
             (
                 2,
                 "http://192.168.1.11:9001".to_string(),
-                "http://192.168.1.11:9000".to_string()
+                "http://192.168.1.11:9000".to_string(),
+                "http://192.168.1.11:9002".to_string()
             )
         );
     }
@@ -525,13 +561,14 @@ mod tests {
         ];
         let result = parse_peers_to_tuples(&peers).unwrap();
         assert_eq!(result.len(), 2);
-        // Legacy format: HTTP port defaults to 9000
+        // Legacy format: HTTP port defaults to 9000, replication to 9002
         assert_eq!(
             result[0],
             (
                 1,
                 "http://192.168.1.10:9001".to_string(),
-                "http://192.168.1.10:9000".to_string()
+                "http://192.168.1.10:9000".to_string(),
+                "http://192.168.1.10:9002".to_string()
             )
         );
         assert_eq!(
@@ -539,7 +576,8 @@ mod tests {
             (
                 2,
                 "http://192.168.1.11:9001".to_string(),
-                "http://192.168.1.11:9000".to_string()
+                "http://192.168.1.11:9000".to_string(),
+                "http://192.168.1.11:9002".to_string()
             )
         );
     }

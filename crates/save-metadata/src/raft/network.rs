@@ -26,9 +26,9 @@ pub struct Network {
 impl Network {
     /// Create a new network with default timeouts.
     ///
-    /// Peers are specified as (node_id, raft_addr, http_addr) tuples.
+    /// Peers are specified as (node_id, raft_addr, http_addr, replication_addr) tuples.
     /// Only the raft_addr is used for Raft RPC connections.
-    pub fn with_peers(node_id: NodeId, peers: Vec<(NodeId, String, String)>) -> Self {
+    pub fn with_peers(node_id: NodeId, peers: Vec<(NodeId, String, String, String)>) -> Self {
         Self::with_peers_and_timeouts(
             node_id,
             peers,
@@ -39,18 +39,18 @@ impl Network {
 
     /// Create a new network with custom timeouts.
     ///
-    /// Peers are specified as (node_id, raft_addr, http_addr) tuples.
+    /// Peers are specified as (node_id, raft_addr, http_addr, replication_addr) tuples.
     /// Only the raft_addr is used for Raft RPC connections.
     pub fn with_peers_and_timeouts(
         node_id: NodeId,
-        peers: Vec<(NodeId, String, String)>,
+        peers: Vec<(NodeId, String, String, String)>,
         connect_timeout: Duration,
         rpc_timeout: Duration,
     ) -> Self {
         // Extract only the Raft addresses for the peer map (used for Raft RPC)
         let peer_map: HashMap<NodeId, String> = peers
             .into_iter()
-            .map(|(id, raft_addr, _http_addr)| (id, raft_addr))
+            .map(|(id, raft_addr, _http_addr, _replication_addr)| (id, raft_addr))
             .collect();
         Self {
             node_id,

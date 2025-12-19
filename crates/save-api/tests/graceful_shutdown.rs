@@ -42,8 +42,14 @@ async fn setup() -> (AppState, TempDir, TempDir) {
     // Auto-bootstrap single-node cluster
     let raft_addr = format!("http://{}", config.cluster.raft_bind_addr);
     let http_addr = format!("http://{}", config.server.bind_address);
+    let replication_addr = "http://127.0.0.1:9002".to_string(); // Default test replication address
     raft_node
-        .initialize(vec![(config.cluster.node_id, raft_addr, http_addr)])
+        .initialize(vec![(
+            config.cluster.node_id,
+            raft_addr,
+            http_addr,
+            replication_addr,
+        )])
         .await
         .unwrap();
 

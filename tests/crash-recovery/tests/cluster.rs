@@ -1118,6 +1118,128 @@ async fn test_leader_graceful_departure() {
     tracing::info!("Test passed: leader graceful departure successful");
 }
 
+/// Test: Data replication to followers (eventual consistency mode).
+///
+/// Verifies that:
+/// 1. Objects written to the leader are replicated to followers
+/// 2. After killing the leader, followers can serve data locally
+/// 3. The follower doesn't need to forward to the (dead) leader
+///
+/// This test uses eventual consistency mode (the default), which allows
+/// reads to be served locally without requiring the Raft leader. In this mode:
+/// - Reads query local RocksDB metadata and local storage
+/// - No distributed lock is acquired for reads
+/// - Reads can continue even when the leader is unavailable
+///
+/// This behavior differs from strong consistency mode, where reads require
+/// distributed locking (which needs the Raft leader to be available).
+///
+/// This test catches missing replication server wiring - if replication
+/// isn't working, the follower won't have the data and the read will fail.
+#[tokio::test]
+async fn test_data_replication_to_followers() {
+    tracing_subscriber::fmt()
+        .with_env_filter("info,save_metadata::raft=debug,save_storage::replication=debug")
+        .try_init()
+        .ok();
+
+    // Create a 3-node cluster with replication enabled (replication_factor=3)
+    let mut cluster = ClusterEnv::new_3_node_with_replication()
+        .await
+        .expect("Failed to create cluster with replication");
+
+    let leader = cluster.get_leader().await.expect("Should have a leader");
+    tracing::info!("Leader: node {}", leader);
+
+    // Wait for replication coordinator to sync with Raft membership
+    // The sync worker runs every 1 second, and needs time to connect to nodes
+    tokio::time::sleep(Duration::from_secs(5)).await;
+    tracing::info!("Waited for coordinator sync");
+
+    // Find a follower node
+    let follower = cluster
+        .node_ids()
+        .into_iter()
+        .find(|id| *id != leader)
+        .expect("Should have a follower");
+
+    tracing::info!("Using follower node {} for verification", follower);
+
+    // Create a bucket and put an object via the leader
+    let leader_client = cluster.node_client(leader).expect("Should have client");
+
+    leader_client
+        .create_bucket()
+        .bucket("replication-test")
+        .send()
+        .await
+        .expect("Failed to create bucket");
+
+    let test_data = b"replicated-data-content";
+    leader_client
+        .put_object()
+        .bucket("replication-test")
+        .key("replicated-key")
+        .body(aws_sdk_s3::primitives::ByteStream::from_static(test_data))
+        .send()
+        .await
+        .expect("Failed to put object");
+
+    tracing::info!("Created bucket and object on leader");
+
+    // Wait for replication to complete
+    // With proper replication, this should be nearly instant (quorum write)
+    tokio::time::sleep(Duration::from_secs(2)).await;
+
+    // Kill the leader - now followers can't forward requests
+    cluster.kill_node(leader).expect("Failed to kill leader");
+    tracing::info!("Killed leader node {}", leader);
+
+    // Wait for the cluster to notice leader is gone
+    tokio::time::sleep(Duration::from_secs(1)).await;
+
+    // Try to read the object from the follower
+    // If replication worked, the follower has the data locally and can serve it
+    // If not, this will fail because the leader is dead and can't forward
+    let follower_client = cluster.node_client(follower).expect("Should have client");
+
+    // Print follower logs before the critical read
+    tracing::info!("Attempting to read from follower (leader is dead)...");
+
+    let result = follower_client
+        .get_object()
+        .bucket("replication-test")
+        .key("replicated-key")
+        .send()
+        .await;
+
+    // Print server logs for debugging if the read fails
+    if result.is_err() {
+        tracing::error!("Read from follower failed! Printing server logs:");
+        cluster.print_node_stderr(follower);
+        cluster.print_node_stderr(leader);
+    }
+
+    let response = result
+        .expect("Follower should serve replicated data locally (leader is dead, can't forward)");
+
+    // Verify the data matches
+    let body = response
+        .body
+        .collect()
+        .await
+        .expect("Failed to read body")
+        .into_bytes();
+
+    assert_eq!(
+        body.as_ref(),
+        test_data,
+        "Replicated data should match original"
+    );
+
+    tracing::info!("Test passed: follower served replicated data after leader death");
+}
+
 /// Test: Request forwarding from follower to leader.
 ///
 /// Verifies that:

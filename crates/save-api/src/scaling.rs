@@ -72,6 +72,7 @@ pub async fn auto_join(
     raft_node: &RaftNode,
     config: &ClusterConfig,
     http_addr: &str,
+    replication_addr: &str,
 ) -> Result<bool> {
     if config.seed_nodes.is_empty() {
         return Err(ScalingError::NoPeers);
@@ -113,6 +114,7 @@ pub async fn auto_join(
             node_id,
             &raft_addr,
             http_addr,
+            replication_addr,
             timeout,
             learner_catchup_delay,
         )
@@ -154,11 +156,13 @@ pub static CLUSTER_JOINED: AtomicBool = AtomicBool::new(false);
 /// * `raft_node` - The Raft node instance
 /// * `config` - Cluster configuration
 /// * `http_addr` - This node's HTTP address for cluster communication
+/// * `replication_addr` - This node's replication address for object data replication
 /// * `shutdown_rx` - Broadcast receiver for shutdown signal
 pub async fn run_auto_join_worker(
     raft_node: Arc<RaftNode>,
     config: ClusterConfig,
     http_addr: String,
+    replication_addr: String,
     mut shutdown_rx: broadcast::Receiver<()>,
 ) {
     if config.seed_nodes.is_empty() {
@@ -206,7 +210,7 @@ pub async fn run_auto_join_worker(
 
         debug!(node_id, attempt, "Attempting to join cluster");
 
-        match auto_join(&raft_node, &config, &http_addr).await {
+        match auto_join(&raft_node, &config, &http_addr, &replication_addr).await {
             Ok(true) => {
                 info!(node_id, "Successfully joined cluster");
                 CLUSTER_JOINED.store(true, Ordering::Release);
@@ -374,6 +378,7 @@ async fn try_join_cluster(
     node_id: u64,
     raft_addr: &str,
     http_addr: &str,
+    replication_addr: &str,
     timeout: Duration,
     learner_catchup_delay: Duration,
 ) -> Result<bool> {
@@ -409,6 +414,7 @@ async fn try_join_cluster(
                 node_id,
                 raft_addr,
                 http_addr,
+                replication_addr,
                 learner_catchup_delay,
             )
             .await;
@@ -427,6 +433,7 @@ async fn try_join_cluster(
                         node_id,
                         raft_addr,
                         http_addr,
+                        replication_addr,
                         learner_catchup_delay,
                     )
                     .await;
@@ -470,6 +477,7 @@ async fn join_via_leader(
     node_id: u64,
     raft_addr: &str,
     http_addr: &str,
+    replication_addr: &str,
     learner_catchup_delay: Duration,
 ) -> Result<bool> {
     info!(
@@ -478,15 +486,14 @@ async fn join_via_leader(
         "Requesting to join as learner"
     );
 
-    // Format: "node_id:host:raft_port:http_port"
+    // Format: "node_id:host:raft_port:http_port:replication_port"
     // Extract host:port components from addresses
     let raft_host_port = raft_addr.trim_start_matches("http://");
     let http_host_port = http_addr.trim_start_matches("http://");
+    let replication_host_port = replication_addr.trim_start_matches("http://");
 
-    // The peer format expects: node_id:host:raft_port or node_id:host:raft_port:http_port
+    // The peer format expects: node_id:host:raft_port:http_port:replication_port
     // We need to reconstruct this from our separate addresses
-    // raft_host_port is "host:raft_port", http_host_port is "host:http_port"
-    // We want: "node_id:host:raft_port:http_port"
     let (host, raft_port) = raft_host_port
         .rsplit_once(':')
         .unwrap_or((raft_host_port, "9001"));
@@ -494,8 +501,15 @@ async fn join_via_leader(
         .rsplit_once(':')
         .map(|(_, p)| p)
         .unwrap_or("9000");
+    let replication_port = replication_host_port
+        .rsplit_once(':')
+        .map(|(_, p)| p)
+        .unwrap_or("9002");
 
-    let node_spec = format!("{}:{}:{}:{}", node_id, host, raft_port, http_port);
+    let node_spec = format!(
+        "{}:{}:{}:{}:{}",
+        node_id, host, raft_port, http_port, replication_port
+    );
 
     let url = format!("{}/cluster/members", leader_url);
     let response = client

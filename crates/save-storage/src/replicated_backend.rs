@@ -62,7 +62,7 @@ impl TempHandle for ReplicatedTempHandle {
 
 /// Replicated storage backend using 2PC for quorum writes.
 pub struct ReplicatedBackend {
-    local: ObjectStorage,
+    local: Arc<ObjectStorage>,
     coordinator: Arc<ReplicationCoordinator>,
     quorum_config: QuorumConfig,
 }
@@ -70,6 +70,19 @@ pub struct ReplicatedBackend {
 impl ReplicatedBackend {
     pub fn new(
         local: ObjectStorage,
+        coordinator: Arc<ReplicationCoordinator>,
+        quorum_config: QuorumConfig,
+    ) -> Self {
+        Self {
+            local: Arc::new(local),
+            coordinator,
+            quorum_config,
+        }
+    }
+
+    /// Create with shared storage (allows external access to ObjectStorage).
+    pub fn with_shared_storage(
+        local: Arc<ObjectStorage>,
         coordinator: Arc<ReplicationCoordinator>,
         quorum_config: QuorumConfig,
     ) -> Self {
@@ -244,6 +257,10 @@ impl StorageBackend for ReplicatedBackend {
                 reason: format!("Cannot access temp directory: {}", e),
             }),
         }
+    }
+
+    fn temp_dir(&self) -> PathBuf {
+        self.local.temp_dir()
     }
 }
 

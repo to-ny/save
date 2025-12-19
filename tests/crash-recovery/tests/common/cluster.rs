@@ -62,6 +62,8 @@ pub struct NodeConfig {
     pub node_id: u64,
     pub api_port: u16,
     pub raft_port: u16,
+    /// Replication port for object data replication.
+    pub replication_port: u16,
     /// Optional internal API port. When set, enables internal cluster API.
     pub internal_api_port: Option<u16>,
 }
@@ -133,18 +135,25 @@ impl ClusterEnv {
             let node_id = (i + 1) as u64;
             let api_port = find_free_port()?;
             let raft_port = find_free_port()?;
+            let replication_port = find_free_port()?;
             configs.push(NodeConfig {
                 node_id,
                 api_port,
                 raft_port,
+                replication_port,
                 internal_api_port: None,
             });
         }
 
-        // Generate peer strings for cluster configuration
+        // Generate peer strings for cluster configuration (full format with all ports)
         let peer_strings: Vec<String> = configs
             .iter()
-            .map(|c| format!("{}:127.0.0.1:{}", c.node_id, c.raft_port))
+            .map(|c| {
+                format!(
+                    "{}:127.0.0.1:{}:{}:{}",
+                    c.node_id, c.raft_port, c.api_port, c.replication_port
+                )
+            })
             .collect();
 
         // Start all nodes
@@ -181,14 +190,17 @@ impl ClusterEnv {
         }
 
         // Build members list for initialization
-        // Format: node_id:host:raft_port:http_port
+        // Format: node_id:host:raft_port:http_port:replication_port
         let members: Vec<String> = self
             .nodes
             .values()
             .map(|n| {
                 format!(
-                    "{}:127.0.0.1:{}:{}",
-                    n.config.node_id, n.config.raft_port, n.config.api_port
+                    "{}:127.0.0.1:{}:{}:{}",
+                    n.config.node_id,
+                    n.config.raft_port,
+                    n.config.api_port,
+                    n.config.replication_port
                 )
             })
             .collect();
@@ -517,29 +529,40 @@ impl ClusterEnv {
         // Allocate ports
         let api_port = find_free_port()?;
         let raft_port = find_free_port()?;
+        let replication_port = find_free_port()?;
 
         let config = NodeConfig {
             node_id: new_node_id,
             api_port,
             raft_port,
+            replication_port,
             internal_api_port: None,
         };
 
-        // Build peer list from existing nodes
+        // Build peer list from existing nodes (full format with all ports)
         let peers: Vec<String> = self
             .nodes
             .values()
-            .map(|n| format!("{}:127.0.0.1:{}", n.config.node_id, n.config.raft_port))
+            .map(|n| {
+                format!(
+                    "{}:127.0.0.1:{}:{}:{}",
+                    n.config.node_id,
+                    n.config.raft_port,
+                    n.config.api_port,
+                    n.config.replication_port
+                )
+            })
             .collect();
 
         // Start the new node
         let node = start_node(&config, &peers).await?;
-        let raft_addr = format!("127.0.0.1:{}", raft_port);
+        // Full node spec for add_learner: node_id:host:raft_port:http_port:replication_port
+        let node_spec = format!("127.0.0.1:{}:{}:{}", raft_port, api_port, replication_port);
 
         self.nodes.insert(new_node_id, node);
 
         // Add it as a learner via the leader
-        let response = self.add_learner(new_node_id, &raft_addr).await?;
+        let response = self.add_learner(new_node_id, &node_spec).await?;
         if !response.success {
             anyhow::bail!("Failed to add learner: {}", response.message);
         }
@@ -581,19 +604,26 @@ impl ClusterEnv {
             let node_id = (i + 1) as u64;
             let api_port = find_free_port()?;
             let raft_port = find_free_port()?;
+            let replication_port = find_free_port()?;
             let internal_api_port = find_free_port()?;
             configs.push(NodeConfig {
                 node_id,
                 api_port,
                 raft_port,
+                replication_port,
                 internal_api_port: Some(internal_api_port),
             });
         }
 
-        // Generate peer strings for cluster configuration
+        // Generate peer strings for cluster configuration (full format with all ports)
         let peer_strings: Vec<String> = configs
             .iter()
-            .map(|c| format!("{}:127.0.0.1:{}:{}", c.node_id, c.raft_port, c.api_port))
+            .map(|c| {
+                format!(
+                    "{}:127.0.0.1:{}:{}:{}",
+                    c.node_id, c.raft_port, c.api_port, c.replication_port
+                )
+            })
             .collect();
 
         // Start all nodes
@@ -623,23 +653,28 @@ impl ClusterEnv {
         // Allocate ports
         let api_port = find_free_port()?;
         let raft_port = find_free_port()?;
+        let replication_port = find_free_port()?;
         let internal_api_port = find_free_port()?;
 
         let config = NodeConfig {
             node_id: new_node_id,
             api_port,
             raft_port,
+            replication_port,
             internal_api_port: Some(internal_api_port),
         };
 
-        // Build peer list from existing nodes (for discovery)
+        // Build peer list from existing nodes (for discovery) - full format with all ports
         let peers: Vec<String> = self
             .nodes
             .values()
             .map(|n| {
                 format!(
-                    "{}:127.0.0.1:{}:{}",
-                    n.config.node_id, n.config.raft_port, n.config.api_port
+                    "{}:127.0.0.1:{}:{}:{}",
+                    n.config.node_id,
+                    n.config.raft_port,
+                    n.config.api_port,
+                    n.config.replication_port
                 )
             })
             .collect();
@@ -653,6 +688,63 @@ impl ClusterEnv {
             new_node_id
         );
         Ok(new_node_id)
+    }
+
+    /// Creates and starts a 3-node cluster with replication enabled.
+    /// Each node has replication_factor=3 and a replication gRPC server.
+    pub async fn new_3_node_with_replication() -> Result<Self> {
+        ensure_binary_built()?;
+        Self::new_with_replication(3).await
+    }
+
+    /// Creates a cluster with replication enabled on all nodes.
+    async fn new_with_replication(node_count: usize) -> Result<Self> {
+        assert!(node_count >= 1, "Must have at least 1 node");
+
+        // Allocate ports for all nodes
+        let mut configs = Vec::with_capacity(node_count);
+        for i in 0..node_count {
+            let node_id = (i + 1) as u64;
+            let api_port = find_free_port()?;
+            let raft_port = find_free_port()?;
+            let replication_port = find_free_port()?;
+            let internal_api_port = find_free_port()?;
+            configs.push(NodeConfig {
+                node_id,
+                api_port,
+                raft_port,
+                replication_port,
+                internal_api_port: Some(internal_api_port),
+            });
+        }
+
+        // Generate peer strings for cluster configuration (full format with all ports)
+        let peer_strings: Vec<String> = configs
+            .iter()
+            .map(|c| {
+                format!(
+                    "{}:127.0.0.1:{}:{}:{}",
+                    c.node_id, c.raft_port, c.api_port, c.replication_port
+                )
+            })
+            .collect();
+
+        // Start all nodes with replication enabled
+        let mut nodes = HashMap::new();
+        for config in &configs {
+            let node = start_node_with_replication(config, &peer_strings, node_count).await?;
+            nodes.insert(config.node_id, node);
+        }
+
+        let cluster = Self { nodes, node_count };
+
+        // Initialize cluster on node 1 (bootstrap)
+        cluster.initialize_cluster().await?;
+
+        // Wait for leader election
+        cluster.wait_for_leader(Duration::from_secs(30)).await?;
+
+        Ok(cluster)
     }
 
     /// Gracefully stop a node (SIGTERM). Node will leave cluster before shutdown.
@@ -910,6 +1002,130 @@ consistency_mode = "eventual"
             .internal_api_port
             .map(|p| format!(", internal_api_port={}", p))
             .unwrap_or_default()
+    );
+
+    Ok(node)
+}
+
+/// Start a node with replication enabled.
+async fn start_node_with_replication(
+    config: &NodeConfig,
+    peers: &[String],
+    replication_factor: usize,
+) -> Result<ClusterNode> {
+    let data_dir = tempfile::tempdir()?;
+
+    // Filter out this node from peers list
+    let other_peers: Vec<String> = peers
+        .iter()
+        .filter(|p| !p.starts_with(&format!("{}:", config.node_id)))
+        .cloned()
+        .collect();
+
+    let peers_toml = if other_peers.is_empty() {
+        "[]".to_string()
+    } else {
+        format!("[\"{}\"]", other_peers.join("\", \""))
+    };
+
+    // Use the replication port from config
+    let replication_port = config.replication_port;
+
+    // Optional internal API config section
+    let internal_api_section = config
+        .internal_api_port
+        .map(|port| {
+            format!(
+                r#"
+[cluster.internal_api]
+bind_addr = "127.0.0.1:{}"
+require_auth = false
+"#,
+                port
+            )
+        })
+        .unwrap_or_default();
+
+    // Create config file with replication enabled
+    let config_content = format!(
+        r#"
+[server]
+bind_address = "127.0.0.1:{api_port}"
+
+[storage]
+data_path = "{data_path}/data"
+metadata_path = "{data_path}/metadata"
+gc_interval_secs = 10
+gc_temp_file_max_age_secs = 60
+
+[credentials]
+access_key = "test-access-key"
+secret_key = "test-secret-key"
+
+[cluster]
+node_id = {node_id}
+raft_bind_addr = "127.0.0.1:{raft_port}"
+seed_nodes = {seed_nodes}
+consistency_mode = "eventual"
+{internal_api}
+
+[cluster.replication]
+replication_factor = {replication_factor}
+bind_addr = "127.0.0.1:{replication_port}"
+"#,
+        api_port = config.api_port,
+        data_path = data_dir.path().display(),
+        node_id = config.node_id,
+        raft_port = config.raft_port,
+        seed_nodes = peers_toml,
+        internal_api = internal_api_section,
+        replication_factor = replication_factor,
+        replication_port = replication_port,
+    );
+
+    let config_path = data_dir.path().join("config.toml");
+    std::fs::write(&config_path, config_content)?;
+
+    // Capture stderr to a log file for debugging
+    let stderr_path = data_dir.path().join("stderr.log");
+    let stderr_file =
+        std::fs::File::create(&stderr_path).context("Failed to create stderr log file")?;
+
+    let child = Command::new(get_binary_path())
+        .env("SAVE_CONFIG", &config_path)
+        .env(
+            "RUST_LOG",
+            "info,save_metadata::raft=debug,save_storage::replication=debug",
+        )
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::from(stderr_file))
+        .spawn()
+        .context("Failed to spawn save-api")?;
+
+    let client = create_client(config.api_port).await;
+
+    let data_path = data_dir.path().join("data");
+    let metadata_path = data_dir.path().join("metadata");
+
+    let node = ClusterNode {
+        config: config.clone(),
+        child: Some(child),
+        data_dir,
+        data_path,
+        metadata_path,
+        config_path,
+        stderr_path,
+        client,
+    };
+
+    node.wait_ready().await?;
+
+    tracing::info!(
+        "Started node {} with replication on api_port={}, raft_port={}, replication_port={}",
+        config.node_id,
+        config.api_port,
+        config.raft_port,
+        replication_port
     );
 
     Ok(node)

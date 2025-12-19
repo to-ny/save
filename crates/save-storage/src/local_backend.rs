@@ -111,6 +111,10 @@ impl StorageBackend for LocalBackend {
             }),
         }
     }
+
+    fn temp_dir(&self) -> PathBuf {
+        self.storage.temp_dir()
+    }
 }
 
 #[cfg(test)]

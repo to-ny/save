@@ -114,6 +114,9 @@ pub async fn put_object(
 
     // Commit storage first, then metadata. This ensures metadata never points to
     // non-existent storage. Orphaned files (if metadata commit fails) are GC'd.
+    //
+    // Note: Replication is handled by the storage backend (ReplicatedBackend) when enabled.
+    // The coordinator sync worker keeps the backend's coordinator updated with cluster nodes.
     if let Err(e) = state.storage.commit_object(temp_object).await {
         atomic_put_operations_total()
             .with_label_values(&["storage_commit", "error"])

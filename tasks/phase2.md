@@ -59,8 +59,8 @@ Transform the single-node S3-compatible store into a distributed, replicated sys
 - [x] Implement replica preference logic (local > remote)
 - [x] Add consistency level support (eventual vs strong reads)
 - [x] Implement streaming replication for large objects (avoid full memory buffering)
-- [ ] **Wire up replication in main.rs**: Use `create_storage_backend()` factory instead of `LocalBackend::new()` to enable `ReplicatedBackend` based on `replication_factor`
-- [ ] **Start replication gRPC server**: Start replication server on `replication.bind_addr` (port 8081) when configured, so nodes can receive replicated data
+- [x] **Wire up replication in main.rs**: Use `create_storage_backend()` factory instead of `LocalBackend::new()` to enable `ReplicatedBackend` based on `replication_factor`
+- [x] **Start replication gRPC server**: Start replication server on `replication.bind_addr` (port 8081) when configured, so nodes can receive replicated data
 - [ ] **Wire retry settings**: Pass `replication.retry` config to `ReplicationCoordinator`
 
 ---

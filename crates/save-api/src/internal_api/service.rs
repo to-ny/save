@@ -48,16 +48,15 @@ impl ClusterAdminService {
             };
         }
 
-        // Parse the address to extract host and derive both Raft and HTTP addresses
-        // Expected format: "host:raft_port" or "http://host:raft_port"
-        let (raft_addr, http_addr) = derive_addresses(&req.address);
+        // Parse the address to extract host and derive Raft, HTTP, and replication addresses
+        let (raft_addr, http_addr, replication_addr) = derive_addresses(&req.address);
 
-        info!(node_id = req.node_id, raft_addr = %raft_addr, http_addr = %http_addr, "Adding learner node");
+        info!(node_id = req.node_id, raft_addr = %raft_addr, http_addr = %http_addr, replication_addr = %replication_addr, "Adding learner node");
 
         match self
             .state
             .raft_node
-            .add_learner(req.node_id, raft_addr, http_addr)
+            .add_learner(req.node_id, raft_addr, http_addr, replication_addr)
             .await
         {
             Ok(()) => {
@@ -268,13 +267,14 @@ fn raft_state_to_proto(state: RaftState) -> proto::RaftState {
     }
 }
 
-/// Derives both Raft and HTTP addresses from a single address input.
+/// Derives Raft, HTTP, and replication addresses from a single address input.
 ///
 /// Accepts formats like "host:port" or "http://host:port".
-/// Returns (raft_addr, http_addr) where:
+/// Returns (raft_addr, http_addr, replication_addr) where:
 /// - raft_addr is the input address with "http://" prefix
 /// - http_addr uses the same host with port 9000 (default HTTP port)
-fn derive_addresses(address: &str) -> (String, String) {
+/// - replication_addr uses the same host with port 9002 (default replication port)
+fn derive_addresses(address: &str) -> (String, String, String) {
     // Strip http:// or https:// prefix if present
     let addr_without_scheme = address
         .strip_prefix("http://")
@@ -288,14 +288,16 @@ fn derive_addresses(address: &str) -> (String, String) {
         } else {
             format!("http://{}", address)
         };
-        // Default HTTP port is 9000
+        // Default HTTP port is 9000, replication port is 9002
         let http_addr = format!("http://{}:9000", host);
-        (raft_addr, http_addr)
+        let replication_addr = format!("http://{}:9002", host);
+        (raft_addr, http_addr, replication_addr)
     } else {
         // No port in address, assume it's just a host, use defaults
         let raft_addr = format!("http://{}:9001", addr_without_scheme);
         let http_addr = format!("http://{}:9000", addr_without_scheme);
-        (raft_addr, http_addr)
+        let replication_addr = format!("http://{}:9002", addr_without_scheme);
+        (raft_addr, http_addr, replication_addr)
     }
 }
 

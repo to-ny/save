@@ -2,7 +2,7 @@ use crate::error::Result;
 use async_trait::async_trait;
 use std::any::Any;
 use std::fmt::Debug;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use tokio::io::AsyncRead;
 
 /// Temporary object handle with automatic cleanup on drop.
@@ -52,4 +52,7 @@ pub trait StorageBackend: Debug + Send + Sync {
 
     /// Check backend health.
     async fn health_check(&self) -> Result<HealthStatus>;
+
+    /// Get the temporary directory path for this backend.
+    fn temp_dir(&self) -> PathBuf;
 }

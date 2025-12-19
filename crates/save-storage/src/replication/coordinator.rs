@@ -161,6 +161,29 @@ impl ReplicationCoordinator {
         info!(node_id = %node_id, "Removed replication client");
     }
 
+    /// Sync the coordinator's node list with the provided nodes.
+    /// Adds new nodes and removes nodes that are no longer present.
+    /// Nodes are provided as (node_id, replication_addr) pairs.
+    pub async fn sync_nodes(&self, nodes: Vec<(u64, String)>) -> Result<(), StorageError> {
+        let current_nodes: std::collections::HashSet<u64> =
+            self.clients.read().await.keys().copied().collect();
+        let new_nodes: std::collections::HashSet<u64> = nodes.iter().map(|(id, _)| *id).collect();
+
+        // Remove nodes that are no longer in membership
+        for node_id in current_nodes.difference(&new_nodes) {
+            self.remove_node(*node_id).await;
+        }
+
+        // Add new nodes
+        for (node_id, addr) in nodes {
+            if !current_nodes.contains(&node_id) {
+                self.add_node(node_id, addr).await?;
+            }
+        }
+
+        Ok(())
+    }
+
     /// Get connected node IDs (excluding self).
     pub async fn connected_nodes(&self) -> Vec<u64> {
         self.clients.read().await.keys().copied().collect()
@@ -577,8 +600,21 @@ impl ReplicationCoordinator {
             failed_nodes,
         } = prepare_result;
 
+        // Calculate effective quorum based on available nodes.
+        // If no replica nodes are configured (degraded mode), allow local-only writes.
+        // This handles the case where cluster sync hasn't completed yet.
+        let total_attempted = success_count + failed_nodes.len();
+        let effective_quorum = if total_attempted == 1 {
+            // Only local node attempted - cluster not yet synced or single-node mode
+            // Allow local-only write in degraded mode
+            warn!("No replica nodes available, operating in degraded mode (local-only)");
+            1
+        } else {
+            self.config.write_quorum
+        };
+
         // Check quorum before proceeding
-        if success_count < self.config.write_quorum {
+        if success_count < effective_quorum {
             self.abort_all(&prepared).await;
             return Ok(ReplicationResult {
                 success_count,

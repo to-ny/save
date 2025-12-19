@@ -1,8 +1,11 @@
 use save_common::config::SaveConfig;
 use save_metadata::MetadataError;
-use save_metadata::raft::{RaftNode, run_server as run_raft_server};
 use save_metadata::MetadataStore;
-use save_storage::LocalBackend;
+use save_metadata::raft::{RaftNode, run_server as run_raft_server};
+use save_storage::replication::{
+    ReplicationService, run_server_with_tls as run_replication_server,
+};
+use save_storage::{StorageSetup, create_storage_backend};
 use socket2::{Domain, Socket, Type};
 use std::net::SocketAddr;
 use std::path::Path;
@@ -64,11 +67,14 @@ fn main() -> anyhow::Result<()> {
 }
 
 /// Initialize storage and metadata backends.
-async fn init_storage(config: &SaveConfig) -> anyhow::Result<(LocalBackend, MetadataStore)> {
+async fn init_storage(config: &SaveConfig) -> anyhow::Result<(StorageSetup, MetadataStore)> {
     info!("Initializing storage at: {}", config.storage.data_path);
-    let storage =
-        LocalBackend::new_with_fsync_mode(&config.storage.data_path, &config.storage.fsync_mode)
-            .await?;
+    let storage_setup = create_storage_backend(
+        &config.storage.data_path,
+        &config.storage.fsync_mode,
+        &config.cluster,
+    )
+    .await?;
 
     info!("Initializing metadata at: {}", config.storage.metadata_path);
     info!(
@@ -79,7 +85,7 @@ async fn init_storage(config: &SaveConfig) -> anyhow::Result<(LocalBackend, Meta
     );
     let metadata = MetadataStore::new_with_config(&config.storage.metadata_path, &config.metadata)?;
 
-    Ok((storage, metadata))
+    Ok((storage_setup, metadata))
 }
 
 /// Initialize Raft node with error recovery for corrupted state.
@@ -114,8 +120,14 @@ async fn init_raft_node(metadata: &MetadataStore, config: &SaveConfig) -> anyhow
         info!("Standalone cluster, auto-bootstrapping Raft with single member");
         let raft_addr = format!("http://{}", config.cluster.raft_bind_addr);
         let http_addr = format!("http://{}", config.server.bind_address);
+        let replication_addr = config.cluster.replication.replication_addr();
         match raft_node
-            .initialize(vec![(config.cluster.node_id, raft_addr, http_addr)])
+            .initialize(vec![(
+                config.cluster.node_id,
+                raft_addr,
+                http_addr,
+                replication_addr,
+            )])
             .await
         {
             Ok(()) => info!("Raft cluster bootstrapped successfully"),
@@ -347,6 +359,89 @@ fn create_tcp_listener(addr: SocketAddr) -> anyhow::Result<tokio::net::TcpListen
     Ok(listener)
 }
 
+/// Start the replication gRPC server if replication is enabled.
+async fn start_replication_server(
+    storage_setup: &StorageSetup,
+    config: &SaveConfig,
+    shutdown_tx: &broadcast::Sender<()>,
+) -> anyhow::Result<Option<JoinHandle<()>>> {
+    // Only start replication server when replication is enabled (replication_factor > 1)
+    let object_storage = match &storage_setup.object_storage {
+        Some(storage) => Arc::clone(storage),
+        None => return Ok(None),
+    };
+
+    let addr: SocketAddr = config.cluster.replication.bind_addr.parse()?;
+    let service = Arc::new(ReplicationService::new(object_storage));
+    let shutdown_rx = shutdown_tx.subscribe();
+    let tls_config = config.cluster.replication.tls.clone();
+
+    let handle = tokio::spawn(async move {
+        if let Err(e) =
+            run_replication_server(service, addr, Some(shutdown_rx), tls_config.as_ref()).await
+        {
+            error!("Replication server failed: {}", e);
+        }
+    });
+
+    info!("Replication gRPC server started on {}", addr);
+    Ok(Some(handle))
+}
+
+/// Spawn a background task that syncs the replication coordinator with Raft membership.
+/// This ensures the coordinator knows about all cluster nodes for replication.
+fn spawn_coordinator_sync_worker(
+    coordinator: Arc<save_storage::replication::ReplicationCoordinator>,
+    raft_node: Arc<RaftNode>,
+    shutdown_tx: &broadcast::Sender<()>,
+) -> JoinHandle<()> {
+    let mut shutdown_rx = shutdown_tx.subscribe();
+
+    tokio::spawn(async move {
+        // Use 1 second sync interval for responsive cluster updates
+        let sync_interval = Duration::from_secs(1);
+        let mut interval = tokio::time::interval(sync_interval);
+        interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+
+        // Do an immediate sync on startup before entering the periodic loop
+        let nodes = raft_node.get_cluster_replication_nodes();
+        if !nodes.is_empty() {
+            if let Err(e) = coordinator.sync_nodes(nodes).await {
+                warn!(
+                    "Failed initial coordinator sync with Raft membership: {}",
+                    e
+                );
+            } else {
+                let count = coordinator.connected_nodes().await.len();
+                info!(
+                    connected_count = count,
+                    "Initial coordinator sync completed"
+                );
+            }
+        }
+
+        loop {
+            tokio::select! {
+                _ = interval.tick() => {
+                    // Get current cluster nodes from Raft membership
+                    let nodes = raft_node.get_cluster_replication_nodes();
+
+                    if let Err(e) = coordinator.sync_nodes(nodes).await {
+                        warn!("Failed to sync coordinator with Raft membership: {}", e);
+                    } else {
+                        let count = coordinator.connected_nodes().await.len();
+                        debug!(connected_count = count, "Synced coordinator with Raft membership");
+                    }
+                }
+                _ = shutdown_rx.recv() => {
+                    debug!("Coordinator sync worker received shutdown signal");
+                    break;
+                }
+            }
+        }
+    })
+}
+
 /// Spawn the auto-join worker for multi-node clusters.
 fn spawn_auto_join_worker(
     raft_node: Arc<RaftNode>,
@@ -359,6 +454,7 @@ fn spawn_auto_join_worker(
 
     let join_config = config.cluster.clone();
     let join_http_addr = format!("http://{}", config.server.bind_address);
+    let join_replication_addr = config.cluster.replication.replication_addr();
     let join_shutdown_rx = shutdown_tx.subscribe();
 
     Some(tokio::spawn(async move {
@@ -366,6 +462,7 @@ fn spawn_auto_join_worker(
             raft_node,
             join_config,
             join_http_addr,
+            join_replication_addr,
             join_shutdown_rx,
         )
         .await;
@@ -473,7 +570,7 @@ async fn async_main_with_config(config: SaveConfig) -> anyhow::Result<()> {
     info!("Starting save object storage server");
 
     // Initialize storage and metadata
-    let (storage, metadata) = init_storage(&config).await?;
+    let (storage_setup, metadata) = init_storage(&config).await?;
 
     // Shutdown channel for coordinating graceful shutdown
     let (shutdown_tx, _shutdown_rx) = broadcast::channel(1);
@@ -485,16 +582,29 @@ async fn async_main_with_config(config: SaveConfig) -> anyhow::Result<()> {
     let raft_addr: SocketAddr = config.cluster.raft_bind_addr.parse()?;
     let raft_handle = start_raft_server(&raft_node, raft_addr, &shutdown_tx).await?;
 
+    // Start replication gRPC server (if replication is enabled)
+    let replication_handle =
+        start_replication_server(&storage_setup, &config, &shutdown_tx).await?;
+
     // Mark standalone clusters as joined immediately
     if config.cluster.seed_nodes.is_empty() {
         save_api::scaling::CLUSTER_JOINED.store(true, std::sync::atomic::Ordering::Release);
     }
 
-    // Get temp_dir before moving storage into AppState
-    let temp_dir = storage.temp_dir();
+    // Get temp_dir from the backend
+    let temp_dir = storage_setup.backend.temp_dir();
 
-    // Create application state
-    let state = save_api::AppState::new(storage, metadata, config.clone(), raft_node);
+    // Extract coordinator before moving backend into state
+    let coordinator = storage_setup.coordinator;
+
+    // Create application state with the storage backend
+    let state = save_api::AppState::with_storage(
+        storage_setup.backend,
+        metadata,
+        config.clone(),
+        raft_node,
+        coordinator.clone(),
+    );
 
     // Start internal gRPC API server
     let internal_api_handle = start_internal_api_server(&state, &config, &shutdown_tx).await?;
@@ -510,6 +620,11 @@ async fn async_main_with_config(config: SaveConfig) -> anyhow::Result<()> {
     // Spawn auto-join worker (after HTTP server is ready so health checks pass)
     let auto_join_handle =
         spawn_auto_join_worker(Arc::clone(&state.raft_node), &config, &shutdown_tx);
+
+    // Spawn coordinator sync worker (syncs replication coordinator with Raft membership)
+    let coordinator_sync_handle = coordinator.map(|coord| {
+        spawn_coordinator_sync_worker(coord, Arc::clone(&state.raft_node), &shutdown_tx)
+    });
 
     // Prepare shutdown handler context
     let request_tracker = Arc::clone(&state.request_tracker);
@@ -541,8 +656,16 @@ async fn async_main_with_config(config: SaveConfig) -> anyhow::Result<()> {
             let _ = workers.gc_handle.await;
             let _ = workers.metrics_handle.await;
             let _ = workers.cache_cleanup_handle.await;
+            if let Some(handle) = coordinator_sync_handle {
+                debug!("Waiting for coordinator sync worker to shutdown");
+                let _ = handle.await;
+            }
             if let Some(handle) = internal_api_handle {
                 info!("Waiting for internal API server to shutdown");
+                let _ = handle.await;
+            }
+            if let Some(handle) = replication_handle {
+                info!("Waiting for replication server to shutdown");
                 let _ = handle.await;
             }
             info!("Waiting for Raft server to shutdown");
