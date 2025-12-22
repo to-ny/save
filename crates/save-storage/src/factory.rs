@@ -6,6 +6,7 @@ use crate::error::Result;
 use crate::local_backend::LocalBackend;
 use crate::replicated_backend::ReplicatedBackend;
 use crate::replication::{QuorumConfig, ReplicationCoordinator};
+use save_common::RetryConfig;
 use save_common::config::ClusterConfig;
 use std::path::Path;
 use std::sync::Arc;
@@ -52,12 +53,16 @@ pub async fn create_storage_backend<P: AsRef<Path>>(
     let connect_timeout = Duration::from_secs(cluster_config.connect_timeout_secs);
     let rpc_timeout = Duration::from_secs(cluster_config.rpc_timeout_secs);
 
-    let coordinator = Arc::new(ReplicationCoordinator::with_timeouts(
-        cluster_config.node_id,
-        quorum_config.clone(),
-        connect_timeout,
-        rpc_timeout,
-    ));
+    let retry_config: RetryConfig = (&cluster_config.replication.retry).into();
+    let coordinator = Arc::new(
+        ReplicationCoordinator::with_timeouts(
+            cluster_config.node_id,
+            quorum_config.clone(),
+            connect_timeout,
+            rpc_timeout,
+        )
+        .with_retry_config(retry_config),
+    );
 
     let backend = ReplicatedBackend::with_shared_storage(
         Arc::clone(&storage),
