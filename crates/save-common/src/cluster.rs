@@ -1,6 +1,7 @@
 //! Cluster-related utilities and types.
 
 use crate::error::{Error, Result};
+use crate::ports;
 
 /// Parsed peer information containing Raft, HTTP, and replication port information.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -18,6 +19,29 @@ pub struct PeerInfo {
 }
 
 impl PeerInfo {
+    /// Creates a PeerInfo from a raft address, using default ports for HTTP and replication.
+    /// Accepts formats: "http://host:port", "host:port", or just "host".
+    pub fn from_raft_addr(raft_addr: &str) -> Self {
+        let addr = raft_addr
+            .strip_prefix("http://")
+            .or_else(|| raft_addr.strip_prefix("https://"))
+            .unwrap_or(raft_addr);
+
+        let (host, raft_port) = if let Some((h, p)) = addr.rsplit_once(':') {
+            (h.to_string(), p.parse().unwrap_or(ports::DEFAULT_RAFT))
+        } else {
+            (addr.to_string(), ports::DEFAULT_RAFT)
+        };
+
+        Self {
+            node_id: 0, // Unknown when parsing from address
+            host,
+            raft_port,
+            http_port: ports::DEFAULT_HTTP,
+            replication_port: ports::DEFAULT_REPLICATION,
+        }
+    }
+
     /// Returns the Raft gRPC address as "http://host:raft_port".
     pub fn raft_addr(&self) -> String {
         format!("http://{}:{}", self.host, self.raft_port)
@@ -93,7 +117,7 @@ pub fn parse_peer(peer: &str) -> Result<PeerInfo> {
             ))
         })?
     } else {
-        9000 // Default HTTP port for backward compatibility
+        ports::DEFAULT_HTTP
     };
 
     let replication_port: u16 = if parts.len() == 5 {
@@ -104,7 +128,7 @@ pub fn parse_peer(peer: &str) -> Result<PeerInfo> {
             ))
         })?
     } else {
-        9002 // Default replication port
+        ports::DEFAULT_REPLICATION
     };
 
     Ok(PeerInfo {
@@ -310,5 +334,40 @@ mod tests {
         let peers = vec!["1:192.168.1.10:9001".to_string(), "invalid".to_string()];
         let result = parse_peers(&peers);
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_from_raft_addr_with_scheme() {
+        let peer = PeerInfo::from_raft_addr("http://192.168.1.10:9001");
+        assert_eq!(peer.host, "192.168.1.10");
+        assert_eq!(peer.raft_port, 9001);
+        assert_eq!(peer.http_port, ports::DEFAULT_HTTP);
+        assert_eq!(peer.replication_port, ports::DEFAULT_REPLICATION);
+    }
+
+    #[test]
+    fn test_from_raft_addr_without_scheme() {
+        let peer = PeerInfo::from_raft_addr("192.168.1.10:9001");
+        assert_eq!(peer.host, "192.168.1.10");
+        assert_eq!(peer.raft_port, 9001);
+        assert_eq!(peer.http_port, ports::DEFAULT_HTTP);
+        assert_eq!(peer.replication_port, ports::DEFAULT_REPLICATION);
+    }
+
+    #[test]
+    fn test_from_raft_addr_host_only() {
+        let peer = PeerInfo::from_raft_addr("myhost");
+        assert_eq!(peer.host, "myhost");
+        assert_eq!(peer.raft_port, ports::DEFAULT_RAFT);
+        assert_eq!(peer.http_port, ports::DEFAULT_HTTP);
+        assert_eq!(peer.replication_port, ports::DEFAULT_REPLICATION);
+    }
+
+    #[test]
+    fn test_from_raft_addr_derives_all_addresses() {
+        let peer = PeerInfo::from_raft_addr("http://10.0.0.1:9001");
+        assert_eq!(peer.raft_addr(), "http://10.0.0.1:9001");
+        assert_eq!(peer.http_addr(), "http://10.0.0.1:9000");
+        assert_eq!(peer.replication_addr(), "http://10.0.0.1:9002");
     }
 }

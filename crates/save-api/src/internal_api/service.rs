@@ -1,6 +1,7 @@
 //! Cluster admin service implementation.
 
 use crate::AppState;
+use save_common::cluster::PeerInfo;
 use save_metadata::raft::RaftState;
 use save_proto::cluster as proto;
 use std::time::Duration;
@@ -270,35 +271,11 @@ fn raft_state_to_proto(state: RaftState) -> proto::RaftState {
 /// Derives Raft, HTTP, and replication addresses from a single address input.
 ///
 /// Accepts formats like "host:port" or "http://host:port".
-/// Returns (raft_addr, http_addr, replication_addr) where:
-/// - raft_addr is the input address with "http://" prefix
-/// - http_addr uses the same host with port 9000 (default HTTP port)
-/// - replication_addr uses the same host with port 9002 (default replication port)
-fn derive_addresses(address: &str) -> (String, String, String) {
-    // Strip http:// or https:// prefix if present
-    let addr_without_scheme = address
-        .strip_prefix("http://")
-        .or_else(|| address.strip_prefix("https://"))
-        .unwrap_or(address);
-
-    // Parse host and port
-    if let Some((host, _port_str)) = addr_without_scheme.rsplit_once(':') {
-        let raft_addr = if address.starts_with("http://") || address.starts_with("https://") {
-            address.to_string()
-        } else {
-            format!("http://{}", address)
-        };
-        // Default HTTP port is 9000, replication port is 9002
-        let http_addr = format!("http://{}:9000", host);
-        let replication_addr = format!("http://{}:9002", host);
-        (raft_addr, http_addr, replication_addr)
-    } else {
-        // No port in address, assume it's just a host, use defaults
-        let raft_addr = format!("http://{}:9001", addr_without_scheme);
-        let http_addr = format!("http://{}:9000", addr_without_scheme);
-        let replication_addr = format!("http://{}:9002", addr_without_scheme);
-        (raft_addr, http_addr, replication_addr)
-    }
+/// Derives all service addresses from a raft address.
+/// Returns (raft_addr, http_addr, replication_addr) using default ports.
+fn derive_addresses(raft_addr: &str) -> (String, String, String) {
+    let peer = PeerInfo::from_raft_addr(raft_addr);
+    (peer.raft_addr(), peer.http_addr(), peer.replication_addr())
 }
 
 #[cfg(test)]

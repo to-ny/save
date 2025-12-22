@@ -600,21 +600,9 @@ impl ReplicationCoordinator {
             failed_nodes,
         } = prepare_result;
 
-        // Calculate effective quorum based on available nodes.
-        // If no replica nodes are configured (degraded mode), allow local-only writes.
-        // This handles the case where cluster sync hasn't completed yet.
-        let total_attempted = success_count + failed_nodes.len();
-        let effective_quorum = if total_attempted == 1 {
-            // Only local node attempted - cluster not yet synced or single-node mode
-            // Allow local-only write in degraded mode
-            warn!("No replica nodes available, operating in degraded mode (local-only)");
-            1
-        } else {
-            self.config.write_quorum
-        };
-
-        // Check quorum before proceeding
-        if success_count < effective_quorum {
+        // Check quorum before proceeding.
+        // Write quorum must be achieved - no silent degradation to local-only writes.
+        if success_count < self.config.write_quorum {
             self.abort_all(&prepared).await;
             return Ok(ReplicationResult {
                 success_count,

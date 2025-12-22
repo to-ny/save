@@ -240,10 +240,11 @@ async fn test_node_recovery_and_catchup() {
         .expect("Failed to restart follower");
     tracing::info!("Restarted follower node {}", follower_id);
 
-    // Give the node time to catch up - needs multiple heartbeat intervals
-    // The leader sends heartbeats every 150ms, election timeout is 300-600ms.
-    // We wait for several cycles to ensure the follower receives heartbeats.
-    tokio::time::sleep(Duration::from_secs(5)).await;
+    // Wait for the node to catch up and become a follower
+    cluster
+        .wait_for_node_state(follower_id, "follower", Duration::from_secs(10))
+        .await
+        .expect("Follower should rejoin cluster");
 
     // Log the restarted node's full status for debugging
     let post_restart_status = cluster
@@ -978,8 +979,11 @@ async fn test_graceful_leave_when_scaling_down() {
         .graceful_stop_node(follower_to_remove)
         .expect("Failed to gracefully stop node");
 
-    // Wait for graceful leave to complete
-    tokio::time::sleep(Duration::from_secs(5)).await;
+    // Wait for the node to be removed from membership
+    cluster
+        .wait_for_node_removed(follower_to_remove, Duration::from_secs(10))
+        .await
+        .expect("Node should be removed from membership");
 
     // Print server logs for debugging
     tracing::info!("Printing server logs for removed node:");
@@ -1148,13 +1152,14 @@ async fn test_data_replication_to_followers() {
         .await
         .expect("Failed to create cluster with replication");
 
+    // Wait for cluster to be fully stable before testing replication
+    cluster
+        .wait_for_stable_cluster(Duration::from_secs(15))
+        .await
+        .expect("Cluster should stabilize");
+
     let leader = cluster.get_leader().await.expect("Should have a leader");
     tracing::info!("Leader: node {}", leader);
-
-    // Wait for replication coordinator to sync with Raft membership
-    // The sync worker runs every 1 second, and needs time to connect to nodes
-    tokio::time::sleep(Duration::from_secs(5)).await;
-    tracing::info!("Waited for coordinator sync");
 
     // Find a follower node
     let follower = cluster

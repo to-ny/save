@@ -1,4 +1,5 @@
 use crate::error::{Error, Result};
+use crate::ports;
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::Path;
@@ -409,7 +410,7 @@ impl Default for ReplicationConfig {
     fn default() -> Self {
         Self {
             replication_factor: default_replication_factor(),
-            bind_addr: "0.0.0.0:9002".to_string(),
+            bind_addr: ports::DEFAULT_REPLICATION_BIND.to_string(),
             tls: None,
             retry: RetrySettings::default(),
         }

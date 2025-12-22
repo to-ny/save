@@ -2,6 +2,7 @@ pub mod cluster;
 pub mod config;
 pub mod error;
 pub mod grpc;
+pub mod ports;
 pub mod retry;
 pub mod s3_error;
 pub mod s3_responses;

@@ -352,6 +352,117 @@ impl ClusterEnv {
         }
     }
 
+    /// Wait for a node to reach a specific state (e.g., "follower", "leader").
+    pub async fn wait_for_node_state(
+        &self,
+        node_id: u64,
+        expected_state: &str,
+        timeout: Duration,
+    ) -> Result<()> {
+        let start = Instant::now();
+
+        loop {
+            if start.elapsed() > timeout {
+                anyhow::bail!(
+                    "Timeout waiting for node {} to reach state '{}'",
+                    node_id,
+                    expected_state
+                );
+            }
+
+            if let Ok(status) = self.get_node_status(node_id).await
+                && status.state == expected_state
+                && status.current_leader.is_some()
+            {
+                tracing::info!(
+                    "Node {} reached state '{}' with leader {:?}",
+                    node_id,
+                    expected_state,
+                    status.current_leader
+                );
+                return Ok(());
+            }
+
+            tokio::time::sleep(Duration::from_millis(200)).await;
+        }
+    }
+
+    /// Wait for all nodes to be in a stable state (leader or follower with known leader).
+    pub async fn wait_for_stable_cluster(&self, timeout: Duration) -> Result<()> {
+        let start = Instant::now();
+        let expected_voters: Vec<u64> = self
+            .nodes
+            .values()
+            .filter(|n| n.child.is_some())
+            .map(|n| n.config.node_id)
+            .collect();
+
+        loop {
+            if start.elapsed() > timeout {
+                anyhow::bail!("Timeout waiting for stable cluster");
+            }
+
+            let mut all_stable = true;
+            for node in self.nodes.values() {
+                if node.child.is_none() {
+                    continue;
+                }
+
+                if let Ok(status) = self.get_node_status(node.config.node_id).await {
+                    let is_stable = (status.state == "leader" || status.state == "follower")
+                        && status.current_leader.is_some()
+                        && expected_voters.iter().all(|v| status.voters.contains(v));
+
+                    if !is_stable {
+                        all_stable = false;
+                        break;
+                    }
+                } else {
+                    all_stable = false;
+                    break;
+                }
+            }
+
+            if all_stable {
+                tracing::info!("Cluster is stable with {} nodes", expected_voters.len());
+                return Ok(());
+            }
+
+            tokio::time::sleep(Duration::from_millis(200)).await;
+        }
+    }
+
+    /// Wait for a node to be removed from cluster membership.
+    /// Checks the leader's view as the authoritative source.
+    pub async fn wait_for_node_removed(&self, node_id: u64, timeout: Duration) -> Result<()> {
+        let start = Instant::now();
+
+        loop {
+            if start.elapsed() > timeout {
+                anyhow::bail!(
+                    "Timeout waiting for node {} to be removed from membership",
+                    node_id
+                );
+            }
+
+            // Find the leader and check its membership view (authoritative)
+            if let Some(leader_id) = self.get_leader().await
+                && let Ok(status) = self.get_node_status(leader_id).await
+                && !status.voters.contains(&node_id)
+                && !status.learners.contains(&node_id)
+            {
+                tracing::info!(
+                    "Node {} removed from membership (confirmed by leader {})",
+                    node_id,
+                    leader_id
+                );
+                return Ok(());
+            }
+
+            tokio::time::sleep(Duration::from_millis(200)).await;
+        }
+    }
+
     /// Kill a specific node (simulating crash).
     pub fn kill_node(&mut self, node_id: u64) -> Result<()> {
         let node = self.nodes.get_mut(&node_id).context("Node not found")?;
