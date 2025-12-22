@@ -1,6 +1,6 @@
 //! Automatic cluster scaling: auto-join on startup and graceful leave on shutdown.
 
-use save_common::cluster::{parse_peer, PeerInfo};
+use save_common::cluster::{PeerInfo, parse_peer};
 use save_common::config::ClusterConfig;
 use save_metadata::raft::RaftNode;
 use serde::{Deserialize, Serialize};
@@ -112,7 +112,13 @@ pub async fn auto_join(
             tokio::time::sleep(delay).await;
         }
 
-        match try_join_cluster(&config.seed_nodes, self_peer, timeout, learner_catchup_delay).await
+        match try_join_cluster(
+            &config.seed_nodes,
+            self_peer,
+            timeout,
+            learner_catchup_delay,
+        )
+        .await
         {
             Ok(joined) => {
                 if joined {

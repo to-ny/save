@@ -459,8 +459,13 @@ fn spawn_auto_join_worker(
     let join_shutdown_rx = shutdown_tx.subscribe();
 
     Some(tokio::spawn(async move {
-        save_api::scaling::run_auto_join_worker(raft_node, join_config, self_peer, join_shutdown_rx)
-            .await;
+        save_api::scaling::run_auto_join_worker(
+            raft_node,
+            join_config,
+            self_peer,
+            join_shutdown_rx,
+        )
+        .await;
     }))
 }
 
