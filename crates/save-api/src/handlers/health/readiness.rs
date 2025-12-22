@@ -4,7 +4,7 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
 use std::sync::atomic::Ordering;
-use tracing::{error, info, instrument, warn};
+use tracing::{debug, error, instrument, warn};
 
 use super::{ComponentHealth, ComponentStatus, ReadinessResponse};
 use crate::metrics;
@@ -242,7 +242,7 @@ async fn check_gc_worker(state: &AppState) -> ComponentHealth {
 
 #[instrument(skip(state))]
 pub async fn readiness_check(State(state): State<AppState>) -> impl IntoResponse {
-    info!("Readiness check requested");
+    debug!("Readiness check requested");
 
     let mut components = HashMap::new();
 
