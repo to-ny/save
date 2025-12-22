@@ -7,7 +7,7 @@ use crate::error::{MetadataError, Result};
 use openraft::error::{ClientWriteError, RaftError};
 use openraft::storage::Adaptor;
 use openraft::{ChangeMembers, Config, ServerState};
-use save_common::cluster::parse_peer;
+use save_common::cluster::{PeerInfo, parse_peer};
 use save_common::config::ClusterConfig;
 use serde::Serialize;
 use std::collections::BTreeMap;
@@ -155,16 +155,17 @@ impl RaftNode {
     /// Initializes the cluster with the given members.
     /// Should only be called on the bootstrap node.
     /// Returns an error if already initialized.
-    ///
-    /// Members are specified as (node_id, raft_addr, http_addr, replication_addr) tuples.
-    pub async fn initialize(&self, members: Vec<(NodeId, String, String, String)>) -> Result<()> {
+    pub async fn initialize(&self, members: Vec<PeerInfo>) -> Result<()> {
         if self.is_initialized() {
             return Err(crate::error::MetadataError::AlreadyInitialized);
         }
 
         let mut nodes = BTreeMap::new();
-        for (id, raft_addr, http_addr, replication_addr) in members {
-            nodes.insert(id, SaveNode::new(raft_addr, http_addr, replication_addr));
+        for peer in members {
+            nodes.insert(
+                peer.node_id,
+                SaveNode::new(peer.raft_addr(), peer.http_addr(), peer.replication_addr()),
+            );
         }
 
         self.raft

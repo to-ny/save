@@ -1001,9 +1001,19 @@ impl Drop for ClusterEnv {
     }
 }
 
-async fn start_node(config: &NodeConfig, peers: &[String]) -> Result<ClusterNode> {
-    let data_dir = tempfile::tempdir()?;
+/// Optional replication configuration for node startup.
+struct ReplicationOpts {
+    factor: usize,
+    port: u16,
+}
 
+/// Generate config TOML content for a node.
+fn generate_config_toml(
+    config: &NodeConfig,
+    data_path: &std::path::Path,
+    peers: &[String],
+    replication: Option<&ReplicationOpts>,
+) -> String {
     // Filter out this node from peers list
     let other_peers: Vec<String> = peers
         .iter()
@@ -1032,8 +1042,21 @@ require_auth = false
         })
         .unwrap_or_default();
 
-    // Create config file
-    let config_content = format!(
+    // Optional replication config section
+    let replication_section = replication
+        .map(|r| {
+            format!(
+                r#"
+[cluster.replication]
+replication_factor = {}
+bind_addr = "127.0.0.1:{}"
+"#,
+                r.factor, r.port
+            )
+        })
+        .unwrap_or_default();
+
+    format!(
         r#"
 [server]
 bind_address = "127.0.0.1:{api_port}"
@@ -1053,26 +1076,33 @@ node_id = {node_id}
 raft_bind_addr = "127.0.0.1:{raft_port}"
 seed_nodes = {seed_nodes}
 consistency_mode = "eventual"
-{internal_api}
+{internal_api}{replication}
 "#,
         api_port = config.api_port,
-        data_path = data_dir.path().display(),
+        data_path = data_path.display(),
         node_id = config.node_id,
         raft_port = config.raft_port,
         seed_nodes = peers_toml,
         internal_api = internal_api_section,
-    );
+        replication = replication_section,
+    )
+}
 
+/// Spawn a node process and wait for it to be ready.
+async fn spawn_node(
+    config: &NodeConfig,
+    data_dir: tempfile::TempDir,
+    replication: Option<&ReplicationOpts>,
+) -> Result<ClusterNode> {
     let config_path = data_dir.path().join("config.toml");
-    std::fs::write(&config_path, config_content)?;
-
-    // Capture stderr to a log file for debugging
     let stderr_path = data_dir.path().join("stderr.log");
     let stderr_file =
         std::fs::File::create(&stderr_path).context("Failed to create stderr log file")?;
 
-    // Spawn server with appropriate log level
-    let log_level = if config.internal_api_port.is_some() {
+    // Choose log level based on features enabled
+    let log_level = if replication.is_some() {
+        "info,save_metadata::raft=debug,save_storage::replication=debug"
+    } else if config.internal_api_port.is_some() {
         "info,save_metadata::raft=debug,save_api::scaling=debug"
     } else {
         "info,save_metadata::raft=debug"
@@ -1087,7 +1117,6 @@ consistency_mode = "eventual"
         .context("Failed to spawn save-api")?;
 
     let client = create_client(config.api_port).await;
-
     let data_path = data_dir.path().join("data");
     let metadata_path = data_dir.path().join("metadata");
 
@@ -1104,18 +1133,38 @@ consistency_mode = "eventual"
 
     node.wait_ready().await?;
 
-    tracing::info!(
-        "Started node {} on api_port={}, raft_port={}{}",
-        config.node_id,
-        config.api_port,
-        config.raft_port,
-        config
-            .internal_api_port
-            .map(|p| format!(", internal_api_port={}", p))
-            .unwrap_or_default()
-    );
+    if let Some(r) = replication {
+        tracing::info!(
+            "Started node {} with replication on api_port={}, raft_port={}, replication_port={}",
+            config.node_id,
+            config.api_port,
+            config.raft_port,
+            r.port
+        );
+    } else {
+        tracing::info!(
+            "Started node {} on api_port={}, raft_port={}{}",
+            config.node_id,
+            config.api_port,
+            config.raft_port,
+            config
+                .internal_api_port
+                .map(|p| format!(", internal_api_port={}", p))
+                .unwrap_or_default()
+        );
+    }
 
     Ok(node)
+}
+
+async fn start_node(config: &NodeConfig, peers: &[String]) -> Result<ClusterNode> {
+    let data_dir = tempfile::tempdir()?;
+    let config_content = generate_config_toml(config, data_dir.path(), peers, None);
+
+    let config_path = data_dir.path().join("config.toml");
+    std::fs::write(&config_path, config_content)?;
+
+    spawn_node(config, data_dir, None).await
 }
 
 /// Start a node with replication enabled.
@@ -1125,121 +1174,16 @@ async fn start_node_with_replication(
     replication_factor: usize,
 ) -> Result<ClusterNode> {
     let data_dir = tempfile::tempdir()?;
-
-    // Filter out this node from peers list
-    let other_peers: Vec<String> = peers
-        .iter()
-        .filter(|p| !p.starts_with(&format!("{}:", config.node_id)))
-        .cloned()
-        .collect();
-
-    let peers_toml = if other_peers.is_empty() {
-        "[]".to_string()
-    } else {
-        format!("[\"{}\"]", other_peers.join("\", \""))
+    let replication = ReplicationOpts {
+        factor: replication_factor,
+        port: config.replication_port,
     };
-
-    // Use the replication port from config
-    let replication_port = config.replication_port;
-
-    // Optional internal API config section
-    let internal_api_section = config
-        .internal_api_port
-        .map(|port| {
-            format!(
-                r#"
-[cluster.internal_api]
-bind_addr = "127.0.0.1:{}"
-require_auth = false
-"#,
-                port
-            )
-        })
-        .unwrap_or_default();
-
-    // Create config file with replication enabled
-    let config_content = format!(
-        r#"
-[server]
-bind_address = "127.0.0.1:{api_port}"
-
-[storage]
-data_path = "{data_path}/data"
-metadata_path = "{data_path}/metadata"
-gc_interval_secs = 10
-gc_temp_file_max_age_secs = 60
-
-[credentials]
-access_key = "test-access-key"
-secret_key = "test-secret-key"
-
-[cluster]
-node_id = {node_id}
-raft_bind_addr = "127.0.0.1:{raft_port}"
-seed_nodes = {seed_nodes}
-consistency_mode = "eventual"
-{internal_api}
-
-[cluster.replication]
-replication_factor = {replication_factor}
-bind_addr = "127.0.0.1:{replication_port}"
-"#,
-        api_port = config.api_port,
-        data_path = data_dir.path().display(),
-        node_id = config.node_id,
-        raft_port = config.raft_port,
-        seed_nodes = peers_toml,
-        internal_api = internal_api_section,
-        replication_factor = replication_factor,
-        replication_port = replication_port,
-    );
+    let config_content = generate_config_toml(config, data_dir.path(), peers, Some(&replication));
 
     let config_path = data_dir.path().join("config.toml");
     std::fs::write(&config_path, config_content)?;
 
-    // Capture stderr to a log file for debugging
-    let stderr_path = data_dir.path().join("stderr.log");
-    let stderr_file =
-        std::fs::File::create(&stderr_path).context("Failed to create stderr log file")?;
-
-    let child = Command::new(get_binary_path())
-        .env("SAVE_CONFIG", &config_path)
-        .env(
-            "RUST_LOG",
-            "info,save_metadata::raft=debug,save_storage::replication=debug",
-        )
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::from(stderr_file))
-        .spawn()
-        .context("Failed to spawn save-api")?;
-
-    let client = create_client(config.api_port).await;
-
-    let data_path = data_dir.path().join("data");
-    let metadata_path = data_dir.path().join("metadata");
-
-    let node = ClusterNode {
-        config: config.clone(),
-        child: Some(child),
-        data_dir,
-        data_path,
-        metadata_path,
-        config_path,
-        stderr_path,
-        client,
-    };
-
-    node.wait_ready().await?;
-
-    tracing::info!(
-        "Started node {} with replication on api_port={}, raft_port={}, replication_port={}",
-        config.node_id,
-        config.api_port,
-        config.raft_port,
-        replication_port
-    );
-
-    Ok(node)
+    spawn_node(config, data_dir, Some(&replication)).await
 }
 
 fn find_free_port() -> Result<u16> {

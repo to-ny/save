@@ -581,7 +581,7 @@ impl Default for SaveConfig {
     fn default() -> Self {
         Self {
             server: ServerConfig {
-                bind_address: "0.0.0.0:9000".to_string(),
+                bind_address: ports::DEFAULT_HTTP_BIND.to_string(),
                 max_body_size: default_max_body_size(),
                 worker_threads: default_worker_threads(),
                 max_blocking_threads: default_max_blocking_threads(),
@@ -637,7 +637,7 @@ secret_key = "secret123"
 
         let config = SaveConfig::load(temp_file.path()).unwrap();
 
-        assert_eq!(config.server.bind_address, "0.0.0.0:9000");
+        assert_eq!(config.server.bind_address, ports::DEFAULT_HTTP_BIND);
         assert_eq!(config.server.max_body_size, 52428800);
         assert_eq!(config.storage.data_path, "/var/lib/save/data");
         assert_eq!(config.storage.metadata_path, "/var/lib/save/metadata");
@@ -730,7 +730,7 @@ secret_key = "secret123"
     fn test_cluster_config_defaults() {
         let config = SaveConfig::test_default();
         assert_eq!(config.cluster.node_id, 1);
-        assert_eq!(config.cluster.raft_bind_addr, "0.0.0.0:9001");
+        assert_eq!(config.cluster.raft_bind_addr, ports::DEFAULT_RAFT_BIND);
         assert!(config.cluster.seed_nodes.is_empty());
         assert_eq!(config.cluster.consistency_mode, ConsistencyMode::Strong);
     }

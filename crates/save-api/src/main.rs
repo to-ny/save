@@ -118,18 +118,13 @@ async fn init_raft_node(metadata: &MetadataStore, config: &SaveConfig) -> anyhow
     // Auto-bootstrap standalone clusters (no seed_nodes configured)
     if config.cluster.seed_nodes.is_empty() && !raft_node.is_initialized() {
         info!("Standalone cluster, auto-bootstrapping Raft with single member");
-        let raft_addr = format!("http://{}", config.cluster.raft_bind_addr);
-        let http_addr = format!("http://{}", config.server.bind_address);
-        let replication_addr = config.cluster.replication.replication_addr();
-        match raft_node
-            .initialize(vec![(
-                config.cluster.node_id,
-                raft_addr,
-                http_addr,
-                replication_addr,
-            )])
-            .await
-        {
+        let peer = save_common::cluster::PeerInfo::from_bind_addrs(
+            config.cluster.node_id,
+            &config.cluster.raft_bind_addr,
+            &config.server.bind_address,
+            &config.cluster.replication.bind_addr,
+        );
+        match raft_node.initialize(vec![peer]).await {
             Ok(()) => info!("Raft cluster bootstrapped successfully"),
             Err(MetadataError::AlreadyInitialized) => {
                 info!("Raft cluster already initialized, continuing");

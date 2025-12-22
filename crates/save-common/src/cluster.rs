@@ -43,21 +43,25 @@ impl PeerInfo {
     }
 
     /// Returns the Raft gRPC address as "http://host:raft_port".
+    #[must_use]
     pub fn raft_addr(&self) -> String {
         format!("http://{}:{}", self.host, self.raft_port)
     }
 
     /// Returns the HTTP API address as "http://host:http_port".
+    #[must_use]
     pub fn http_addr(&self) -> String {
         format!("http://{}:{}", self.host, self.http_port)
     }
 
     /// Returns the Replication gRPC address as "http://host:replication_port".
+    #[must_use]
     pub fn replication_addr(&self) -> String {
         format!("http://{}:{}", self.host, self.replication_port)
     }
 
-    /// Converts to tuple format for raft_node API compatibility.
+    /// Converts to tuple format for legacy API compatibility.
+    #[must_use]
     pub fn to_tuple(&self) -> (u64, String, String, String) {
         (
             self.node_id,
@@ -65,6 +69,41 @@ impl PeerInfo {
             self.http_addr(),
             self.replication_addr(),
         )
+    }
+
+    /// Creates a PeerInfo from bind addresses (e.g., "0.0.0.0:9001").
+    ///
+    /// Parses each address to extract host and port. The host is taken from
+    /// the raft bind address; HTTP and replication ports are extracted but
+    /// their hosts are assumed to match (common in single-node configurations).
+    #[must_use]
+    pub fn from_bind_addrs(
+        node_id: u64,
+        raft_bind: &str,
+        http_bind: &str,
+        replication_bind: &str,
+    ) -> Self {
+        let (host, raft_port) = parse_bind_addr(raft_bind, ports::DEFAULT_RAFT);
+        let (_, http_port) = parse_bind_addr(http_bind, ports::DEFAULT_HTTP);
+        let (_, replication_port) = parse_bind_addr(replication_bind, ports::DEFAULT_REPLICATION);
+
+        Self {
+            node_id,
+            host,
+            raft_port,
+            http_port,
+            replication_port,
+        }
+    }
+}
+
+/// Parses a bind address like "host:port" or "host" and returns (host, port).
+fn parse_bind_addr(addr: &str, default_port: u16) -> (String, u16) {
+    if let Some((host, port_str)) = addr.rsplit_once(':') {
+        let port = port_str.parse().unwrap_or(default_port);
+        (host.to_string(), port)
+    } else {
+        (addr.to_string(), default_port)
     }
 }
 
@@ -379,5 +418,29 @@ mod tests {
         assert_eq!(peer.raft_addr(), "http://10.0.0.1:9001");
         assert_eq!(peer.http_addr(), "http://10.0.0.1:9000");
         assert_eq!(peer.replication_addr(), "http://10.0.0.1:9002");
+    }
+
+    #[test]
+    fn test_from_bind_addrs() {
+        let peer = PeerInfo::from_bind_addrs(1, "0.0.0.0:9001", "0.0.0.0:9000", "0.0.0.0:9002");
+        assert_eq!(peer.node_id, 1);
+        assert_eq!(peer.host, "0.0.0.0");
+        assert_eq!(peer.raft_port, 9001);
+        assert_eq!(peer.http_port, 9000);
+        assert_eq!(peer.replication_port, 9002);
+    }
+
+    #[test]
+    fn test_from_bind_addrs_different_ports() {
+        let peer =
+            PeerInfo::from_bind_addrs(42, "127.0.0.1:5001", "127.0.0.1:5000", "127.0.0.1:5002");
+        assert_eq!(peer.node_id, 42);
+        assert_eq!(peer.host, "127.0.0.1");
+        assert_eq!(peer.raft_port, 5001);
+        assert_eq!(peer.http_port, 5000);
+        assert_eq!(peer.replication_port, 5002);
+        assert_eq!(peer.raft_addr(), "http://127.0.0.1:5001");
+        assert_eq!(peer.http_addr(), "http://127.0.0.1:5000");
+        assert_eq!(peer.replication_addr(), "http://127.0.0.1:5002");
     }
 }

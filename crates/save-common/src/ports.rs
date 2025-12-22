@@ -13,6 +13,7 @@ pub const DEFAULT_REPLICATION: u16 = 9002;
 pub const DEFAULT_INTERNAL_API: u16 = 9082;
 
 /// Default bind addresses (all interfaces).
+pub const DEFAULT_HTTP_BIND: &str = "0.0.0.0:9000";
 pub const DEFAULT_RAFT_BIND: &str = "0.0.0.0:9001";
 pub const DEFAULT_REPLICATION_BIND: &str = "0.0.0.0:9002";
 pub const DEFAULT_INTERNAL_API_BIND: &str = "0.0.0.0:9082";
@@ -33,6 +34,7 @@ mod tests {
 
     #[test]
     fn bind_addresses_match_ports() {
+        assert!(DEFAULT_HTTP_BIND.ends_with(&DEFAULT_HTTP.to_string()));
         assert!(DEFAULT_RAFT_BIND.ends_with(&DEFAULT_RAFT.to_string()));
         assert!(DEFAULT_REPLICATION_BIND.ends_with(&DEFAULT_REPLICATION.to_string()));
         assert!(DEFAULT_INTERNAL_API_BIND.ends_with(&DEFAULT_INTERNAL_API.to_string()));

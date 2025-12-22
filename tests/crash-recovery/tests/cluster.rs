@@ -364,8 +364,11 @@ async fn test_remove_node_from_cluster() {
         response.message
     );
 
-    // Wait for membership change to propagate
-    tokio::time::sleep(Duration::from_secs(2)).await;
+    // Wait for node to be removed from membership
+    cluster
+        .wait_for_node_removed(follower_id, Duration::from_secs(10))
+        .await
+        .expect("Node should be removed from membership");
 
     // Verify membership updated
     let status_after = cluster
@@ -530,8 +533,11 @@ async fn test_snapshot_transfer_to_new_node() {
         response.message
     );
 
-    // Wait for promotion to complete
-    tokio::time::sleep(Duration::from_secs(2)).await;
+    // Wait for cluster to stabilize after promotion
+    cluster
+        .wait_for_stable_cluster(Duration::from_secs(10))
+        .await
+        .expect("Cluster should stabilize after promotion");
 
     // Verify it's now a voter
     let leader_status = cluster
@@ -1079,8 +1085,11 @@ async fn test_leader_graceful_departure() {
     tracing::info!("Printing server logs for new leader:");
     cluster.print_node_stderr(new_leader);
 
-    // Wait a bit for cluster to stabilize
-    tokio::time::sleep(Duration::from_secs(2)).await;
+    // Wait for cluster to stabilize after leader departure
+    cluster
+        .wait_for_stable_cluster(Duration::from_secs(10))
+        .await
+        .expect("Cluster should stabilize after leader departure");
 
     // Verify the old leader was removed from membership
     let status_after = cluster

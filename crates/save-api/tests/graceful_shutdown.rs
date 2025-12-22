@@ -40,18 +40,13 @@ async fn setup() -> (AppState, TempDir, TempDir) {
         .unwrap();
 
     // Auto-bootstrap single-node cluster
-    let raft_addr = format!("http://{}", config.cluster.raft_bind_addr);
-    let http_addr = format!("http://{}", config.server.bind_address);
-    let replication_addr = "http://127.0.0.1:9002".to_string(); // Default test replication address
-    raft_node
-        .initialize(vec![(
-            config.cluster.node_id,
-            raft_addr,
-            http_addr,
-            replication_addr,
-        )])
-        .await
-        .unwrap();
+    let peer = save_common::cluster::PeerInfo::from_bind_addrs(
+        config.cluster.node_id,
+        &config.cluster.raft_bind_addr,
+        &config.server.bind_address,
+        &config.cluster.replication.bind_addr,
+    );
+    raft_node.initialize(vec![peer]).await.unwrap();
 
     let state = AppState::new(storage, metadata, config, raft_node);
 

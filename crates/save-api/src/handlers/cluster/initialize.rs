@@ -63,7 +63,7 @@ pub async fn cluster_initialize(
 
     // Step 1: Initialize this node as a single-node cluster first.
     // This allows this node to become leader immediately.
-    if let Err(e) = state.raft_node.initialize(vec![my_peer.to_tuple()]).await {
+    if let Err(e) = state.raft_node.initialize(vec![my_peer.clone()]).await {
         error!("Failed to initialize single-node cluster: {}", e);
         return (
             StatusCode::INTERNAL_SERVER_ERROR,
