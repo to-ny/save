@@ -1,6 +1,6 @@
 # Architecture
 
-Distributed object storage system inspired by MinIO and S3. Currently Phase 1 (single-node); will evolve into distributed, erasure-coded, self-healing cluster.
+Distributed object storage system inspired by MinIO and S3. Currently Phase 2 (distributed replication); will evolve into erasure-coded, self-healing cluster.
 
 ---
 
@@ -37,7 +37,7 @@ Values: Binary (bincode serialization)
 ```
 data/
 ├─ objects/
-│  └─ {hash[0:2]}/{hash[2:4]}/{hash}/  # Content-addressed
+│  └─ {hash[0:2]}/{hash[2:4]}/{hash}  # Content-addressed (3-level sharding)
 ├─ temp/
 │  └─ parts/                            # Multipart temp files
 └─ rocksdb/                             # Metadata store

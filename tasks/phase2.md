@@ -184,7 +184,7 @@ Transform the single-node S3-compatible store into a distributed, replicated sys
 - [ ] Enforce `server.max_body_size` via Tower `DefaultBodyLimit` layer
 - [ ] Validate object size against `storage.max_object_size` during PUT operations
 - [ ] Add backpressure handling (503 on overload)
-- [ ] Create Makefile/Justfile for common development tasks
+- [x] Create Makefile/Justfile for common development tasks
 - [ ] Add setup/teardown scripts in `scripts/`
 - [ ] Complete deployment documentation (systemd, TLS termination)
 - [ ] Create operator runbooks
