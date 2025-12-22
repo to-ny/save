@@ -1,6 +1,6 @@
 //! Replication service implementation handling incoming gRPC requests.
 
-use crate::ObjectStorage;
+use crate::ReplicationStorage;
 use save_proto::replication as proto;
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
@@ -20,13 +20,13 @@ struct PendingPrepare {
 
 /// Replication service handling incoming object replication requests.
 pub struct ReplicationService {
-    storage: Arc<ObjectStorage>,
+    storage: Arc<dyn ReplicationStorage>,
     start_time: Instant,
     pending_prepares: Arc<RwLock<HashMap<String, PendingPrepare>>>,
 }
 
 impl ReplicationService {
-    pub fn new(storage: Arc<ObjectStorage>) -> Self {
+    pub fn new(storage: Arc<dyn ReplicationStorage>) -> Self {
         Self {
             storage,
             start_time: Instant::now(),
@@ -437,12 +437,13 @@ fn compute_sha256(data: &[u8]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ObjectStorage;
     use tempfile::TempDir;
 
     async fn test_service() -> (ReplicationService, TempDir) {
         let temp_dir = TempDir::new().unwrap();
-        let storage = Arc::new(ObjectStorage::new(temp_dir.path()).await.unwrap());
-        let service = ReplicationService::new(storage);
+        let storage = ObjectStorage::new(temp_dir.path()).await.unwrap();
+        let service = ReplicationService::new(Arc::new(storage));
         (service, temp_dir)
     }
 

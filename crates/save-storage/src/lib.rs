@@ -16,12 +16,41 @@ pub use factory::{StorageSetup, create_storage_backend};
 pub use local_backend::LocalBackend;
 pub use replicated_backend::ReplicatedBackend;
 
+use async_trait::async_trait;
 use layout::StorageLayout;
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 use tokio::fs;
 use tokio::io::{AsyncRead, AsyncWriteExt};
 use tracing::{debug, instrument, warn};
+
+/// Storage operations required by the replication service.
+///
+/// This trait abstracts the storage layer so that `ReplicationService`
+/// doesn't depend on the concrete `ObjectStorage` implementation.
+#[async_trait]
+pub trait ReplicationStorage: Send + Sync + 'static {
+    /// Write object data directly (non-2PC path).
+    async fn put_object(&self, key: &str, data: &[u8]) -> Result<()>;
+
+    /// Create a temp object handle for streaming writes.
+    async fn create_temp_object(&self, key: &str) -> Result<TempObject>;
+
+    /// Write object to temp file in one shot (2PC prepare phase).
+    async fn write_temp_object(&self, key: &str, data: &[u8]) -> Result<TempObject>;
+
+    /// Commit a temp object to its final location (2PC commit phase).
+    async fn commit_object(&self, temp_object: TempObject) -> Result<()>;
+
+    /// Get object file for reading.
+    async fn get_object(&self, key: &str) -> Result<fs::File>;
+
+    /// Get object metadata (size and checksum).
+    async fn object_info(&self, key: &str) -> Result<(u64, String)>;
+
+    /// Delete an object.
+    async fn delete_object(&self, key: &str) -> Result<()>;
+}
 
 /// Opaque handle to a temporary object with automatic cleanup on drop.
 #[derive(Debug)]
@@ -304,6 +333,37 @@ impl ObjectStorage {
 
         let checksum = hex::encode(hasher.finalize());
         Ok((size, checksum))
+    }
+}
+
+#[async_trait]
+impl ReplicationStorage for ObjectStorage {
+    async fn put_object(&self, key: &str, data: &[u8]) -> Result<()> {
+        ObjectStorage::put_object(self, key, data).await
+    }
+
+    async fn create_temp_object(&self, key: &str) -> Result<TempObject> {
+        ObjectStorage::create_temp_object(self, key).await
+    }
+
+    async fn write_temp_object(&self, key: &str, data: &[u8]) -> Result<TempObject> {
+        ObjectStorage::write_temp_object(self, key, data).await
+    }
+
+    async fn commit_object(&self, temp_object: TempObject) -> Result<()> {
+        ObjectStorage::commit_object(self, temp_object).await
+    }
+
+    async fn get_object(&self, key: &str) -> Result<fs::File> {
+        ObjectStorage::get_object(self, key).await
+    }
+
+    async fn object_info(&self, key: &str) -> Result<(u64, String)> {
+        ObjectStorage::object_info(self, key).await
+    }
+
+    async fn delete_object(&self, key: &str) -> Result<()> {
+        ObjectStorage::delete_object(self, key).await
     }
 }
 

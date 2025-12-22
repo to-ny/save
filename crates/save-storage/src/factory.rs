@@ -1,6 +1,7 @@
 //! Storage backend factory for creating backends based on cluster configuration.
 
 use crate::ObjectStorage;
+use crate::ReplicationStorage;
 use crate::backend::StorageBackend;
 use crate::error::Result;
 use crate::local_backend::LocalBackend;
@@ -17,8 +18,8 @@ use tracing::info;
 pub struct StorageSetup {
     pub backend: Arc<dyn StorageBackend>,
     pub coordinator: Option<Arc<ReplicationCoordinator>>,
-    /// Raw object storage for replication service (only set when replication is enabled).
-    pub object_storage: Option<Arc<ObjectStorage>>,
+    /// Storage abstraction for replication service (only set when replication is enabled).
+    pub replication_storage: Option<Arc<dyn ReplicationStorage>>,
 }
 
 /// Creates a storage backend based on cluster configuration.
@@ -38,7 +39,7 @@ pub async fn create_storage_backend<P: AsRef<Path>>(
         return Ok(StorageSetup {
             backend: Arc::new(backend),
             coordinator: None,
-            object_storage: None,
+            replication_storage: None,
         });
     }
 
@@ -73,7 +74,7 @@ pub async fn create_storage_backend<P: AsRef<Path>>(
     Ok(StorageSetup {
         backend: Arc::new(backend),
         coordinator: Some(coordinator),
-        object_storage: Some(storage),
+        replication_storage: Some(storage),
     })
 }
 

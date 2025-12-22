@@ -366,13 +366,13 @@ async fn start_replication_server(
     shutdown_tx: &broadcast::Sender<()>,
 ) -> anyhow::Result<Option<JoinHandle<()>>> {
     // Only start replication server when replication is enabled (replication_factor > 1)
-    let object_storage = match &storage_setup.object_storage {
+    let replication_storage = match &storage_setup.replication_storage {
         Some(storage) => Arc::clone(storage),
         None => return Ok(None),
     };
 
     let addr: SocketAddr = config.cluster.replication.bind_addr.parse()?;
-    let service = Arc::new(ReplicationService::new(object_storage));
+    let service = Arc::new(ReplicationService::new(replication_storage));
     let shutdown_rx = shutdown_tx.subscribe();
     let tls_config = config.cluster.replication.tls.clone();
 
