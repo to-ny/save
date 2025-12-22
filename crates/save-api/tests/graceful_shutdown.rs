@@ -45,7 +45,8 @@ async fn setup() -> (AppState, TempDir, TempDir) {
         &config.cluster.raft_bind_addr,
         &config.server.bind_address,
         &config.cluster.replication.bind_addr,
-    );
+    )
+    .unwrap();
     raft_node.initialize(vec![peer]).await.unwrap();
 
     let state = AppState::new(storage, metadata, config, raft_node);

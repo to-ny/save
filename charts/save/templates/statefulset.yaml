@@ -54,7 +54,7 @@ spec:
               NODE_ID=$((ORDINAL + 1))
 
               # Generate seed node list for initial discovery (all nodes except self)
-              # Format: "node_id:host:raft_port:http_port"
+              # Format: "node_id:host:raft_port:http_port:replication_port"
               SEED_NODES=""
               for i in $(seq 0 $((REPLICAS - 1))); do
                 if [ $i -ne $ORDINAL ]; then
@@ -63,7 +63,7 @@ spec:
                   if [ -n "$SEED_NODES" ]; then
                     SEED_NODES="${SEED_NODES}, "
                   fi
-                  SEED_NODES="${SEED_NODES}\"${PEER_ID}:${PEER_HOST}:9001:9000\""
+                  SEED_NODES="${SEED_NODES}\"${PEER_ID}:${PEER_HOST}:{{ .Values.ports.raft }}:{{ .Values.ports.http }}:{{ .Values.ports.replication }}\""
                 fi
               done
 
@@ -148,13 +148,13 @@ spec:
             {{- end }}
           ports:
             - name: http
-              containerPort: 9000
+              containerPort: {{ .Values.ports.http }}
               protocol: TCP
             - name: raft
-              containerPort: 9001
+              containerPort: {{ .Values.ports.raft }}
               protocol: TCP
             - name: replication
-              containerPort: 9002
+              containerPort: {{ .Values.ports.replication }}
               protocol: TCP
           livenessProbe:
             {{- toYaml .Values.livenessProbe | nindent 12 }}

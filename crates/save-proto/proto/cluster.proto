@@ -57,7 +57,9 @@ enum RaftState {
 
 message AddLearnerRequest {
   uint64 node_id = 1;
-  string address = 2;  // gRPC address for the new node
+  string raft_address = 2;        // Raft gRPC address (e.g., "http://10.0.0.1:9001")
+  string http_address = 3;        // HTTP/S3 API address (e.g., "http://10.0.0.1:9000")
+  string replication_address = 4; // Replication gRPC address (e.g., "http://10.0.0.1:9002")
 }
 
 message AddLearnerResponse {

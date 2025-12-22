@@ -1,6 +1,12 @@
 use crate::error::{Error, Result};
-use crate::ports;
 use serde::{Deserialize, Serialize};
+
+/// Default bind addresses for services.
+/// These are used only for configuration defaults - runtime code must never
+/// infer or guess ports from these values.
+const DEFAULT_HTTP_BIND: &str = "0.0.0.0:9000";
+const DEFAULT_RAFT_BIND: &str = "0.0.0.0:9001";
+const DEFAULT_REPLICATION_BIND: &str = "0.0.0.0:9002";
 use std::fs;
 use std::path::Path;
 
@@ -410,7 +416,7 @@ impl Default for ReplicationConfig {
     fn default() -> Self {
         Self {
             replication_factor: default_replication_factor(),
-            bind_addr: ports::DEFAULT_REPLICATION_BIND.to_string(),
+            bind_addr: DEFAULT_REPLICATION_BIND.to_string(),
             tls: None,
             retry: RetrySettings::default(),
         }
@@ -470,7 +476,7 @@ fn default_node_id() -> u64 {
 }
 
 fn default_raft_bind_addr() -> String {
-    ports::DEFAULT_RAFT_BIND.to_string()
+    DEFAULT_RAFT_BIND.to_string()
 }
 
 impl Default for ClusterConfig {
@@ -581,7 +587,7 @@ impl Default for SaveConfig {
     fn default() -> Self {
         Self {
             server: ServerConfig {
-                bind_address: ports::DEFAULT_HTTP_BIND.to_string(),
+                bind_address: DEFAULT_HTTP_BIND.to_string(),
                 max_body_size: default_max_body_size(),
                 worker_threads: default_worker_threads(),
                 max_blocking_threads: default_max_blocking_threads(),
@@ -637,7 +643,7 @@ secret_key = "secret123"
 
         let config = SaveConfig::load(temp_file.path()).unwrap();
 
-        assert_eq!(config.server.bind_address, ports::DEFAULT_HTTP_BIND);
+        assert_eq!(config.server.bind_address, DEFAULT_HTTP_BIND);
         assert_eq!(config.server.max_body_size, 52428800);
         assert_eq!(config.storage.data_path, "/var/lib/save/data");
         assert_eq!(config.storage.metadata_path, "/var/lib/save/metadata");
@@ -730,7 +736,7 @@ secret_key = "secret123"
     fn test_cluster_config_defaults() {
         let config = SaveConfig::test_default();
         assert_eq!(config.cluster.node_id, 1);
-        assert_eq!(config.cluster.raft_bind_addr, ports::DEFAULT_RAFT_BIND);
+        assert_eq!(config.cluster.raft_bind_addr, DEFAULT_RAFT_BIND);
         assert!(config.cluster.seed_nodes.is_empty());
         assert_eq!(config.cluster.consistency_mode, ConsistencyMode::Strong);
     }
@@ -770,7 +776,7 @@ secret_key = "secret123"
     #[test]
     fn test_cluster_config_validation_invalid_peer_node_id() {
         let mut config = SaveConfig::test_default();
-        config.cluster.seed_nodes = vec!["abc:192.168.1.10:9001".to_string()];
+        config.cluster.seed_nodes = vec!["abc:192.168.1.10:9001:9000:9002".to_string()];
         let result = config.validate();
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("Invalid node_id"));
@@ -779,7 +785,7 @@ secret_key = "secret123"
     #[test]
     fn test_cluster_config_validation_invalid_peer_port() {
         let mut config = SaveConfig::test_default();
-        config.cluster.seed_nodes = vec!["2:192.168.1.10:99999".to_string()];
+        config.cluster.seed_nodes = vec!["2:192.168.1.10:99999:9000:9002".to_string()];
         let result = config.validate();
         assert!(result.is_err());
         assert!(
@@ -802,8 +808,8 @@ secret_key = "secret123"
     fn test_cluster_config_validation_valid_multi_node() {
         let mut config = SaveConfig::test_default();
         config.cluster.seed_nodes = vec![
-            "2:192.168.1.11:9001".to_string(),
-            "3:192.168.1.12:9001".to_string(),
+            "2:192.168.1.11:9001:9000:9002".to_string(),
+            "3:192.168.1.12:9001:9000:9002".to_string(),
         ];
         config.cluster.consistency_mode = ConsistencyMode::Eventual;
         let result = config.validate();
@@ -813,7 +819,7 @@ secret_key = "secret123"
     #[test]
     fn test_cluster_config_serialization() {
         let mut config = SaveConfig::test_default();
-        config.cluster.seed_nodes = vec!["2:192.168.1.11:9001".to_string()];
+        config.cluster.seed_nodes = vec!["2:192.168.1.11:9001:9000:9002".to_string()];
         config.cluster.consistency_mode = ConsistencyMode::Eventual;
 
         let toml_str = toml::to_string(&config).unwrap();

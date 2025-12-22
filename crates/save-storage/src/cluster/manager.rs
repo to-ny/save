@@ -753,8 +753,8 @@ mod tests {
         let quorum = QuorumConfig::with_replication_factor(3);
         let manager = ClusterManager::new(1, quorum, config);
 
-        // Should skip self in peer list
-        let peers = vec!["1:localhost:9001".to_string()];
+        // Should skip self in peer list (full 5-part format)
+        let peers = vec!["1:localhost:9001:9000:9002".to_string()];
         let result = manager.discover_peers(&peers).await;
         assert!(result.is_ok());
 

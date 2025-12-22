@@ -10,7 +10,7 @@ data:
     # Node ID and peers are substituted at pod startup
 
     [server]
-    bind_address = "0.0.0.0:9000"
+    bind_address = "0.0.0.0:{{ .Values.ports.http }}"
     worker_threads = {{ .Values.server.workerThreads }}
     max_blocking_threads = {{ .Values.server.maxBlockingThreads }}
     bucket_cache_ttl_secs = {{ .Values.server.bucketCacheTtlSecs }}
@@ -38,13 +38,13 @@ data:
     [cluster]
     # NODE_ID is substituted by init container based on pod ordinal
     node_id = ${NODE_ID}
-    raft_bind_addr = "0.0.0.0:9001"
+    raft_bind_addr = "0.0.0.0:{{ .Values.ports.raft }}"
     # SEED_NODES for initial discovery (substituted by init container, excludes self)
     seed_nodes = [${SEED_NODES}]
 
     [cluster.replication]
     replication_factor = {{ .Values.cluster.replicationFactor }}
-    bind_addr = "0.0.0.0:9002"
+    bind_addr = "0.0.0.0:{{ .Values.ports.replication }}"
     {{- if .Values.tls.enabled }}
 
     [cluster.replication.tls]

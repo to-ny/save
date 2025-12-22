@@ -123,7 +123,8 @@ async fn init_raft_node(metadata: &MetadataStore, config: &SaveConfig) -> anyhow
             &config.cluster.raft_bind_addr,
             &config.server.bind_address,
             &config.cluster.replication.bind_addr,
-        );
+        )
+        .map_err(|e| anyhow::anyhow!("Invalid bind address configuration: {}", e))?;
         match raft_node.initialize(vec![peer]).await {
             Ok(()) => info!("Raft cluster bootstrapped successfully"),
             Err(MetadataError::AlreadyInitialized) => {
@@ -448,19 +449,18 @@ fn spawn_auto_join_worker(
     }
 
     let join_config = config.cluster.clone();
-    let join_http_addr = format!("http://{}", config.server.bind_address);
-    let join_replication_addr = config.cluster.replication.replication_addr();
+    let self_peer = save_common::cluster::PeerInfo::from_bind_addrs(
+        config.cluster.node_id,
+        &config.cluster.raft_bind_addr,
+        &config.server.bind_address,
+        &config.cluster.replication.bind_addr,
+    )
+    .expect("Invalid bind address configuration in spawn_auto_join_worker");
     let join_shutdown_rx = shutdown_tx.subscribe();
 
     Some(tokio::spawn(async move {
-        save_api::scaling::run_auto_join_worker(
-            raft_node,
-            join_config,
-            join_http_addr,
-            join_replication_addr,
-            join_shutdown_rx,
-        )
-        .await;
+        save_api::scaling::run_auto_join_worker(raft_node, join_config, self_peer, join_shutdown_rx)
+            .await;
     }))
 }
 

@@ -9,8 +9,7 @@ save:
 
   config:
     server:
-      http_port: 8080
-      internal_api_port: 8081
+      # Ports: HTTP (9000), Raft (9001), Replication (9002)
       metrics_interval_secs: 15
 
     cluster:
@@ -109,7 +108,7 @@ prometheus:
             regex: save
             action: keep
           - source_labels: [__meta_kubernetes_pod_container_port_number]
-            regex: "8080"
+            regex: "9000"
             action: keep
           - source_labels: [__meta_kubernetes_pod_name]
             target_label: instance

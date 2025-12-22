@@ -1,11 +1,27 @@
 //! Cluster admin service implementation.
 
 use crate::AppState;
-use save_common::cluster::PeerInfo;
 use save_metadata::raft::RaftState;
 use save_proto::cluster as proto;
 use std::time::Duration;
 use tracing::{debug, info, warn};
+
+/// Validates an AddLearnerRequest, returning an error message if invalid.
+fn validate_add_learner_request(req: &proto::AddLearnerRequest) -> Option<&'static str> {
+    if req.node_id == 0 {
+        return Some("node_id must be > 0");
+    }
+    if req.raft_address.is_empty() {
+        return Some("raft_address cannot be empty");
+    }
+    if req.http_address.is_empty() {
+        return Some("http_address cannot be empty");
+    }
+    if req.replication_address.is_empty() {
+        return Some("replication_address cannot be empty");
+    }
+    None
+}
 
 /// Service handling cluster administration operations.
 #[derive(Clone)]
@@ -35,29 +51,24 @@ impl ClusterAdminService {
     }
 
     pub async fn add_learner(&self, req: proto::AddLearnerRequest) -> proto::AddLearnerResponse {
-        if req.node_id == 0 {
+        if let Some(error_message) = validate_add_learner_request(&req) {
             return proto::AddLearnerResponse {
                 success: false,
-                error_message: "node_id must be > 0".to_string(),
+                error_message: error_message.to_string(),
             };
         }
 
-        if req.address.is_empty() {
-            return proto::AddLearnerResponse {
-                success: false,
-                error_message: "address cannot be empty".to_string(),
-            };
-        }
-
-        // Parse the address to extract host and derive Raft, HTTP, and replication addresses
-        let (raft_addr, http_addr, replication_addr) = derive_addresses(&req.address);
-
-        info!(node_id = req.node_id, raft_addr = %raft_addr, http_addr = %http_addr, replication_addr = %replication_addr, "Adding learner node");
+        info!(node_id = req.node_id, raft_addr = %req.raft_address, http_addr = %req.http_address, replication_addr = %req.replication_address, "Adding learner node");
 
         match self
             .state
             .raft_node
-            .add_learner(req.node_id, raft_addr, http_addr, replication_addr)
+            .add_learner(
+                req.node_id,
+                req.raft_address.clone(),
+                req.http_address.clone(),
+                req.replication_address.clone(),
+            )
             .await
         {
             Ok(()) => {
@@ -268,16 +279,6 @@ fn raft_state_to_proto(state: RaftState) -> proto::RaftState {
     }
 }
 
-/// Derives Raft, HTTP, and replication addresses from a single address input.
-///
-/// Accepts formats like "host:port" or "http://host:port".
-/// Derives all service addresses from a raft address.
-/// Returns (raft_addr, http_addr, replication_addr) using default ports.
-fn derive_addresses(raft_addr: &str) -> (String, String, String) {
-    let peer = PeerInfo::from_raft_addr(raft_addr);
-    (peer.raft_addr(), peer.http_addr(), peer.replication_addr())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -318,34 +319,88 @@ mod tests {
         assert!(!response.voters.is_empty());
     }
 
+    // Unit tests for validate_add_learner_request (synchronous, no setup needed)
+    #[test]
+    fn test_validate_add_learner_valid_request() {
+        let req = proto::AddLearnerRequest {
+            node_id: 2,
+            raft_address: "http://127.0.0.1:9001".to_string(),
+            http_address: "http://127.0.0.1:9000".to_string(),
+            replication_address: "http://127.0.0.1:9002".to_string(),
+        };
+        assert!(validate_add_learner_request(&req).is_none());
+    }
+
+    #[test]
+    fn test_validate_add_learner_invalid_node_id() {
+        let req = proto::AddLearnerRequest {
+            node_id: 0,
+            raft_address: "http://127.0.0.1:9001".to_string(),
+            http_address: "http://127.0.0.1:9000".to_string(),
+            replication_address: "http://127.0.0.1:9002".to_string(),
+        };
+        assert_eq!(
+            validate_add_learner_request(&req),
+            Some("node_id must be > 0")
+        );
+    }
+
+    #[test]
+    fn test_validate_add_learner_empty_addresses() {
+        // Empty raft_address
+        let req = proto::AddLearnerRequest {
+            node_id: 2,
+            raft_address: String::new(),
+            http_address: "http://127.0.0.1:9000".to_string(),
+            replication_address: "http://127.0.0.1:9002".to_string(),
+        };
+        assert_eq!(
+            validate_add_learner_request(&req),
+            Some("raft_address cannot be empty")
+        );
+
+        // Empty http_address
+        let req = proto::AddLearnerRequest {
+            node_id: 2,
+            raft_address: "http://127.0.0.1:9001".to_string(),
+            http_address: String::new(),
+            replication_address: "http://127.0.0.1:9002".to_string(),
+        };
+        assert_eq!(
+            validate_add_learner_request(&req),
+            Some("http_address cannot be empty")
+        );
+
+        // Empty replication_address
+        let req = proto::AddLearnerRequest {
+            node_id: 2,
+            raft_address: "http://127.0.0.1:9001".to_string(),
+            http_address: "http://127.0.0.1:9000".to_string(),
+            replication_address: String::new(),
+        };
+        assert_eq!(
+            validate_add_learner_request(&req),
+            Some("replication_address cannot be empty")
+        );
+    }
+
+    // Integration test verifying validation is wired up in the service
     #[tokio::test]
-    async fn test_add_learner_invalid_node_id() {
+    async fn test_add_learner_validation_wired_up() {
         let (state, _tmp) = crate::test_helpers::test_setup_empty().await;
         let service = ClusterAdminService::new(state);
 
+        // Test one validation failure to verify the wiring
         let req = proto::AddLearnerRequest {
             node_id: 0,
-            address: "127.0.0.1:9000".to_string(),
+            raft_address: "http://127.0.0.1:9001".to_string(),
+            http_address: "http://127.0.0.1:9000".to_string(),
+            replication_address: "http://127.0.0.1:9002".to_string(),
         };
         let response = service.add_learner(req).await;
 
         assert!(!response.success);
         assert!(response.error_message.contains("node_id must be > 0"));
-    }
-
-    #[tokio::test]
-    async fn test_add_learner_empty_address() {
-        let (state, _tmp) = crate::test_helpers::test_setup_empty().await;
-        let service = ClusterAdminService::new(state);
-
-        let req = proto::AddLearnerRequest {
-            node_id: 2,
-            address: String::new(),
-        };
-        let response = service.add_learner(req).await;
-
-        assert!(!response.success);
-        assert!(response.error_message.contains("address cannot be empty"));
     }
 
     #[tokio::test]

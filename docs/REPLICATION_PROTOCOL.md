@@ -45,7 +45,7 @@ Phase 2 replication architecture for multi-node object storage.
 
 ## Internal Replication API
 
-**gRPC service** (port 8081, mTLS):
+**gRPC service** (port 9002, mTLS):
 - `WriteReplica`: Streaming object write to replica
 - `ReadReplica`: Streaming object read from replica
 - `DeleteReplica`: Remove replica

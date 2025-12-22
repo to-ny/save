@@ -1,31 +1,34 @@
-replicaCount: 1
+# Smoke profile: 3-node cluster with minimal resources for local testing
+# Suitable for Docker Desktop and CI environments
+replicaCount: 3
 
 image:
   repository: save
   tag: latest
   pullPolicy: Never
 
+# Minimal resources to fit 3 nodes on Docker Desktop
 resources:
   requests:
-    cpu: "500m"
-    memory: "1Gi"
+    cpu: "100m"
+    memory: "256Mi"
   limits:
-    cpu: "2"
-    memory: "2Gi"
+    cpu: "500m"
+    memory: "512Mi"
 
 server:
   workerThreads: 2
-  maxBlockingThreads: 256
+  maxBlockingThreads: 128
 
 metadata:
-  writeBufferSizeMb: 64
+  writeBufferSizeMb: 32
   maxWriteBufferNumber: 2
-  blockCacheSizeMb: 256
+  blockCacheSizeMb: 64
   maxBackgroundJobs: 2
 
 persistence:
-  dataSize: 10Gi
-  metadataSize: 2Gi
+  dataSize: 1Gi
+  metadataSize: 500Mi
 
 podDisruptionBudget:
   enabled: false
@@ -41,4 +44,4 @@ readinessProbe:
 startupProbe:
   initialDelaySeconds: 2
   periodSeconds: 2
-  failureThreshold: 30
+  failureThreshold: 60

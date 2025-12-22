@@ -168,10 +168,15 @@ impl RaftNode {
             );
         }
 
-        self.raft
-            .initialize(nodes)
-            .await
-            .map_err(|e| crate::error::MetadataError::Raft(e.to_string()))?;
+        self.raft.initialize(nodes).await.map_err(|e| {
+            let msg = e.to_string();
+            // OpenRaft returns "not allowed to initialize" when raft state already exists
+            if msg.contains("not allowed to initialize") {
+                crate::error::MetadataError::AlreadyInitialized
+            } else {
+                crate::error::MetadataError::Raft(msg)
+            }
+        })?;
 
         Ok(())
     }
@@ -556,31 +561,19 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_peers_to_tuples_legacy_format() {
+    fn test_parse_peers_incomplete_format_rejected() {
+        // Legacy 3-part format should be rejected (no defaults allowed)
         let peers = vec![
             "1:192.168.1.10:9001".to_string(),
             "2:192.168.1.11:9001".to_string(),
         ];
-        let result = parse_peers_to_tuples(&peers).unwrap();
-        assert_eq!(result.len(), 2);
-        // Legacy format: HTTP port defaults to 9000, replication to 9002
-        assert_eq!(
-            result[0],
-            (
-                1,
-                "http://192.168.1.10:9001".to_string(),
-                "http://192.168.1.10:9000".to_string(),
-                "http://192.168.1.10:9002".to_string()
-            )
-        );
-        assert_eq!(
-            result[1],
-            (
-                2,
-                "http://192.168.1.11:9001".to_string(),
-                "http://192.168.1.11:9000".to_string(),
-                "http://192.168.1.11:9002".to_string()
-            )
+        let result = parse_peers_to_tuples(&peers);
+        assert!(result.is_err());
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("Invalid peer format")
         );
     }
 

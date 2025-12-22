@@ -366,7 +366,7 @@ async fn test_remove_node_from_cluster() {
 
     // Wait for node to be removed from membership
     cluster
-        .wait_for_node_removed(follower_id, Duration::from_secs(10))
+        .wait_for_node_removed(follower_to_remove, Duration::from_secs(10))
         .await
         .expect("Node should be removed from membership");
 

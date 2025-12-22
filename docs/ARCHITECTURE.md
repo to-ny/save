@@ -121,7 +121,7 @@ data/
 - **Distributed Locks**: Replace local locks with Raft-based distributed locking
 - **Replication Coordinator**: Manages quorum writes across N replica nodes
 - **Storage Backend Abstraction**: Pluggable local/distributed storage
-- **Internal gRPC API**: Node-to-node replication protocol (port 8081, mTLS)
+- **Internal gRPC API**: Node-to-node replication protocol (port 9002, mTLS)
 - **Replica Placement**: Round-robin node selection (Phase 2), consistent hashing (Phase 3+)
 - **Cluster Membership**: Raft-managed node discovery and health tracking
 

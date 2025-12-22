@@ -1,7 +1,6 @@
 //! Cluster-related utilities and types.
 
 use crate::error::{Error, Result};
-use crate::ports;
 
 /// Parsed peer information containing Raft, HTTP, and replication port information.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -19,29 +18,6 @@ pub struct PeerInfo {
 }
 
 impl PeerInfo {
-    /// Creates a PeerInfo from a raft address, using default ports for HTTP and replication.
-    /// Accepts formats: "http://host:port", "host:port", or just "host".
-    pub fn from_raft_addr(raft_addr: &str) -> Self {
-        let addr = raft_addr
-            .strip_prefix("http://")
-            .or_else(|| raft_addr.strip_prefix("https://"))
-            .unwrap_or(raft_addr);
-
-        let (host, raft_port) = if let Some((h, p)) = addr.rsplit_once(':') {
-            (h.to_string(), p.parse().unwrap_or(ports::DEFAULT_RAFT))
-        } else {
-            (addr.to_string(), ports::DEFAULT_RAFT)
-        };
-
-        Self {
-            node_id: 0, // Unknown when parsing from address
-            host,
-            raft_port,
-            http_port: ports::DEFAULT_HTTP,
-            replication_port: ports::DEFAULT_REPLICATION,
-        }
-    }
-
     /// Returns the Raft gRPC address as "http://host:raft_port".
     #[must_use]
     pub fn raft_addr(&self) -> String {
@@ -76,68 +52,70 @@ impl PeerInfo {
     /// Parses each address to extract host and port. The host is taken from
     /// the raft bind address; HTTP and replication ports are extracted but
     /// their hosts are assumed to match (common in single-node configurations).
-    #[must_use]
+    ///
+    /// Returns an error if any address is not in "host:port" format.
     pub fn from_bind_addrs(
         node_id: u64,
         raft_bind: &str,
         http_bind: &str,
         replication_bind: &str,
-    ) -> Self {
-        let (host, raft_port) = parse_bind_addr(raft_bind, ports::DEFAULT_RAFT);
-        let (_, http_port) = parse_bind_addr(http_bind, ports::DEFAULT_HTTP);
-        let (_, replication_port) = parse_bind_addr(replication_bind, ports::DEFAULT_REPLICATION);
+    ) -> Result<Self> {
+        let (host, raft_port) = parse_bind_addr(raft_bind)?;
+        let (_, http_port) = parse_bind_addr(http_bind)?;
+        let (_, replication_port) = parse_bind_addr(replication_bind)?;
 
-        Self {
+        Ok(Self {
             node_id,
             host,
             raft_port,
             http_port,
             replication_port,
-        }
+        })
     }
 }
 
-/// Parses a bind address like "host:port" or "host" and returns (host, port).
-fn parse_bind_addr(addr: &str, default_port: u16) -> (String, u16) {
-    if let Some((host, port_str)) = addr.rsplit_once(':') {
-        let port = port_str.parse().unwrap_or(default_port);
-        (host.to_string(), port)
-    } else {
-        (addr.to_string(), default_port)
-    }
+/// Parses a bind address in "host:port" format.
+///
+/// Returns an error if the address is not in the expected format or if the port is invalid.
+fn parse_bind_addr(addr: &str) -> Result<(String, u16)> {
+    let (host, port_str) = addr.rsplit_once(':').ok_or_else(|| {
+        Error::validation(format!(
+            "Invalid bind address '{}'. Expected 'host:port' format",
+            addr
+        ))
+    })?;
+
+    let port: u16 = port_str.parse().map_err(|_| {
+        Error::validation(format!(
+            "Invalid port in bind address '{}'. Expected numeric value 1-65535",
+            addr
+        ))
+    })?;
+
+    Ok((host.to_string(), port))
 }
 
-/// Parses a peer string in various formats (backward compatible):
-/// - "node_id:host:raft_port" (legacy: http=9000, replication=9002)
-/// - "node_id:host:raft_port:http_port" (replication=9002)
-/// - "node_id:host:raft_port:http_port:replication_port" (full format)
+/// Parses a peer string in the format:
+/// "node_id:host:raft_port:http_port:replication_port"
+///
+/// All 5 parts are required; no defaults are applied.
 ///
 /// # Examples
 /// ```
 /// use save_common::cluster::parse_peer;
 ///
-/// // Full format with all ports
 /// let peer = parse_peer("1:192.168.1.10:9001:9000:9002").unwrap();
 /// assert_eq!(peer.node_id, 1);
 /// assert_eq!(peer.host, "192.168.1.10");
 /// assert_eq!(peer.raft_port, 9001);
 /// assert_eq!(peer.http_port, 9000);
 /// assert_eq!(peer.replication_port, 9002);
-///
-/// // 4-part format (replication defaults to 9002)
-/// let peer = parse_peer("1:192.168.1.10:9001:9000").unwrap();
-/// assert_eq!(peer.replication_port, 9002);
-///
-/// // Legacy format (HTTP defaults to 9000, replication to 9002)
-/// let peer = parse_peer("2:192.168.1.11:9001").unwrap();
-/// assert_eq!(peer.http_port, 9000);
-/// assert_eq!(peer.replication_port, 9002);
 /// ```
 pub fn parse_peer(peer: &str) -> Result<PeerInfo> {
     let parts: Vec<&str> = peer.split(':').collect();
-    if parts.len() < 3 || parts.len() > 5 {
+    if parts.len() != 5 {
         return Err(Error::validation(format!(
-            "Invalid peer format '{}'. Expected 'node_id:host:raft_port[:http_port[:replication_port]]'",
+            "Invalid peer format '{}'. Expected 'node_id:host:raft_port:http_port:replication_port'",
             peer
         )));
     }
@@ -158,27 +136,19 @@ pub fn parse_peer(peer: &str) -> Result<PeerInfo> {
         ))
     })?;
 
-    let http_port: u16 = if parts.len() >= 4 {
-        parts[3].parse().map_err(|_| {
-            Error::validation(format!(
-                "Invalid http_port in peer '{}'. Expected numeric value 1-65535",
-                peer
-            ))
-        })?
-    } else {
-        ports::DEFAULT_HTTP
-    };
+    let http_port: u16 = parts[3].parse().map_err(|_| {
+        Error::validation(format!(
+            "Invalid http_port in peer '{}'. Expected numeric value 1-65535",
+            peer
+        ))
+    })?;
 
-    let replication_port: u16 = if parts.len() == 5 {
-        parts[4].parse().map_err(|_| {
-            Error::validation(format!(
-                "Invalid replication_port in peer '{}'. Expected numeric value 1-65535",
-                peer
-            ))
-        })?
-    } else {
-        ports::DEFAULT_REPLICATION
-    };
+    let replication_port: u16 = parts[4].parse().map_err(|_| {
+        Error::validation(format!(
+            "Invalid replication_port in peer '{}'. Expected numeric value 1-65535",
+            peer
+        ))
+    })?;
 
     Ok(PeerInfo {
         node_id,
@@ -209,23 +179,26 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_peer_4part_format() {
-        let peer = parse_peer("1:192.168.1.10:9001:9000").unwrap();
-        assert_eq!(peer.node_id, 1);
-        assert_eq!(peer.host, "192.168.1.10");
-        assert_eq!(peer.raft_port, 9001);
-        assert_eq!(peer.http_port, 9000);
-        assert_eq!(peer.replication_port, 9002); // Default
-    }
+    fn test_parse_peer_incomplete_format_rejected() {
+        // 4-part format should be rejected (no defaults)
+        let result = parse_peer("1:192.168.1.10:9001:9000");
+        assert!(result.is_err());
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("Invalid peer format")
+        );
 
-    #[test]
-    fn test_parse_peer_legacy_format() {
-        let peer = parse_peer("1:192.168.1.10:9001").unwrap();
-        assert_eq!(peer.node_id, 1);
-        assert_eq!(peer.host, "192.168.1.10");
-        assert_eq!(peer.raft_port, 9001);
-        assert_eq!(peer.http_port, 9000); // Default
-        assert_eq!(peer.replication_port, 9002); // Default
+        // 3-part format should be rejected (no defaults)
+        let result = parse_peer("1:192.168.1.10:9001");
+        assert!(result.is_err());
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("Invalid peer format")
+        );
     }
 
     #[test]
@@ -290,14 +263,14 @@ mod tests {
 
     #[test]
     fn test_parse_peer_invalid_node_id() {
-        let result = parse_peer("abc:192.168.1.10:9001");
+        let result = parse_peer("abc:192.168.1.10:9001:9000:9002");
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("Invalid node_id"));
     }
 
     #[test]
     fn test_parse_peer_invalid_raft_port() {
-        let result = parse_peer("1:192.168.1.10:invalid");
+        let result = parse_peer("1:192.168.1.10:invalid:9000:9002");
         assert!(result.is_err());
         assert!(
             result
@@ -309,7 +282,7 @@ mod tests {
 
     #[test]
     fn test_parse_peer_invalid_http_port() {
-        let result = parse_peer("1:192.168.1.10:9001:invalid");
+        let result = parse_peer("1:192.168.1.10:9001:invalid:9002");
         assert!(result.is_err());
         assert!(
             result
@@ -333,13 +306,13 @@ mod tests {
 
     #[test]
     fn test_parse_peer_raft_port_overflow() {
-        let result = parse_peer("1:192.168.1.10:99999");
+        let result = parse_peer("1:192.168.1.10:99999:9000:9002");
         assert!(result.is_err());
     }
 
     #[test]
     fn test_parse_peer_http_port_overflow() {
-        let result = parse_peer("1:192.168.1.10:9001:99999");
+        let result = parse_peer("1:192.168.1.10:9001:99999:9002");
         assert!(result.is_err());
     }
 
@@ -365,64 +338,30 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_peers_legacy_format() {
+    fn test_parse_peers_incomplete_format_rejected() {
+        // Incomplete formats should be rejected
         let peers = vec![
             "1:192.168.1.10:9001".to_string(),
             "2:192.168.1.11:9001".to_string(),
         ];
-        let result = parse_peers(&peers).unwrap();
-        assert_eq!(result.len(), 2);
-        assert_eq!(result[0].http_port, 9000); // Default
-        assert_eq!(result[0].replication_port, 9002); // Default
-        assert_eq!(result[1].http_port, 9000); // Default
-        assert_eq!(result[1].replication_port, 9002); // Default
-    }
-
-    #[test]
-    fn test_parse_peers_one_invalid() {
-        let peers = vec!["1:192.168.1.10:9001".to_string(), "invalid".to_string()];
         let result = parse_peers(&peers);
         assert!(result.is_err());
     }
 
     #[test]
-    fn test_from_raft_addr_with_scheme() {
-        let peer = PeerInfo::from_raft_addr("http://192.168.1.10:9001");
-        assert_eq!(peer.host, "192.168.1.10");
-        assert_eq!(peer.raft_port, 9001);
-        assert_eq!(peer.http_port, ports::DEFAULT_HTTP);
-        assert_eq!(peer.replication_port, ports::DEFAULT_REPLICATION);
-    }
-
-    #[test]
-    fn test_from_raft_addr_without_scheme() {
-        let peer = PeerInfo::from_raft_addr("192.168.1.10:9001");
-        assert_eq!(peer.host, "192.168.1.10");
-        assert_eq!(peer.raft_port, 9001);
-        assert_eq!(peer.http_port, ports::DEFAULT_HTTP);
-        assert_eq!(peer.replication_port, ports::DEFAULT_REPLICATION);
-    }
-
-    #[test]
-    fn test_from_raft_addr_host_only() {
-        let peer = PeerInfo::from_raft_addr("myhost");
-        assert_eq!(peer.host, "myhost");
-        assert_eq!(peer.raft_port, ports::DEFAULT_RAFT);
-        assert_eq!(peer.http_port, ports::DEFAULT_HTTP);
-        assert_eq!(peer.replication_port, ports::DEFAULT_REPLICATION);
-    }
-
-    #[test]
-    fn test_from_raft_addr_derives_all_addresses() {
-        let peer = PeerInfo::from_raft_addr("http://10.0.0.1:9001");
-        assert_eq!(peer.raft_addr(), "http://10.0.0.1:9001");
-        assert_eq!(peer.http_addr(), "http://10.0.0.1:9000");
-        assert_eq!(peer.replication_addr(), "http://10.0.0.1:9002");
+    fn test_parse_peers_one_invalid() {
+        let peers = vec![
+            "1:192.168.1.10:9001:9000:9002".to_string(),
+            "invalid".to_string(),
+        ];
+        let result = parse_peers(&peers);
+        assert!(result.is_err());
     }
 
     #[test]
     fn test_from_bind_addrs() {
-        let peer = PeerInfo::from_bind_addrs(1, "0.0.0.0:9001", "0.0.0.0:9000", "0.0.0.0:9002");
+        let peer =
+            PeerInfo::from_bind_addrs(1, "0.0.0.0:9001", "0.0.0.0:9000", "0.0.0.0:9002").unwrap();
         assert_eq!(peer.node_id, 1);
         assert_eq!(peer.host, "0.0.0.0");
         assert_eq!(peer.raft_port, 9001);
@@ -433,7 +372,8 @@ mod tests {
     #[test]
     fn test_from_bind_addrs_different_ports() {
         let peer =
-            PeerInfo::from_bind_addrs(42, "127.0.0.1:5001", "127.0.0.1:5000", "127.0.0.1:5002");
+            PeerInfo::from_bind_addrs(42, "127.0.0.1:5001", "127.0.0.1:5000", "127.0.0.1:5002")
+                .unwrap();
         assert_eq!(peer.node_id, 42);
         assert_eq!(peer.host, "127.0.0.1");
         assert_eq!(peer.raft_port, 5001);
@@ -442,5 +382,26 @@ mod tests {
         assert_eq!(peer.raft_addr(), "http://127.0.0.1:5001");
         assert_eq!(peer.http_addr(), "http://127.0.0.1:5000");
         assert_eq!(peer.replication_addr(), "http://127.0.0.1:5002");
+    }
+
+    #[test]
+    fn test_from_bind_addrs_missing_port_rejected() {
+        // Address without port should be rejected
+        let result = PeerInfo::from_bind_addrs(1, "0.0.0.0", "0.0.0.0:9000", "0.0.0.0:9002");
+        assert!(result.is_err());
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("Invalid bind address")
+        );
+    }
+
+    #[test]
+    fn test_from_bind_addrs_invalid_port_rejected() {
+        let result =
+            PeerInfo::from_bind_addrs(1, "0.0.0.0:invalid", "0.0.0.0:9000", "0.0.0.0:9002");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("Invalid port"));
     }
 }

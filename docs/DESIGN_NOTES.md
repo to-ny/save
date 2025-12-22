@@ -70,7 +70,7 @@ This file captures ongoing design decisions, experiments, and ideas for future r
 
 ### Cluster Configuration
 - `node_id`, `seed_nodes[]` for initial cluster discovery
-- Raft and gRPC ports (8081, 8082)
+- Ports: HTTP (9000), Raft (9001), Replication gRPC (9002)
 - Validation: replication_factor <= cluster size
 
 ### Write Path (Distributed)

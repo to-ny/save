@@ -106,7 +106,7 @@ helm install save-dev . -n save-dev --create-namespace
 # Access services
 kubectl port-forward svc/save-dev-grafana 3000:3000 -n save-dev      # Dashboards
 kubectl port-forward svc/save-dev-openobserve 5080:5080 -n save-dev  # Logs
-kubectl port-forward svc/save-dev-save 8080:8080 -n save-dev         # S3 API
+kubectl port-forward svc/save-dev-save 9000:9000 -n save-dev         # S3 API
 ```
 
 See [Development Chart README](./charts/save-dev/README.md) for more details.

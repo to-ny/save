@@ -51,7 +51,8 @@ pub async fn setup_empty() -> (AppState, TempDir) {
         &config.cluster.raft_bind_addr,
         &config.server.bind_address,
         &config.cluster.replication.bind_addr,
-    );
+    )
+    .unwrap();
     raft_node.initialize(vec![peer]).await.unwrap();
 
     // Wait for leader election before running tests

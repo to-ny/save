@@ -84,6 +84,17 @@ cluster:
   replicationFactor: 3
 
 # =============================================================================
+# Port Configuration
+# =============================================================================
+ports:
+  # -- HTTP/S3 API port
+  http: 9000
+  # -- Raft consensus gRPC port
+  raft: 9001
+  # -- Replication gRPC port
+  replication: 9002
+
+# =============================================================================
 # mTLS Configuration for inter-node communication
 # =============================================================================
 tls:

@@ -114,17 +114,20 @@ Return the init job image
 
 {{/*
 Generate peer list for Raft configuration.
-Format: "node_id:hostname:port"
+Format: "node_id:host:raft_port:http_port:replication_port"
 */}}
 {{- define "save.peerList" -}}
 {{- $fullname := include "save.fullname" . -}}
 {{- $headless := include "save.headlessServiceName" . -}}
 {{- $namespace := .Release.Namespace -}}
 {{- $replicas := int .Values.replicaCount -}}
+{{- $raftPort := .Values.ports.raft -}}
+{{- $httpPort := .Values.ports.http -}}
+{{- $replicationPort := .Values.ports.replication -}}
 {{- $peers := list -}}
 {{- range $i := until $replicas -}}
 {{- $nodeId := add1 $i -}}
-{{- $peer := printf "%d:%s-%d.%s.%s.svc.cluster.local:9001" $nodeId $fullname $i $headless $namespace -}}
+{{- $peer := printf "%d:%s-%d.%s.%s.svc.cluster.local:%d:%d:%d" $nodeId $fullname $i $headless $namespace $raftPort $httpPort $replicationPort -}}
 {{- $peers = append $peers $peer -}}
 {{- end -}}
 {{- $peers | toJson -}}
@@ -141,11 +144,14 @@ Takes a dict with "root" (context) and "nodeIndex" (0-based index).
 {{- $headless := include "save.headlessServiceName" $root -}}
 {{- $namespace := $root.Release.Namespace -}}
 {{- $replicas := int $root.Values.replicaCount -}}
+{{- $raftPort := $root.Values.ports.raft -}}
+{{- $httpPort := $root.Values.ports.http -}}
+{{- $replicationPort := $root.Values.ports.replication -}}
 {{- $peers := list -}}
 {{- range $i := until $replicas -}}
 {{- if ne $i $nodeIndex -}}
 {{- $nodeId := add1 $i -}}
-{{- $peer := printf "%d:%s-%d.%s.%s.svc.cluster.local:9001" $nodeId $fullname $i $headless $namespace -}}
+{{- $peer := printf "%d:%s-%d.%s.%s.svc.cluster.local:%d:%d:%d" $nodeId $fullname $i $headless $namespace $raftPort $httpPort $replicationPort -}}
 {{- $peers = append $peers $peer -}}
 {{- end -}}
 {{- end -}}
@@ -154,17 +160,20 @@ Takes a dict with "root" (context) and "nodeIndex" (0-based index).
 
 {{/*
 Generate the cluster members list for initialization.
-Format: ["1:host1:9001", "2:host2:9001", ...]
+Format: ["1:host1:raft_port:http_port:replication_port", ...]
 */}}
 {{- define "save.clusterMembers" -}}
 {{- $fullname := include "save.fullname" . -}}
 {{- $headless := include "save.headlessServiceName" . -}}
 {{- $namespace := .Release.Namespace -}}
 {{- $replicas := int .Values.replicaCount -}}
+{{- $raftPort := .Values.ports.raft -}}
+{{- $httpPort := .Values.ports.http -}}
+{{- $replicationPort := .Values.ports.replication -}}
 {{- $members := list -}}
 {{- range $i := until $replicas -}}
 {{- $nodeId := add1 $i -}}
-{{- $member := printf "%d:%s-%d.%s.%s.svc.cluster.local:9001" $nodeId $fullname $i $headless $namespace -}}
+{{- $member := printf "%d:%s-%d.%s.%s.svc.cluster.local:%d:%d:%d" $nodeId $fullname $i $headless $namespace $raftPort $httpPort $replicationPort -}}
 {{- $members = append $members $member -}}
 {{- end -}}
 {{- $members | toJson -}}

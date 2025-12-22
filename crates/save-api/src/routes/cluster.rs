@@ -52,10 +52,11 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_add_learner_requires_leader() {
+    async fn test_add_learner_requires_full_peer_format() {
         let (state, _temp_dir) = crate::test_helpers::test_setup().await;
-        let app = routes().with_state(state);
+        let app = routes().with_state(state.clone());
 
+        // Test with incomplete format - should fail
         let request = Request::builder()
             .method("POST")
             .uri("/cluster/members")
@@ -64,7 +65,18 @@ mod tests {
             .unwrap();
 
         let response = app.oneshot(request).await.unwrap();
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
 
+        // Test with full format - should succeed (leader) or fail (not leader)
+        let app = routes().with_state(state);
+        let request = Request::builder()
+            .method("POST")
+            .uri("/cluster/members")
+            .header("content-type", "application/json")
+            .body(Body::from(r#"{"node": "2:127.0.0.1:9001:9000:9002"}"#))
+            .unwrap();
+
+        let response = app.oneshot(request).await.unwrap();
         assert!(
             response.status() == StatusCode::OK
                 || response.status() == StatusCode::INTERNAL_SERVER_ERROR

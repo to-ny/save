@@ -14,15 +14,15 @@ spec:
   publishNotReadyAddresses: true
   ports:
     - name: http
-      port: 9000
+      port: {{ .Values.ports.http }}
       targetPort: http
       protocol: TCP
     - name: raft
-      port: 9001
+      port: {{ .Values.ports.raft }}
       targetPort: raft
       protocol: TCP
     - name: replication
-      port: 9002
+      port: {{ .Values.ports.replication }}
       targetPort: replication
       protocol: TCP
   selector:

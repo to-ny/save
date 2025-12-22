@@ -75,7 +75,7 @@ kubectl port-forward svc/save-dev-prometheus-server 9090:80 -n save-dev
 kubectl port-forward svc/save-dev-openobserve 5080:5080 -n save-dev
 
 # Save API
-kubectl port-forward svc/save-dev-save 8080:8080 -n save-dev
+kubectl port-forward svc/save-dev-save 9000:9000 -n save-dev
 ```
 
 ### Default Credentials
@@ -94,12 +94,9 @@ See the main [Save chart documentation](../save/README.md) for all available opt
 ```yaml
 save:
   replicaCount: 3
-  config:
-    server:
-      http_port: 8080
-    cluster:
-      enabled: true
-      auto_join: true
+  # Ports are fixed: HTTP (9000), Raft (9001), Replication (9002)
+  cluster:
+    replicationFactor: 3
 ```
 
 ### Prometheus Configuration

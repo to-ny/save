@@ -1,6 +1,6 @@
 //! Automatic cluster scaling: auto-join on startup and graceful leave on shutdown.
 
-use save_common::cluster::parse_peer;
+use save_common::cluster::{parse_peer, PeerInfo};
 use save_common::config::ClusterConfig;
 use save_metadata::raft::RaftNode;
 use serde::{Deserialize, Serialize};
@@ -68,19 +68,22 @@ struct PromoteVotersRequest {
 }
 
 /// Auto-join cluster on startup. Returns Ok(true) if joined, Ok(false) if already a member.
+///
+/// # Arguments
+/// * `raft_node` - The Raft node instance
+/// * `config` - Cluster configuration
+/// * `self_peer` - This node's peer info (node_id, host, ports)
 pub async fn auto_join(
     raft_node: &RaftNode,
     config: &ClusterConfig,
-    http_addr: &str,
-    replication_addr: &str,
+    self_peer: &PeerInfo,
 ) -> Result<bool> {
     if config.seed_nodes.is_empty() {
         return Err(ScalingError::NoPeers);
     }
 
     let timeout = Duration::from_secs(config.join_timeout_secs);
-    let node_id = config.node_id;
-    let raft_addr = format!("http://{}", config.raft_bind_addr);
+    let node_id = self_peer.node_id;
     let max_retries = config.join_max_retries;
     let learner_catchup_delay = Duration::from_millis(config.learner_catchup_delay_ms);
 
@@ -109,16 +112,7 @@ pub async fn auto_join(
             tokio::time::sleep(delay).await;
         }
 
-        match try_join_cluster(
-            &config.seed_nodes,
-            node_id,
-            &raft_addr,
-            http_addr,
-            replication_addr,
-            timeout,
-            learner_catchup_delay,
-        )
-        .await
+        match try_join_cluster(&config.seed_nodes, self_peer, timeout, learner_catchup_delay).await
         {
             Ok(joined) => {
                 if joined {
@@ -155,14 +149,12 @@ pub static CLUSTER_JOINED: AtomicBool = AtomicBool::new(false);
 /// # Arguments
 /// * `raft_node` - The Raft node instance
 /// * `config` - Cluster configuration
-/// * `http_addr` - This node's HTTP address for cluster communication
-/// * `replication_addr` - This node's replication address for object data replication
+/// * `self_peer` - This node's peer info (node_id, host, ports)
 /// * `shutdown_rx` - Broadcast receiver for shutdown signal
 pub async fn run_auto_join_worker(
     raft_node: Arc<RaftNode>,
     config: ClusterConfig,
-    http_addr: String,
-    replication_addr: String,
+    self_peer: PeerInfo,
     mut shutdown_rx: broadcast::Receiver<()>,
 ) {
     if config.seed_nodes.is_empty() {
@@ -171,7 +163,7 @@ pub async fn run_auto_join_worker(
         return;
     }
 
-    let node_id = config.node_id;
+    let node_id = self_peer.node_id;
     info!(node_id, "Starting background auto-join worker");
 
     let mut attempt = 0u32;
@@ -210,7 +202,7 @@ pub async fn run_auto_join_worker(
 
         debug!(node_id, attempt, "Attempting to join cluster");
 
-        match auto_join(&raft_node, &config, &http_addr, &replication_addr).await {
+        match auto_join(&raft_node, &config, &self_peer).await {
             Ok(true) => {
                 info!(node_id, "Successfully joined cluster");
                 CLUSTER_JOINED.store(true, Ordering::Release);
@@ -375,10 +367,7 @@ fn create_http_client(timeout: Duration) -> reqwest::Client {
 /// Try joining via peers. Returns Ok(true) if joined, Ok(false) if already a member.
 async fn try_join_cluster(
     peers: &[String],
-    node_id: u64,
-    raft_addr: &str,
-    http_addr: &str,
-    replication_addr: &str,
+    self_peer: &PeerInfo,
     timeout: Duration,
     learner_catchup_delay: Duration,
 ) -> Result<bool> {
@@ -408,16 +397,7 @@ async fn try_join_cluster(
 
         // If this peer is the leader, join through it
         if status.current_leader == Some(peer_info.node_id) {
-            return join_via_leader(
-                &client,
-                &base_url,
-                node_id,
-                raft_addr,
-                http_addr,
-                replication_addr,
-                learner_catchup_delay,
-            )
-            .await;
+            return join_via_leader(&client, &base_url, self_peer, learner_catchup_delay).await;
         }
 
         // Otherwise, try to connect to the leader directly
@@ -427,16 +407,8 @@ async fn try_join_cluster(
                     && other_info.node_id == leader_id
                 {
                     let leader_url = other_info.http_addr();
-                    return join_via_leader(
-                        &client,
-                        &leader_url,
-                        node_id,
-                        raft_addr,
-                        http_addr,
-                        replication_addr,
-                        learner_catchup_delay,
-                    )
-                    .await;
+                    return join_via_leader(&client, &leader_url, self_peer, learner_catchup_delay)
+                        .await;
                 }
             }
         }
@@ -474,41 +446,24 @@ async fn get_cluster_status(
 async fn join_via_leader(
     client: &reqwest::Client,
     leader_url: &str,
-    node_id: u64,
-    raft_addr: &str,
-    http_addr: &str,
-    replication_addr: &str,
+    self_peer: &PeerInfo,
     learner_catchup_delay: Duration,
 ) -> Result<bool> {
     info!(
-        node_id = node_id,
-        raft_addr = raft_addr,
+        node_id = self_peer.node_id,
+        raft_addr = %self_peer.raft_addr(),
         "Requesting to join as learner"
     );
 
     // Format: "node_id:host:raft_port:http_port:replication_port"
-    // Extract host:port components from addresses
-    let raft_host_port = raft_addr.trim_start_matches("http://");
-    let http_host_port = http_addr.trim_start_matches("http://");
-    let replication_host_port = replication_addr.trim_start_matches("http://");
-
-    // The peer format expects: node_id:host:raft_port:http_port:replication_port
-    // We need to reconstruct this from our separate addresses
-    let (host, raft_port) = raft_host_port
-        .rsplit_once(':')
-        .unwrap_or((raft_host_port, "9001"));
-    let http_port = http_host_port
-        .rsplit_once(':')
-        .map(|(_, p)| p)
-        .unwrap_or("9000");
-    let replication_port = replication_host_port
-        .rsplit_once(':')
-        .map(|(_, p)| p)
-        .unwrap_or("9002");
-
+    // PeerInfo already has all the parsed components - no re-parsing needed
     let node_spec = format!(
         "{}:{}:{}:{}:{}",
-        node_id, host, raft_port, http_port, replication_port
+        self_peer.node_id,
+        self_peer.host,
+        self_peer.raft_port,
+        self_peer.http_port,
+        self_peer.replication_port
     );
 
     let url = format!("{}/cluster/members", leader_url);
@@ -532,17 +487,17 @@ async fn join_via_leader(
         return Err(ScalingError::JoinFailed(resp.message));
     }
 
-    info!(node_id = node_id, "Added as learner");
+    info!(node_id = self_peer.node_id, "Added as learner");
 
     // Request promotion to voter after catching up
     tokio::time::sleep(learner_catchup_delay).await;
 
-    debug!(node_id = node_id, "Requesting promotion to voter");
+    debug!(node_id = self_peer.node_id, "Requesting promotion to voter");
     let url = format!("{}/cluster/members/promote", leader_url);
     let response = client
         .post(&url)
         .json(&PromoteVotersRequest {
-            node_ids: vec![node_id],
+            node_ids: vec![self_peer.node_id],
         })
         .send()
         .await?;
@@ -554,13 +509,13 @@ async fn join_via_leader(
 
     if !resp.success {
         warn!(
-            node_id = node_id,
+            node_id = self_peer.node_id,
             error = resp.message,
             "Promotion to voter failed, remaining as learner"
         );
         // Don't fail completely - being a learner is still progress
     } else {
-        info!(node_id = node_id, "Promoted to voter");
+        info!(node_id = self_peer.node_id, "Promoted to voter");
     }
 
     Ok(true)

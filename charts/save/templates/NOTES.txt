@@ -29,7 +29,7 @@ Check cluster health:
 View cluster status via API:
 
   kubectl exec -it {{ include "save.fullname" . }}-0 -n {{ .Release.Namespace }} -- \
-    curl -s http://localhost:9000/cluster/status | jq
+    curl -s http://localhost:{{ .Values.ports.http }}/cluster/status | jq
 
 ACCESSING THE S3 API
 --------------------
@@ -48,9 +48,9 @@ Via Ingress:
 {{- else }}
 Internal access (ClusterIP):
 
-  kubectl port-forward svc/{{ include "save.fullname" . }} 9000:{{ .Values.service.port }} -n {{ .Release.Namespace }}
+  kubectl port-forward svc/{{ include "save.fullname" . }} {{ .Values.ports.http }}:{{ .Values.service.port }} -n {{ .Release.Namespace }}
 
-Then access at: http://localhost:9000
+Then access at: http://localhost:{{ .Values.ports.http }}
 
 {{- end }}
 
@@ -77,7 +77,7 @@ Configure AWS CLI to use Save:
   # Region can be anything (e.g., us-east-1)
 
   # Use with --endpoint-url
-  aws --endpoint-url http://localhost:9000 --profile save s3 ls
+  aws --endpoint-url http://localhost:{{ .Values.ports.http }} --profile save s3 ls
 
 METRICS & MONITORING
 --------------------
@@ -93,8 +93,8 @@ PodMonitor is enabled - Prometheus Operator will auto-discover.
 
 View metrics manually:
 
-  kubectl port-forward svc/{{ include "save.fullname" . }} 9000:{{ .Values.service.port }} -n {{ .Release.Namespace }}
-  curl http://localhost:9000/metrics
+  kubectl port-forward svc/{{ include "save.fullname" . }} {{ .Values.ports.http }}:{{ .Values.service.port }} -n {{ .Release.Namespace }}
+  curl http://localhost:{{ .Values.ports.http }}/metrics
 
 {{- else }}
 Metrics are disabled. Enable with: --set metrics.enabled=true
@@ -109,13 +109,13 @@ View pod logs:
 Check Raft state:
 
   kubectl exec -it {{ include "save.fullname" . }}-0 -n {{ .Release.Namespace }} -- \
-    curl -s http://localhost:9000/cluster/status
+    curl -s http://localhost:{{ .Values.ports.http }}/cluster/status
 
 Check all node health:
 
   for i in $(seq 0 {{ sub .Values.replicaCount 1 }}); do
     echo "=== Node $i ==="
-    kubectl exec {{ include "save.fullname" . }}-$i -n {{ .Release.Namespace }} -- curl -s http://localhost:9000/health
+    kubectl exec {{ include "save.fullname" . }}-$i -n {{ .Release.Namespace }} -- curl -s http://localhost:{{ .Values.ports.http }}/health
   done
 
 DOCUMENTATION
