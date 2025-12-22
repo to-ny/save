@@ -185,6 +185,7 @@ impl ReplicationCoordinator {
     }
 
     /// Get connected node IDs (excluding self).
+    #[must_use = "returns connected node IDs that should be used"]
     pub async fn connected_nodes(&self) -> Vec<u64> {
         self.clients.read().await.keys().copied().collect()
     }

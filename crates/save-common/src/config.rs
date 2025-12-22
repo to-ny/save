@@ -470,7 +470,7 @@ fn default_node_id() -> u64 {
 }
 
 fn default_raft_bind_addr() -> String {
-    "0.0.0.0:9001".to_string()
+    ports::DEFAULT_RAFT_BIND.to_string()
 }
 
 impl Default for ClusterConfig {

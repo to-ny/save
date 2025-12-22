@@ -218,6 +218,7 @@ impl RaftNode {
     /// Returns all cluster members with their replication addresses.
     /// Used for syncing with replication coordinator.
     /// Returns (node_id, replication_addr) pairs excluding self.
+    #[must_use]
     pub fn get_cluster_replication_nodes(&self) -> Vec<(NodeId, String)> {
         let metrics = self.raft.metrics().borrow().clone();
         let membership = metrics.membership_config.membership();

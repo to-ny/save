@@ -56,6 +56,16 @@ impl PeerInfo {
     pub fn replication_addr(&self) -> String {
         format!("http://{}:{}", self.host, self.replication_port)
     }
+
+    /// Converts to tuple format for raft_node API compatibility.
+    pub fn to_tuple(&self) -> (u64, String, String, String) {
+        (
+            self.node_id,
+            self.raft_addr(),
+            self.http_addr(),
+            self.replication_addr(),
+        )
+    }
 }
 
 /// Parses a peer string in various formats (backward compatible):

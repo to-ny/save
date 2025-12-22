@@ -1,5 +1,5 @@
 use axum::{Json, extract::State, http::StatusCode, response::IntoResponse};
-use save_common::cluster::parse_peer;
+use save_common::cluster::{PeerInfo, parse_peers};
 use std::time::Duration;
 use tracing::{error, info, warn};
 
@@ -27,30 +27,14 @@ pub async fn cluster_initialize(
             .into_response();
     }
 
-    let members: Vec<(u64, String, String, String)> = match request
-        .members
-        .iter()
-        .map(|m| {
-            parse_peer(m)
-                .map(|info| {
-                    (
-                        info.node_id,
-                        info.raft_addr(),
-                        info.http_addr(),
-                        info.replication_addr(),
-                    )
-                })
-                .map_err(|e| e.to_string())
-        })
-        .collect::<Result<Vec<_>, String>>()
-    {
+    let members: Vec<PeerInfo> = match parse_peers(&request.members) {
         Ok(m) => m,
         Err(e) => {
             return (
                 StatusCode::BAD_REQUEST,
                 Json(InitializeResponse {
                     success: false,
-                    message: e,
+                    message: e.to_string(),
                 }),
             )
                 .into_response();
@@ -59,33 +43,27 @@ pub async fn cluster_initialize(
 
     let my_node_id = state.raft_node.node_id();
 
-    // Find this node's addresses from the members list
-    let (my_raft_addr, my_http_addr, my_replication_addr) =
-        match members.iter().find(|(id, _, _, _)| *id == my_node_id) {
-            Some((_, raft_addr, http_addr, replication_addr)) => (
-                raft_addr.clone(),
-                http_addr.clone(),
-                replication_addr.clone(),
-            ),
-            None => {
-                return (
-                    StatusCode::BAD_REQUEST,
-                    Json(InitializeResponse {
-                        success: false,
-                        message: format!(
-                            "This node (id={}) must be included in members list",
-                            my_node_id
-                        ),
-                    }),
-                )
-                    .into_response();
-            }
-        };
+    // Find this node in the members list
+    let my_peer = match members.iter().find(|p| p.node_id == my_node_id) {
+        Some(p) => p,
+        None => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(InitializeResponse {
+                    success: false,
+                    message: format!(
+                        "This node (id={}) must be included in members list",
+                        my_node_id
+                    ),
+                }),
+            )
+                .into_response();
+        }
+    };
 
     // Step 1: Initialize this node as a single-node cluster first.
     // This allows this node to become leader immediately.
-    let initial_member = vec![(my_node_id, my_raft_addr, my_http_addr, my_replication_addr)];
-    if let Err(e) = state.raft_node.initialize(initial_member).await {
+    if let Err(e) = state.raft_node.initialize(vec![my_peer.to_tuple()]).await {
         error!("Failed to initialize single-node cluster: {}", e);
         return (
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -119,42 +97,40 @@ pub async fn cluster_initialize(
     info!("Became leader, adding other nodes");
 
     // Step 3: Add other nodes as learners and promote to voters
-    let other_members: Vec<(u64, String, String, String)> = members
-        .into_iter()
-        .filter(|(id, _, _, _)| *id != my_node_id)
-        .collect();
+    let other_members: Vec<&PeerInfo> =
+        members.iter().filter(|p| p.node_id != my_node_id).collect();
 
     if !other_members.is_empty() {
         // Add all other nodes as learners first
-        for (node_id, raft_addr, http_addr, replication_addr) in &other_members {
+        for peer in &other_members {
             if let Err(e) = state
                 .raft_node
                 .add_learner(
-                    *node_id,
-                    raft_addr.clone(),
-                    http_addr.clone(),
-                    replication_addr.clone(),
+                    peer.node_id,
+                    peer.raft_addr(),
+                    peer.http_addr(),
+                    peer.replication_addr(),
                 )
                 .await
             {
-                error!("Failed to add learner {}: {}", node_id, e);
+                error!("Failed to add learner {}: {}", peer.node_id, e);
                 return (
                     StatusCode::INTERNAL_SERVER_ERROR,
                     Json(InitializeResponse {
                         success: false,
-                        message: format!("Failed to add learner {}: {}", node_id, e),
+                        message: format!("Failed to add learner {}: {}", peer.node_id, e),
                     }),
                 )
                     .into_response();
             }
-            info!("Added node {} as learner", node_id);
+            info!("Added node {} as learner", peer.node_id);
         }
 
         // Small delay to let learners sync
         tokio::time::sleep(Duration::from_millis(100)).await;
 
         // Promote all learners to voters
-        let learner_ids: Vec<u64> = other_members.iter().map(|(id, _, _, _)| *id).collect();
+        let learner_ids: Vec<u64> = other_members.iter().map(|p| p.node_id).collect();
         if let Err(e) = state.raft_node.promote_voters(learner_ids.clone()).await {
             error!("Failed to promote voters: {}", e);
             return (
