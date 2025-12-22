@@ -12,6 +12,7 @@ This directory contains Architecture Decision Records (ADRs) documenting key des
 | [004](004-commit-ordering.md) | Storage-Before-Metadata Commit Ordering | Accepted |
 | [005](005-s3-compatible-error-handling.md) | S3-Compatible Error Handling | Accepted |
 | [006](006-distributed-metadata-strategy.md) | Distributed Metadata Strategy | Accepted |
+| [007](007-kubernetes-native-deployment.md) | Kubernetes-Native Deployment Strategy | Accepted |
 
 ## ADR Format
 

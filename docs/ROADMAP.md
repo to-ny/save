@@ -1,6 +1,6 @@
 # Roadmap
 
-This file tracks implementation goals across major phases.  
+This file tracks implementation goals across major phases.
 It focuses on functional milestones and completion criteria, not architecture.
 
 ---
@@ -10,17 +10,17 @@ It focuses on functional milestones and completion criteria, not architecture.
 **Goal:** Local S3-compatible object store using RocksDB and filesystem storage.
 
 **Deliverables**
-- HTTP API (Axum) with SigV4 auth  
-- Object PUT/GET/DELETE  
-- Multipart uploads  
-- Metadata in RocksDB  
-- Object files on local FS  
-- Basic health and metrics endpoints  
-- Integration tests with AWS CLI  
+- HTTP API (Axum) with SigV4 auth
+- Object PUT/GET/DELETE
+- Multipart uploads
+- Metadata in RocksDB
+- Object files on local FS
+- Basic health and metrics endpoints
+- Integration tests with AWS CLI
 
 **Exit criteria**
-- Data persists across restarts  
-- All API paths pass local conformance tests  
+- Data persists across restarts
+- All API paths pass local conformance tests
 - End-to-end upload and retrieval validated
 
 ---
@@ -30,14 +30,17 @@ It focuses on functional milestones and completion criteria, not architecture.
 **Goal:** Multi-node operation with consistent metadata and replication.
 
 **Deliverables**
-- Raft or etcd-based cluster state  
-- Object placement and replication strategy  
-- Node join/leave and rebalance handling  
-- Background sync and consistency checks  
+- Raft-based cluster state (openraft)
+- Object placement and replication strategy
+- Node join/leave and rebalance handling
+- Background sync and consistency checks
+- Kubernetes Operator for cluster lifecycle (bootstrap, scaling, healing)
+- Helm chart for deployment
 
 **Exit criteria**
-- Automatic recovery after node restart  
+- Automatic recovery after node restart
 - Data consistency verified after failover
+- Zero-touch cluster formation via Operator
 
 ---
 
@@ -46,12 +49,12 @@ It focuses on functional milestones and completion criteria, not architecture.
 **Goal:** Efficient, durable storage with redundancy.
 
 **Deliverables**
-- Erasure coding for object shards  
-- Background healing for missing/corrupt parts  
-- Rebalancer for capacity changes  
+- Erasure coding for object shards
+- Background healing for missing/corrupt parts
+- Rebalancer for capacity changes
 
 **Exit criteria**
-- Shard loss recoverable without data loss  
+- Shard loss recoverable without data loss
 - Rebalance runs without interrupting clients
 
 ---
@@ -61,11 +64,13 @@ It focuses on functional milestones and completion criteria, not architecture.
 **Goal:** Production readiness and manageability.
 
 **Deliverables**
-- IAM users and bucket policies  
-- Encryption at rest  
-- Lifecycle rules and versioning  
-- Prometheus metrics and CLI tools  
-- Operator endpoints (health, diagnostics, GC)
+- IAM users and bucket policies
+- Encryption at rest
+- Lifecycle rules and versioning
+- Prometheus metrics and alerting rules
+- CLI tools for administration
+- Management API (health, diagnostics, GC)
+- Operator-driven backup and restore
 
 **Exit criteria**
 - Security, lifecycle, and observability features validated
@@ -77,9 +82,9 @@ It focuses on functional milestones and completion criteria, not architecture.
 **Goal:** Interoperability and ecosystem maturity.
 
 **Deliverables**
-- SDKs or gateway mode for other clouds  
-- Object locking and compliance features  
-- Pluggable storage backends  
+- SDKs or gateway mode for other clouds
+- Object locking and compliance features
+- Alternative deployment modes (non-Kubernetes) based on demand
 
 ---
 

@@ -4,7 +4,16 @@
 
 - Rust 1.85+ (edition 2024)
 - clang, cmake (for RocksDB)
-- Docker (for integration tests and local stack)
+- Docker
+- kubectl
+- Helm 3.x
+- kind or minikube (for local Kubernetes)
+
+## Documentation
+
+- [Architecture](docs/ARCHITECTURE.md) - System design and components
+- [Roadmap](docs/ROADMAP.md) - Development phases and milestones
+- [ADRs](docs/adrs/) - Architecture decision records
 
 ## Project Structure
 
@@ -72,7 +81,9 @@ See each test crate's README for setup details.
 
 ## Run
 
-### Native
+### Local Development (single node)
+
+For quick iteration without Kubernetes:
 
 ```bash
 # Uses ./save.toml or defaults
@@ -82,19 +93,33 @@ cargo run --release --bin save-api
 SAVE_CONFIG=/path/to/config.toml cargo run --release --bin save-api
 ```
 
-### Kubernetes (Helm)
+### Kubernetes (recommended)
+
+The primary deployment target is Kubernetes. For local development with a full cluster:
+
+```bash
+# Create local cluster
+kind create cluster --name save-dev
+
+# Build and load image
+docker build -t save:latest .
+kind load docker-image save:latest --name save-dev
+
+# Deploy
+helm install save ./charts/save \
+  --set image.repository=save \
+  --set image.tag=latest \
+  --set image.pullPolicy=Never
+```
 
 ```bash
 make helm-lint                 # Validate chart
 make helm-template             # Render templates locally
-
-# Deploy to cluster (production)
-helm install save ./charts/save -f charts/save/values-production.yaml
 ```
 
 See [Helm Chart README](./charts/save/README.md) for full documentation.
 
-#### Development with Observability
+### Development with Observability
 
 For development with full observability stack (Prometheus, Grafana, OpenObserve, Vector):
 

@@ -143,21 +143,18 @@ Transform the single-node S3-compatible store into a distributed, replicated sys
 ---
 
 ## Deployment & Operations
-- [ ] Update `save.toml.example` with cluster configuration examples
-- [ ] Create cluster deployment documentation (3-node, 5-node setups)
-- [ ] Add TLS certificate generation guide for mTLS
-- [ ] Document cluster bootstrap procedure
-- [ ] Document cluster upgrade strategy (rolling upgrades)
-- [ ] Add troubleshooting guide (partition recovery, replication lag)
-- [ ] Create runbook for leader failure scenarios
 - [x] Create Helm chart for local development with observability (charts/save-dev)
 - [x] Create Helm chart for Kubernetes deployment (production-ready)
-- [ ] Add backup/restore procedures for distributed cluster
-- [ ] Document disaster recovery scenarios (quorum loss)
+- [ ] Update `save.toml.example` with cluster configuration examples
+- [ ] Add TLS certificate generation guide for mTLS
+
+See [phase2-operator.md](phase2-operator.md) for Operator implementation and deployment documentation tasks.
 
 ### Automatic Cluster Scaling
 - [x] Implement auto-join: new nodes automatically join the cluster on startup
 - [x] Implement graceful leave: nodes remove themselves from the cluster on shutdown
+
+**Known issue**: Bootstrap deadlock with Helm `--wait` - readiness probes require cluster membership, but init job (post-install hook) waits for ready pods. Workaround: manual init or remove `--wait`. Proper fix: Kubernetes Operator (see [phase2-operator.md](phase2-operator.md)).
 
 ---
 
@@ -186,8 +183,6 @@ Transform the single-node S3-compatible store into a distributed, replicated sys
 - [ ] Add backpressure handling (503 on overload)
 - [x] Create Makefile/Justfile for common development tasks
 - [ ] Add setup/teardown scripts in `scripts/`
-- [ ] Complete deployment documentation (systemd, TLS termination)
-- [ ] Create operator runbooks
 
 ---
 
@@ -231,10 +226,10 @@ All Phase 1 critical tasks must be complete before starting Phase 2 core work:
 ### Deferred to Phase 4+
 - Multi-tenant IAM and isolation
 - Advanced management API
-- Operator tooling and automation
 - Web UI for cluster management
 
 ### Key Design Decisions
 - [ADR-006](../docs/adrs/006-distributed-metadata-strategy.md): Embedded Raft consensus
+- [ADR-007](../docs/adrs/007-kubernetes-native-deployment.md): Kubernetes-native deployment
 - [REPLICATION_PROTOCOL.md](../docs/REPLICATION_PROTOCOL.md): Push-based quorum replication
 - [ARCHITECTURE.md](../docs/ARCHITECTURE.md): System architecture with Phase 2 components
