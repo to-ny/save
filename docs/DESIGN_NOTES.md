@@ -85,3 +85,27 @@ This file captures ongoing design decisions, experiments, and ideas for future r
 - Eventual consistency: Read from local RocksDB
 - Strong consistency: Read from Raft leader (configurable)
 - Prefer local replicas, proxy to remote if needed
+
+### Two-Phase Commit (2PC) for Replication
+- Phase 1 (Prepare): Stream object data to temp file on each replica
+- Phase 2 (Commit): Atomic rename from temp to final path
+- Rollback on quorum failure: Abort sent to all prepared replicas
+- Stale prepare cleanup: Background worker cleans orphaned temp files
+
+### Cluster Scaling
+- Auto-join: New nodes automatically join via seed_nodes on startup
+- Graceful leave: Nodes remove themselves from cluster on SIGTERM
+- Leader departure: Leadership transfers before node removal
+- Health checking: Periodic gRPC health probes to all known nodes
+
+### Observability
+- Prometheus metrics for Raft (elections, log entries, snapshots)
+- Replication metrics (quorum success/failure, latency)
+- gRPC metrics (request counts, stream duration)
+- Cluster health metrics (node status, connected count)
+
+### Kubernetes Deployment
+- StatefulSet with headless service for stable network identity
+- PodDisruptionBudget to maintain quorum during updates
+- Init container or post-install job for cluster bootstrap
+- mTLS certificates via cert-manager integration

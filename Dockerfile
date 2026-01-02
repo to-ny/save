@@ -127,10 +127,9 @@ HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
     CMD curl -f http://localhost:9000/health || exit 1
 
 # Labels for metadata
-# TODO Update with accurate data
 LABEL org.opencontainers.image.title="save" \
-      org.opencontainers.image.description="High-performance S3-compatible object storage" \
-      org.opencontainers.image.vendor="Save Contributors" \
+      org.opencontainers.image.description="Kubernetes-native S3-compatible object storage" \
+      org.opencontainers.image.source="https://github.com/to-ny/save" \
       org.opencontainers.image.licenses="Apache-2.0"
 
 CMD ["save-api"]

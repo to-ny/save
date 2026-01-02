@@ -2,7 +2,20 @@
 
 **Kubernetes-native S3-compatible object storage written in Rust.**
 
+[![CI](https://github.com/to-ny/save/actions/workflows/ci.yml/badge.svg)](https://github.com/to-ny/save/actions/workflows/ci.yml)
+[![codecov](https://codecov.io/gh/to-ny/save/branch/main/graph/badge.svg)](https://codecov.io/gh/to-ny/save)
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
+
+## Project Status
+
+| Phase | Description | Status |
+|-------|-------------|--------|
+| Phase 1 | Single-node S3-compatible storage | Complete |
+| Phase 2 | Raft consensus + quorum replication | In Progress |
+| Phase 3 | Erasure coding, healing, rebalancing | Planned |
+| Phase 4 | Multi-tenant IAM, operator tooling | Planned |
+
+**Current capabilities**: Full S3 API (buckets, objects, multipart), AWS SigV4 auth, 3-node Raft cluster, quorum writes, Prometheus metrics, Helm deployment.
 
 ## Features
 
@@ -55,6 +68,17 @@ See [`save.toml.example`](save.toml.example) for all available options.
 | `SAVE_CONFIG` | Config file path (default: `/app/save.toml`) |
 | `LOG_FORMAT` | Set to `json` for JSON logging |
 | `RUST_LOG` | Log level filter (e.g., `save_api=debug`) |
+
+## Performance
+
+Benchmark infrastructure exists but results are not yet published. Run locally:
+
+```bash
+cargo bench                           # Micro-benchmarks (crypto, validation, storage)
+cd tests/loadtest && cargo run        # Load tests with concurrent S3 workloads
+```
+
+<!-- TODO: Run benchmarks on standardized hardware and publish results -->
 
 ## Contributing
 

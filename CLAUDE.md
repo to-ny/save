@@ -29,22 +29,19 @@ Design and build an open, high-performance, MinIO-like object store, stepwise:
 - Maintain compatibility with the latest stable Rust
 - Summaries, not verbosity; follow minimalism and composability
 
-## Output structure (planned)
+## Crate structure
 save/
 ├─ crates/
-│ ├─ api/ # S3-compatible REST API
-│ ├─ storage/ # Local object storage (FS)
-│ ├─ metadata/ # RocksDB metadata layer
-│ ├─ common/ # Shared types, errors, config
-├─ docs/
-│ ├─ ARCHITECTURE.md
-│ ├─ ROADMAP.md
-│ └─ DESIGN_NOTES.md
-├─ prompt_context/ # Temporary notes for AI sessions
-├─ tasks/
-│ ├─ phase1.md
-│ ├─ phase2.md
-│ └─ backlog.md
+│ ├─ save-api/ # S3-compatible REST API (Axum)
+│ ├─ save-storage/ # Object storage (FS + replication)
+│ ├─ save-metadata/ # RocksDB metadata + Raft consensus
+│ ├─ save-common/ # Shared types, errors, config
+│ ├─ save-proto/ # gRPC protobuf definitions
+│ └─ save-cli/ # CLI administration tool
+├─ charts/ # Helm charts for Kubernetes
+├─ docs/ # Architecture, ADRs, design notes
+├─ tasks/ # Phase task tracking
+├─ tests/loadtest/ # Load testing with Goose
 ├─ Cargo.toml
 ├─ CLAUDE.md (this file)
 └─ README.md

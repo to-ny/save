@@ -6,13 +6,13 @@ version: 0.1.0
 appVersion: "0.1.0"
 kubeVersion: ">=1.23.0-0"
 
-home: https://github.com/save/save
+home: https://github.com/to-ny/save
 sources:
-  - https://github.com/save/save
+  - https://github.com/to-ny/save
 
 maintainers:
-  - name: Save Team
-    email: maintainers@save.io
+  - name: Tony
+    url: https://github.com/to-ny
 
 keywords:
   - s3
