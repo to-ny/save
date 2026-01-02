@@ -105,28 +105,16 @@ pub async fn request_id(mut request: Request, next: Next) -> Response {
 
     let mut response = next.run(request).await;
 
-    // Add trace headers to response
-    response.headers_mut().insert(
-        REQUEST_ID_HEADER,
-        trace_ctx
-            .request_id
-            .parse()
-            .expect("request_id is valid header value"),
-    );
-    response.headers_mut().insert(
-        TRACE_ID_HEADER,
-        trace_ctx
-            .trace_id
-            .parse()
-            .expect("trace_id is valid header value"),
-    );
-    response.headers_mut().insert(
-        PARENT_SPAN_HEADER,
-        trace_ctx
-            .span_id
-            .parse()
-            .expect("span_id is valid header value"),
-    );
+    // Add trace headers to response (gracefully handle invalid header values)
+    if let Ok(value) = trace_ctx.request_id.parse() {
+        response.headers_mut().insert(REQUEST_ID_HEADER, value);
+    }
+    if let Ok(value) = trace_ctx.trace_id.parse() {
+        response.headers_mut().insert(TRACE_ID_HEADER, value);
+    }
+    if let Ok(value) = trace_ctx.span_id.parse() {
+        response.headers_mut().insert(PARENT_SPAN_HEADER, value);
+    }
 
     response
 }

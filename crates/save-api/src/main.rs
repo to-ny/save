@@ -3,7 +3,7 @@ use save_metadata::MetadataError;
 use save_metadata::MetadataStore;
 use save_metadata::raft::{RaftNode, run_server as run_raft_server};
 use save_storage::replication::{
-    ReplicationService, run_server_with_tls as run_replication_server,
+    ReplicationService, StaleCleanupConfig, run_server_with_tls as run_replication_server,
 };
 use save_storage::{StorageSetup, create_storage_backend};
 use socket2::{Domain, Socket, Type};
@@ -355,12 +355,18 @@ fn create_tcp_listener(addr: SocketAddr) -> anyhow::Result<tokio::net::TcpListen
     Ok(listener)
 }
 
-/// Start the replication gRPC server if replication is enabled.
+/// Handles for replication-related background tasks.
+struct ReplicationHandles {
+    server_handle: JoinHandle<()>,
+    cleanup_handle: JoinHandle<()>,
+}
+
+/// Start the replication gRPC server and cleanup worker if replication is enabled.
 async fn start_replication_server(
     storage_setup: &StorageSetup,
     config: &SaveConfig,
     shutdown_tx: &broadcast::Sender<()>,
-) -> anyhow::Result<Option<JoinHandle<()>>> {
+) -> anyhow::Result<Option<ReplicationHandles>> {
     // Only start replication server when replication is enabled (replication_factor > 1)
     let replication_storage = match &storage_setup.replication_storage {
         Some(storage) => Arc::clone(storage),
@@ -369,19 +375,93 @@ async fn start_replication_server(
 
     let addr: SocketAddr = config.cluster.replication.bind_addr.parse()?;
     let service = Arc::new(ReplicationService::new(replication_storage));
-    let shutdown_rx = shutdown_tx.subscribe();
     let tls_config = config.cluster.replication.tls.clone();
 
-    let handle = tokio::spawn(async move {
-        if let Err(e) =
-            run_replication_server(service, addr, Some(shutdown_rx), tls_config.as_ref()).await
+    // Start the gRPC server
+    let server_service = Arc::clone(&service);
+    let server_shutdown_rx = shutdown_tx.subscribe();
+    let server_handle = tokio::spawn(async move {
+        if let Err(e) = run_replication_server(
+            server_service,
+            addr,
+            Some(server_shutdown_rx),
+            tls_config.as_ref(),
+        )
+        .await
         {
             error!("Replication server failed: {}", e);
         }
     });
 
+    // Start the stale prepare cleanup worker with metrics
+    let cleanup_config = StaleCleanupConfig {
+        interval: Duration::from_secs(
+            config
+                .cluster
+                .replication
+                .stale_prepare_cleanup_interval_secs,
+        ),
+        max_age: Duration::from_secs(config.cluster.replication.stale_prepare_max_age_secs),
+    };
+    let mut cleanup_shutdown_rx = shutdown_tx.subscribe();
+    let cleanup_handle = tokio::spawn(async move {
+        use save_api::metrics::{
+            pending_prepares_count, stale_prepare_cleanup_cycles_total,
+            stale_prepare_cleanup_last_run_seconds, stale_prepares_cleaned_total,
+        };
+
+        info!(
+            target: "save::replication",
+            interval_secs = cleanup_config.interval.as_secs(),
+            max_age_secs = cleanup_config.max_age.as_secs(),
+            "Starting stale prepare cleanup worker"
+        );
+
+        let mut interval = tokio::time::interval(cleanup_config.interval);
+        interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+
+        loop {
+            tokio::select! {
+                _ = interval.tick() => {
+                    let cleaned = service.cleanup_stale_prepares(cleanup_config.max_age.as_secs()).await;
+
+                    // Update metrics
+                    let now = std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .unwrap_or_default()
+                        .as_secs() as i64;
+                    stale_prepare_cleanup_last_run_seconds().set(now);
+                    pending_prepares_count().set(service.pending_prepare_count().await as i64);
+
+                    if cleaned > 0 {
+                        stale_prepares_cleaned_total().inc_by(cleaned as u64);
+                        stale_prepare_cleanup_cycles_total().with_label_values(&["cleaned"]).inc();
+                        info!(
+                            target: "save::replication",
+                            cleaned = cleaned,
+                            "Stale prepare cleanup completed"
+                        );
+                    } else {
+                        stale_prepare_cleanup_cycles_total().with_label_values(&["noop"]).inc();
+                        debug!(
+                            target: "save::replication",
+                            "Stale prepare cleanup cycle (no stale prepares)"
+                        );
+                    }
+                }
+                _ = cleanup_shutdown_rx.recv() => {
+                    info!(target: "save::replication", "Stale prepare cleanup worker shutting down");
+                    return;
+                }
+            }
+        }
+    });
+
     info!("Replication gRPC server started on {}", addr);
-    Ok(Some(handle))
+    Ok(Some(ReplicationHandles {
+        server_handle,
+        cleanup_handle,
+    }))
 }
 
 /// Spawn a background task that syncs the replication coordinator with Raft membership.
@@ -664,9 +744,10 @@ async fn async_main_with_config(config: SaveConfig) -> anyhow::Result<()> {
                 info!("Waiting for internal API server to shutdown");
                 let _ = handle.await;
             }
-            if let Some(handle) = replication_handle {
+            if let Some(handles) = replication_handle {
                 info!("Waiting for replication server to shutdown");
-                let _ = handle.await;
+                let _ = handles.server_handle.await;
+                let _ = handles.cleanup_handle.await;
             }
             info!("Waiting for Raft server to shutdown");
             let _ = raft_handle.await;

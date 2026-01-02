@@ -90,9 +90,11 @@ impl StorageBackend for LocalBackend {
 
     async fn commit_object(&self, temp: Box<dyn TempHandle>) -> Result<()> {
         let temp_any = temp.into_any();
-        let temp_handle = temp_any
-            .downcast::<LocalTempHandle>()
-            .expect("TempHandle must be LocalTempHandle for LocalBackend");
+        let temp_handle = temp_any.downcast::<LocalTempHandle>().map_err(|_| {
+            crate::error::StorageError::Io(std::io::Error::other(
+                "TempHandle must be LocalTempHandle for LocalBackend",
+            ))
+        })?;
 
         let temp_object = temp_handle.into_inner();
         self.storage.commit_object(temp_object).await

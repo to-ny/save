@@ -35,7 +35,7 @@ max_object_size = 5368709120
 
 [credentials]
 access_key = "test-access-key"
-secret_key = "test-access-key"
+secret_key = "test-secret-key"
 ```
 
 ## Testing

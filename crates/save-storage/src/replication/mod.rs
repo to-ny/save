@@ -10,4 +10,4 @@ pub use client::ReplicationClient;
 pub use coordinator::{QuorumConfig, ReplicationCoordinator, ReplicationResult};
 pub use health::{HealthCheckResult, HealthChecker, HealthStatus};
 pub use server::{run_server, run_server_with_tls};
-pub use service::ReplicationService;
+pub use service::{ReplicationService, StaleCleanupConfig};

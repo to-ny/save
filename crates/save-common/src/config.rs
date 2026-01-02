@@ -314,6 +314,22 @@ pub struct ReplicationConfig {
     /// Retry configuration for transient failures.
     #[serde(default)]
     pub retry: RetrySettings,
+
+    /// Cleanup interval for stale 2PC prepares in seconds (default: 300)
+    #[serde(default = "default_stale_prepare_cleanup_interval_secs")]
+    pub stale_prepare_cleanup_interval_secs: u64,
+
+    /// Max age for prepared objects before cleanup in seconds (default: 3600)
+    #[serde(default = "default_stale_prepare_max_age_secs")]
+    pub stale_prepare_max_age_secs: u64,
+}
+
+fn default_stale_prepare_cleanup_interval_secs() -> u64 {
+    5 * 60 // 5 minutes
+}
+
+fn default_stale_prepare_max_age_secs() -> u64 {
+    60 * 60 // 1 hour
 }
 
 /// Internal API configuration for cluster management operations.
@@ -419,6 +435,8 @@ impl Default for ReplicationConfig {
             bind_addr: DEFAULT_REPLICATION_BIND.to_string(),
             tls: None,
             retry: RetrySettings::default(),
+            stale_prepare_cleanup_interval_secs: default_stale_prepare_cleanup_interval_secs(),
+            stale_prepare_max_age_secs: default_stale_prepare_max_age_secs(),
         }
     }
 }

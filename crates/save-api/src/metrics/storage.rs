@@ -14,6 +14,10 @@ static DISK_USAGE_BYTES: OnceLock<GaugeVec> = OnceLock::new();
 static ROCKSDB_STATS: OnceLock<IntGaugeVec> = OnceLock::new();
 static TEMP_FILES_COUNT: OnceLock<IntGauge> = OnceLock::new();
 static TEMP_FILES_SIZE_BYTES: OnceLock<IntGauge> = OnceLock::new();
+static STALE_PREPARES_CLEANED_TOTAL: OnceLock<IntCounter> = OnceLock::new();
+static STALE_PREPARE_CLEANUP_CYCLES_TOTAL: OnceLock<IntCounterVec> = OnceLock::new();
+static STALE_PREPARE_CLEANUP_LAST_RUN_SECONDS: OnceLock<IntGauge> = OnceLock::new();
+static PENDING_PREPARES_COUNT: OnceLock<IntGauge> = OnceLock::new();
 
 /// Total files deleted by GC.
 pub fn gc_files_deleted_total() -> &'static IntCounter {
@@ -99,6 +103,51 @@ pub fn temp_files_size_bytes() -> &'static IntGauge {
             "Total size of temporary files in bytes"
         )
         .expect("Failed to register save_temp_files_size_bytes metric")
+    })
+}
+
+/// Total stale prepares cleaned by the 2PC cleanup worker.
+pub fn stale_prepares_cleaned_total() -> &'static IntCounter {
+    STALE_PREPARES_CLEANED_TOTAL.get_or_init(|| {
+        register_int_counter!(
+            "save_stale_prepares_cleaned_total",
+            "Total number of stale 2PC prepares cleaned"
+        )
+        .expect("Failed to register save_stale_prepares_cleaned_total metric")
+    })
+}
+
+/// Stale prepare cleanup cycle counts by result.
+pub fn stale_prepare_cleanup_cycles_total() -> &'static IntCounterVec {
+    STALE_PREPARE_CLEANUP_CYCLES_TOTAL.get_or_init(|| {
+        register_int_counter_vec!(
+            "save_stale_prepare_cleanup_cycles_total",
+            "Total number of stale prepare cleanup cycles",
+            &["result"]
+        )
+        .expect("Failed to register save_stale_prepare_cleanup_cycles_total metric")
+    })
+}
+
+/// Timestamp of last stale prepare cleanup run (Unix seconds).
+pub fn stale_prepare_cleanup_last_run_seconds() -> &'static IntGauge {
+    STALE_PREPARE_CLEANUP_LAST_RUN_SECONDS.get_or_init(|| {
+        register_int_gauge!(
+            "save_stale_prepare_cleanup_last_run_seconds",
+            "Unix timestamp of the last stale prepare cleanup run"
+        )
+        .expect("Failed to register save_stale_prepare_cleanup_last_run_seconds metric")
+    })
+}
+
+/// Current count of pending 2PC prepares.
+pub fn pending_prepares_count() -> &'static IntGauge {
+    PENDING_PREPARES_COUNT.get_or_init(|| {
+        register_int_gauge!(
+            "save_pending_prepares_count",
+            "Current number of pending 2PC prepare operations"
+        )
+        .expect("Failed to register save_pending_prepares_count metric")
     })
 }
 
@@ -190,4 +239,8 @@ pub(crate) fn init() {
     let _ = rocksdb_stats();
     let _ = temp_files_count();
     let _ = temp_files_size_bytes();
+    let _ = stale_prepares_cleaned_total();
+    let _ = stale_prepare_cleanup_cycles_total();
+    let _ = stale_prepare_cleanup_last_run_seconds();
+    let _ = pending_prepares_count();
 }

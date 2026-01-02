@@ -5,7 +5,7 @@ use save_proto::replication as proto;
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 use tokio::io::AsyncReadExt;
 use tokio::sync::RwLock;
 use tracing::{debug, warn};
@@ -412,19 +412,96 @@ impl ReplicationService {
     }
 
     /// Cleanup stale pending prepares (called periodically).
-    pub async fn cleanup_stale_prepares(&self, max_age_secs: u64) {
+    pub async fn cleanup_stale_prepares(&self, max_age_secs: u64) -> usize {
         let mut prepares = self.pending_prepares.write().await;
         let now = Instant::now();
+        let initial_count = prepares.len();
 
         prepares.retain(|temp_id, pending| {
             let age = now.duration_since(pending.created_at).as_secs();
-            if age > max_age_secs {
-                warn!(temp_id = %temp_id, age_secs = %age, "Cleaning up stale prepare");
+            if age >= max_age_secs {
+                warn!(
+                    target: "save::replication",
+                    temp_id = %temp_id,
+                    age_secs = %age,
+                    "Cleaning up stale prepare"
+                );
                 false
             } else {
                 true
             }
         });
+
+        initial_count - prepares.len()
+    }
+
+    /// Get the count of pending prepares (for diagnostics).
+    pub async fn pending_prepare_count(&self) -> usize {
+        self.pending_prepares.read().await.len()
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct StaleCleanupConfig {
+    pub interval: Duration,
+    pub max_age: Duration,
+}
+
+impl Default for StaleCleanupConfig {
+    fn default() -> Self {
+        Self {
+            interval: Duration::from_secs(5 * 60),
+            max_age: Duration::from_secs(60 * 60),
+        }
+    }
+}
+
+/// Periodically cleans up orphaned prepared objects from failed 2PC transactions.
+#[allow(dead_code)]
+pub(crate) async fn run_stale_prepare_cleanup_worker(
+    service: Arc<ReplicationService>,
+    config: StaleCleanupConfig,
+    mut shutdown: tokio::sync::broadcast::Receiver<()>,
+) {
+    use tokio::time;
+    use tracing::{debug, info};
+
+    info!(
+        target: "save::replication",
+        interval_secs = config.interval.as_secs(),
+        max_age_secs = config.max_age.as_secs(),
+        "Starting stale prepare cleanup worker"
+    );
+
+    let mut interval = time::interval(config.interval);
+    interval.set_missed_tick_behavior(time::MissedTickBehavior::Skip);
+
+    loop {
+        tokio::select! {
+            _ = interval.tick() => {
+                let pending_before = service.pending_prepare_count().await;
+                let cleaned = service.cleanup_stale_prepares(config.max_age.as_secs()).await;
+
+                if cleaned > 0 {
+                    info!(
+                        target: "save::replication",
+                        cleaned = cleaned,
+                        remaining = pending_before - cleaned,
+                        "Stale prepare cleanup completed"
+                    );
+                } else {
+                    debug!(
+                        target: "save::replication",
+                        pending = pending_before,
+                        "Stale prepare cleanup cycle (no stale prepares)"
+                    );
+                }
+            }
+            _ = shutdown.recv() => {
+                info!(target: "save::replication", "Stale prepare cleanup worker shutting down");
+                return;
+            }
+        }
     }
 }
 
@@ -617,5 +694,34 @@ mod tests {
             resp.status,
             proto::health_check_response::Status::Healthy as i32
         );
+    }
+
+    #[tokio::test]
+    async fn test_cleanup_stale_prepares() {
+        let (service, _dir) = test_service().await;
+
+        // Prepare an object (without committing)
+        let prepare_resp = service
+            .prepare_object(proto::PrepareObjectRequest {
+                key: "test/stale".to_string(),
+                data: b"stale data".to_vec(),
+                checksum: String::new(),
+                request_id: 100,
+            })
+            .await;
+        assert!(prepare_resp.success);
+
+        // Verify we have 1 pending prepare
+        assert_eq!(service.pending_prepare_count().await, 1);
+
+        // Cleanup with very long max_age (should NOT clean anything)
+        let cleaned = service.cleanup_stale_prepares(3600).await;
+        assert_eq!(cleaned, 0);
+        assert_eq!(service.pending_prepare_count().await, 1);
+
+        // Cleanup with 0 max_age (should clean everything)
+        let cleaned = service.cleanup_stale_prepares(0).await;
+        assert_eq!(cleaned, 1);
+        assert_eq!(service.pending_prepare_count().await, 0);
     }
 }
