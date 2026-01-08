@@ -55,6 +55,9 @@ struct MembershipResponse {
     message: String,
 }
 
+/// Maximum time to wait for membership removal verification.
+const MEMBERSHIP_VERIFICATION_TIMEOUT: Duration = Duration::from_secs(5);
+
 /// Request body for adding a learner.
 #[derive(Debug, Serialize)]
 struct AddLearnerRequest {
@@ -342,17 +345,17 @@ pub async fn graceful_leave(raft_node: Arc<RaftNode>, config: &ClusterConfig) ->
     }
 
     // Try to get leader address and ask for removal
-    match request_removal_from_leader(&raft_node, &config.seed_nodes, node_id, remaining_time).await
-    {
-        Ok(()) => {
-            info!(node_id = node_id, "Successfully left cluster");
-            Ok(true)
-        }
-        Err(e) => {
-            warn!(error = %e, "Failed to request removal from leader");
-            Err(e)
-        }
-    }
+    request_removal_from_leader(&raft_node, &config.seed_nodes, node_id, remaining_time).await?;
+
+    // Verify removal: ensure we're no longer in voters OR learners
+    // This catches cases where the HTTP request succeeded but removal didn't complete
+    verify_removal_from_membership(&raft_node, node_id, MEMBERSHIP_VERIFICATION_TIMEOUT).await?;
+
+    info!(
+        node_id = node_id,
+        "Successfully left cluster (verified not in membership)"
+    );
+    Ok(true)
 }
 
 /// Checks if the given node is a member of the cluster (voter or learner).
@@ -360,6 +363,48 @@ pub async fn graceful_leave(raft_node: Arc<RaftNode>, config: &ClusterConfig) ->
 fn is_member(raft_node: &RaftNode, node_id: u64) -> bool {
     let status = raft_node.get_status();
     status.voters.contains(&node_id) || status.learners.contains(&node_id)
+}
+
+/// Verifies that a node has been fully removed from cluster membership.
+/// Polls the local Raft state until the node is not in voters OR learners.
+async fn verify_removal_from_membership(
+    raft_node: &RaftNode,
+    node_id: u64,
+    timeout: Duration,
+) -> Result<()> {
+    let start = tokio::time::Instant::now();
+
+    loop {
+        let status = raft_node.get_status();
+        let in_voters = status.voters.contains(&node_id);
+        let in_learners = status.learners.contains(&node_id);
+
+        if !in_voters && !in_learners {
+            debug!(node_id, "Verified: node is not in voters or learners");
+            return Ok(());
+        }
+
+        if start.elapsed() > timeout {
+            warn!(
+                node_id,
+                in_voters,
+                in_learners,
+                voters = ?status.voters,
+                learners = ?status.learners,
+                "Timeout verifying node removal from membership"
+            );
+            return Err(ScalingError::LeaveFailed(format!(
+                "Node {} still in membership after removal (voters={}, learners={})",
+                node_id, in_voters, in_learners
+            )));
+        }
+
+        debug!(
+            node_id,
+            in_voters, in_learners, "Waiting for membership removal to propagate"
+        );
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
 }
 
 /// Creates an HTTP client with the specified timeout.
