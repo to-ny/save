@@ -1110,6 +1110,13 @@ async fn test_leader_graceful_departure() {
         status_after.voters
     );
 
+    assert!(
+        !status_after.learners.contains(&initial_leader),
+        "Departed leader {} should not be in learners: {:?}",
+        initial_leader,
+        status_after.learners
+    );
+
     // Verify the cluster can still write
     let client = cluster.node_client(new_leader).expect("Should have client");
     let result = client
@@ -1129,6 +1136,127 @@ async fn test_leader_graceful_departure() {
     result.expect("Should be able to create bucket after leader departure");
 
     tracing::info!("Test passed: leader graceful departure successful");
+}
+
+/// Test: Complete node removal (two-step process).
+///
+/// Verifies that:
+/// 1. A node can be fully removed from the cluster (not just demoted to learner)
+/// 2. After removal, the node is not in voters OR learners
+/// 3. The cluster continues to function after removal
+///
+/// This test specifically validates the two-step removal process:
+/// Step 1: Demote voter to learner (if necessary)
+/// Step 2: Remove learner from cluster
+#[tokio::test]
+async fn test_node_removal_complete() {
+    tracing_subscriber::fmt()
+        .with_env_filter("info,save_metadata::raft=debug,save_api::scaling=debug")
+        .try_init()
+        .ok();
+
+    // Create a 3-node cluster with internal API (needed for graceful leave)
+    let mut cluster = ClusterEnv::new_3_node_with_internal_api()
+        .await
+        .expect("Failed to create cluster");
+
+    let leader = cluster.get_leader().await.expect("Should have a leader");
+    tracing::info!("Initial leader: node {}", leader);
+
+    // Verify initial membership has 3 voters
+    let status_before = cluster
+        .get_node_status(leader)
+        .await
+        .expect("Failed to get status");
+    assert_eq!(
+        status_before.voters.len(),
+        3,
+        "Should have 3 voters initially"
+    );
+    assert_eq!(
+        status_before.learners.len(),
+        0,
+        "Should have 0 learners initially"
+    );
+
+    // Pick a follower to remove via graceful shutdown
+    let follower_to_remove = cluster
+        .node_ids()
+        .into_iter()
+        .find(|id| *id != leader)
+        .expect("Should have a follower");
+
+    tracing::info!(
+        "Will gracefully remove follower node {}",
+        follower_to_remove
+    );
+
+    // Gracefully stop the follower (triggers graceful_leave)
+    cluster
+        .graceful_stop_node(follower_to_remove)
+        .expect("Failed to gracefully stop node");
+
+    // Wait for node to be removed from membership (both voters AND learners)
+    cluster
+        .wait_for_node_removed(follower_to_remove, Duration::from_secs(15))
+        .await
+        .expect("Node should be completely removed from membership");
+
+    // Print logs for debugging
+    tracing::info!("Printing server logs for removed node:");
+    cluster.print_node_stderr(follower_to_remove);
+    tracing::info!("Printing server logs for leader:");
+    cluster.print_node_stderr(leader);
+
+    // Verify node is NOT in voters
+    let status_after = cluster
+        .get_node_status(leader)
+        .await
+        .expect("Failed to get status");
+
+    assert!(
+        !status_after.voters.contains(&follower_to_remove),
+        "Removed node {} should not be in voters: {:?}",
+        follower_to_remove,
+        status_after.voters
+    );
+
+    // CRITICAL: Verify node is NOT in learners either
+    // This is the key assertion that validates the two-step removal process
+    assert!(
+        !status_after.learners.contains(&follower_to_remove),
+        "Removed node {} should not be in learners (two-step removal incomplete): {:?}",
+        follower_to_remove,
+        status_after.learners
+    );
+
+    // Verify we now have exactly 2 voters and 0 learners
+    assert_eq!(
+        status_after.voters.len(),
+        2,
+        "Should have 2 voters after removal"
+    );
+    assert_eq!(
+        status_after.learners.len(),
+        0,
+        "Should have 0 learners after complete removal"
+    );
+
+    // Verify cluster still functions
+    let client = cluster.node_client(leader).expect("Should have client");
+    let result = client
+        .create_bucket()
+        .bucket("after-node-removal")
+        .send()
+        .await;
+
+    assert!(
+        result.is_ok(),
+        "Should be able to create bucket after node removal: {:?}",
+        result.err()
+    );
+
+    tracing::info!("Test passed: complete node removal (two-step process) successful");
 }
 
 /// Test: Data replication to followers (eventual consistency mode).

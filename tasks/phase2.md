@@ -86,7 +86,7 @@ Transform the single-node S3-compatible store into a distributed, replicated sys
 - [x] Create cluster status API endpoint `/cluster/status`
 - [x] Implement transparent request forwarding to leader for non-leader nodes
 - [x] Reject client requests (except cluster, health, metrics) when cluster is not initialized
-- [ ] Fix node removal to use two-step process (demote to learner first, then remove voter)
+- [x] Fix node removal to use two-step process (demote to learner first, then remove voter)
 
 ---
 
@@ -138,7 +138,7 @@ Transform the single-node S3-compatible store into a distributed, replicated sys
 - [x] Integration test: Auto-join when scaling up (new node joins cluster automatically)
 - [x] Integration test: Graceful leave when scaling down (node leaves cluster before shutdown)
 - [x] Integration test: Leader node graceful departure (leadership transfers correctly)
-- [ ] **Integration test: Data replication to followers** - Write object, kill leader, verify follower can serve data locally (not forwarded). This test would catch missing replication server wiring.
+- [x] **Integration test: Data replication to followers** - Write object, kill leader, verify follower can serve data locally (not forwarded). This test would catch missing replication server wiring.
 
 ---
 
