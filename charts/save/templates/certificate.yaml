@@ -1,0 +1,64 @@
+{{- if and .Values.tls.enabled .Values.tls.certManager.enabled }}
+{{- $fullname := include "save.fullname" . }}
+{{- $headless := include "save.headlessServiceName" . }}
+{{- $namespace := .Release.Namespace }}
+{{- $replicas := int .Values.replicaCount }}
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: {{ $fullname }}-tls
+  labels:
+    {{- include "save.labels" . | nindent 4 }}
+spec:
+  secretName: {{ include "save.tlsSecretName" . }}
+  duration: {{ .Values.tls.certManager.duration }}
+  renewBefore: {{ .Values.tls.certManager.renewBefore }}
+  privateKey:
+    algorithm: {{ .Values.tls.certManager.privateKey.algorithm }}
+    {{- if eq .Values.tls.certManager.privateKey.algorithm "ECDSA" }}
+    size: {{ .Values.tls.certManager.privateKey.size }}
+    {{- else if eq .Values.tls.certManager.privateKey.algorithm "RSA" }}
+    size: {{ default 2048 .Values.tls.certManager.privateKey.size }}
+    {{- end }}
+  subject:
+    organizations:
+      - {{ $fullname }}
+  commonName: {{ $fullname }}
+  isCA: false
+  usages:
+    - server auth
+    - client auth
+  dnsNames:
+    # Service DNS names
+    - {{ $fullname }}
+    - {{ $fullname }}.{{ $namespace }}
+    - {{ $fullname }}.{{ $namespace }}.svc
+    - {{ $fullname }}.{{ $namespace }}.svc.cluster.local
+    - {{ $headless }}
+    - {{ $headless }}.{{ $namespace }}
+    - {{ $headless }}.{{ $namespace }}.svc
+    - {{ $headless }}.{{ $namespace }}.svc.cluster.local
+    # Individual pod DNS names
+    {{- range $i := until $replicas }}
+    - {{ $fullname }}-{{ $i }}.{{ $headless }}
+    - {{ $fullname }}-{{ $i }}.{{ $headless }}.{{ $namespace }}
+    - {{ $fullname }}-{{ $i }}.{{ $headless }}.{{ $namespace }}.svc
+    - {{ $fullname }}-{{ $i }}.{{ $headless }}.{{ $namespace }}.svc.cluster.local
+    {{- end }}
+    # Wildcard for headless service
+    - "*.{{ $headless }}"
+    - "*.{{ $headless }}.{{ $namespace }}"
+    - "*.{{ $headless }}.{{ $namespace }}.svc"
+    - "*.{{ $headless }}.{{ $namespace }}.svc.cluster.local"
+  ipAddresses:
+    - 127.0.0.1
+  issuerRef:
+    {{- if .Values.tls.certManager.existingIssuer }}
+    name: {{ .Values.tls.certManager.existingIssuer }}
+    {{- else }}
+    name: {{ $fullname }}-ca-issuer
+    {{- end }}
+    kind: {{ .Values.tls.certManager.issuerKind }}
+    group: cert-manager.io
+{{- end }}

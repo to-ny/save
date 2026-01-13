@@ -1,0 +1,22 @@
+{{- if .Values.grafana.dashboards.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "save.fullname" . }}-grafana-dashboards
+  labels:
+    {{- include "save.labels" . | nindent 4 }}
+    grafana_dashboard: "1"
+  {{- with .Values.grafana.dashboards.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+data:
+  save-overview.json: |-
+    {{- .Files.Get "dashboards/dashboard-overview.json" | nindent 4 }}
+  save-cluster.json: |-
+    {{- .Files.Get "dashboards/dashboard-cluster.json" | nindent 4 }}
+  save-api.json: |-
+    {{- .Files.Get "dashboards/dashboard-api.json" | nindent 4 }}
+  save-storage.json: |-
+    {{- .Files.Get "dashboards/dashboard-storage.json" | nindent 4 }}
+{{- end }}

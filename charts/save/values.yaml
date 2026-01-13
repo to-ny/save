@@ -104,6 +104,24 @@ tls:
   existingSecret: ""
   # -- Generate self-signed certificates (development only)
   generate: false
+  # -- cert-manager integration for automated certificate management
+  certManager:
+    # -- Enable cert-manager for certificate management
+    enabled: false
+    # -- Certificate duration (default: 90 days)
+    duration: 2160h
+    # -- Certificate renewal before expiry (default: 30 days)
+    renewBefore: 720h
+    # -- Use existing ClusterIssuer instead of creating one
+    existingIssuer: ""
+    # -- Issuer kind (ClusterIssuer or Issuer)
+    issuerKind: ClusterIssuer
+    # -- Create self-signed ClusterIssuer (set to false to use external CA)
+    createSelfSignedIssuer: true
+    # -- Private key algorithm (RSA, ECDSA, Ed25519)
+    privateKey:
+      algorithm: ECDSA
+      size: 256
 
 # =============================================================================
 # Persistence Configuration
@@ -423,3 +441,50 @@ extraInitContainers: []
 
 # -- Extra containers (sidecars)
 extraContainers: []
+
+# =============================================================================
+# Grafana Dashboards
+# =============================================================================
+grafana:
+  dashboards:
+    # -- Enable Grafana dashboard ConfigMaps (requires Grafana sidecar)
+    enabled: false
+    # -- Annotations for dashboard ConfigMap
+    annotations: {}
+
+# =============================================================================
+# Traffic Simulator (for demos and testing)
+# =============================================================================
+trafficSimulator:
+  # -- Enable traffic simulator deployment
+  enabled: false
+  # -- Number of replicas
+  replicaCount: 1
+  image:
+    # -- Traffic simulator image repository
+    repository: ghcr.io/tony/save-traffic-simulator
+    # -- Image pull policy
+    pullPolicy: IfNotPresent
+    # -- Image tag (defaults to Chart.appVersion)
+    tag: ""
+  # -- Traffic pattern (baseline, business_hours, bursty, mixed)
+  pattern: mixed
+  # -- Number of virtual users
+  virtualUsers: 10
+  # -- Requests per second
+  requestsPerSecond: 5.0
+  # -- Read/write ratio (for mixed pattern)
+  readRatio: 0.7
+  writeRatio: 0.3
+  # -- S3 bucket name for simulation
+  bucket: "demo-bucket"
+  # -- Key prefix for simulated objects
+  keyPrefix: "sim/"
+  # -- Resource requests and limits
+  resources:
+    requests:
+      memory: "64Mi"
+      cpu: "100m"
+    limits:
+      memory: "256Mi"
+      cpu: "500m"

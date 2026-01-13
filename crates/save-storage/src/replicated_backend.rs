@@ -196,7 +196,8 @@ impl StorageBackend for ReplicatedBackend {
 
     async fn commit_object(&self, temp: Box<dyn TempHandle>) -> Result<()> {
         let temp_any = temp.into_any();
-        let handle = temp_any.downcast::<ReplicatedTempHandle>().map_err(|_| {
+        let handle = temp_any.downcast::<ReplicatedTempHandle>().map_err(|e| {
+            drop(e);
             StorageError::Io(std::io::Error::other(
                 "TempHandle must be ReplicatedTempHandle for ReplicatedBackend",
             ))

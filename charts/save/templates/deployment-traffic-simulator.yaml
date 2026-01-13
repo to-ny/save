@@ -1,0 +1,75 @@
+{{- if .Values.trafficSimulator.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "save.fullname" . }}-traffic-simulator
+  labels:
+    {{- include "save.labels" . | nindent 4 }}
+    app.kubernetes.io/component: traffic-simulator
+spec:
+  replicas: {{ .Values.trafficSimulator.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "save.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: traffic-simulator
+  template:
+    metadata:
+      labels:
+        {{- include "save.labels" . | nindent 8 }}
+        app.kubernetes.io/component: traffic-simulator
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: traffic-simulator
+          image: "{{ .Values.trafficSimulator.image.repository }}:{{ .Values.trafficSimulator.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.trafficSimulator.image.pullPolicy }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          env:
+            - name: SAVE_SIM_ENDPOINT
+              value: "http://{{ include "save.fullname" . }}:{{ .Values.service.port }}"
+            - name: SAVE_SIM_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "save.secretName" . }}
+                  key: access-key
+            - name: SAVE_SIM_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "save.secretName" . }}
+                  key: secret-key
+            - name: SAVE_SIM_BUCKET
+              value: {{ .Values.trafficSimulator.bucket | quote }}
+            - name: SAVE_SIM_VIRTUAL_USERS
+              value: {{ .Values.trafficSimulator.virtualUsers | quote }}
+            - name: SAVE_SIM_RPS
+              value: {{ .Values.trafficSimulator.requestsPerSecond | quote }}
+            - name: SAVE_SIM_LOG_LEVEL
+              value: "info"
+            - name: SAVE_SIM_LOG_FORMAT
+              value: "json"
+          resources:
+            {{- toYaml .Values.trafficSimulator.resources | nindent 12 }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}

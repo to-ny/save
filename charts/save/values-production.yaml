@@ -7,15 +7,29 @@
 #      --from-literal=access-key=YOUR_ACCESS_KEY \
 #      --from-literal=secret-key=YOUR_SECRET_KEY
 # 2. Update auth.existingSecret below to reference your secret
+# 3. Ensure cert-manager is installed for automated TLS certificate management
 
-# Production cluster sizing (5 nodes for better fault tolerance)
-replicaCount: 5
+# =============================================================================
+# Cluster Configuration
+# =============================================================================
+
+# Production cluster sizing (3 nodes minimum for quorum)
+replicaCount: 3
 
 # REQUIRED: Reference your pre-created credentials secret
 auth:
   existingSecret: "save-credentials"
 
-# Production storage sizing
+# =============================================================================
+# Storage Configuration
+# =============================================================================
+
+# Maximum durability: fsync all writes
+storage:
+  fsyncMode: "all"
+  gcIntervalSecs: 300
+  gcTempFileMaxAgeSecs: 3600
+
 persistence:
   enabled: true
   # Use a production-grade storage class (e.g., gp3, premium-rwo)
@@ -23,7 +37,10 @@ persistence:
   dataSize: 100Gi
   metadataSize: 20Gi
 
-# Production resource allocation
+# =============================================================================
+# Resource Allocation
+# =============================================================================
+
 resources:
   requests:
     memory: "2Gi"
@@ -43,7 +60,30 @@ metadata:
   blockCacheSizeMb: 512
   maxBackgroundJobs: 8
 
-# Enable observability
+# =============================================================================
+# Security - mTLS with cert-manager
+# =============================================================================
+
+tls:
+  enabled: true
+  certManager:
+    enabled: true
+    duration: 2160h    # 90 days
+    renewBefore: 720h  # 30 days
+    createSelfSignedIssuer: true
+    issuerKind: ClusterIssuer
+    privateKey:
+      algorithm: ECDSA
+      size: 256
+
+# Network isolation
+networkPolicy:
+  enabled: true
+
+# =============================================================================
+# Observability
+# =============================================================================
+
 metrics:
   enabled: true
   serviceMonitor:
@@ -52,12 +92,28 @@ metrics:
     labels:
       release: prometheus
 
-# Pod disruption budget for HA
+# Enable Prometheus alerting rules
+prometheusRule:
+  enabled: true
+  defaultRules: true
+  labels:
+    release: prometheus
+
+# Enable Grafana dashboards
+grafana:
+  dashboards:
+    enabled: true
+
+# =============================================================================
+# High Availability
+# =============================================================================
+
+# Pod disruption budget - always maintain quorum
 podDisruptionBudget:
   enabled: true
   maxUnavailable: 1
 
-# Spread pods across nodes and zones
+# Spread pods across nodes and zones (hard requirement for nodes, soft for zones)
 affinity:
   podAntiAffinity:
     requiredDuringSchedulingIgnoredDuringExecution:
@@ -73,7 +129,7 @@ affinity:
               app.kubernetes.io/name: save
           topologyKey: topology.kubernetes.io/zone
 
-# Topology spread for even distribution
+# Even distribution across zones
 topologySpreadConstraints:
   - maxSkew: 1
     topologyKey: topology.kubernetes.io/zone
@@ -82,9 +138,9 @@ topologySpreadConstraints:
       matchLabels:
         app.kubernetes.io/name: save
 
-# Network policy for security isolation
-networkPolicy:
-  enabled: true
+# =============================================================================
+# Graceful Shutdown
+# =============================================================================
 
 # Longer termination grace period for production
 terminationGracePeriodSeconds: 120
@@ -92,17 +148,10 @@ terminationGracePeriodSeconds: 120
 shutdown:
   drainTimeoutSecs: 90
 
-# Enable mTLS for inter-node communication (recommended)
-# Create TLS secret first:
-# kubectl create secret generic save-tls \
-#   --from-file=tls.crt=server.crt \
-#   --from-file=tls.key=server.key \
-#   --from-file=ca.crt=ca.crt
-tls:
-  enabled: false
-  existingSecret: "save-tls"
+# =============================================================================
+# Health Checks
+# =============================================================================
 
-# Production health check tuning
 livenessProbe:
   initialDelaySeconds: 30
   periodSeconds: 15
