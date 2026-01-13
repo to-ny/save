@@ -205,14 +205,17 @@ impl ObjectStorage {
         let temp_object = self.create_temp_object(key).await?;
         let temp_path = temp_object.temp_path();
 
-        debug!("Writing object to temp path");
+        debug!(temp_path = ?temp_path, "Writing object to temp path");
 
         let mut temp_file = fs::File::create(temp_path).await?;
+        debug!(temp_path = ?temp_path, "File created");
 
         #[cfg(feature = "failpoints")]
         fail::fail_point!("storage_write_during_copy");
 
-        tokio::io::copy(&mut reader, &mut temp_file).await?;
+        let bytes_written = tokio::io::copy(&mut reader, &mut temp_file).await?;
+        debug!(bytes_written = bytes_written, "Data copied to temp file");
+
         temp_file.flush().await?;
 
         if self.fsync_mode != "none" {
@@ -220,7 +223,11 @@ impl ObjectStorage {
         }
         drop(temp_file);
 
-        debug!("Object written to temp");
+        debug!(
+            temp_path = ?temp_path,
+            exists = temp_path.exists(),
+            "Object written to temp and synced"
+        );
 
         Ok(temp_object)
     }

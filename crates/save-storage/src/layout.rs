@@ -2,6 +2,7 @@ use crate::error::{Result, StorageError};
 use save_common::validate_object_key;
 use sha2::{Digest, Sha256};
 use std::path::{Path, PathBuf};
+use uuid::Uuid;
 
 #[derive(Debug)]
 pub(crate) struct StorageLayout {
@@ -32,8 +33,12 @@ impl StorageLayout {
         self.base_path.join("objects").join(prefix).join(id)
     }
 
+    /// Includes UUID to prevent race conditions when concurrent operations target the same key.
     pub fn temp_path_from_id(&self, id: &str) -> PathBuf {
-        self.base_path.join("temp").join(format!("{}.tmp", id))
+        let uuid = Uuid::new_v4();
+        self.base_path
+            .join("temp")
+            .join(format!("{}-{}.tmp", id, uuid))
     }
 
     pub fn objects_dir(&self) -> PathBuf {

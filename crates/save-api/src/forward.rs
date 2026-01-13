@@ -192,6 +192,11 @@ pub fn is_write_method(method: &axum::http::Method) -> bool {
     )
 }
 
+/// Returns true if the given HTTP method is a read operation.
+pub fn is_read_method(method: &axum::http::Method) -> bool {
+    matches!(*method, axum::http::Method::GET | axum::http::Method::HEAD)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -261,6 +266,19 @@ mod tests {
         assert!(!is_write_method(&Method::GET));
         assert!(!is_write_method(&Method::HEAD));
         assert!(!is_write_method(&Method::OPTIONS));
+    }
+
+    #[test]
+    fn test_is_read_method() {
+        use axum::http::Method;
+
+        assert!(is_read_method(&Method::GET));
+        assert!(is_read_method(&Method::HEAD));
+
+        assert!(!is_read_method(&Method::PUT));
+        assert!(!is_read_method(&Method::POST));
+        assert!(!is_read_method(&Method::DELETE));
+        assert!(!is_read_method(&Method::OPTIONS));
     }
 
     #[test]

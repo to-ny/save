@@ -285,3 +285,55 @@ async fn test_list_temp_files_with_modification_time() {
     let age = SystemTime::now().duration_since(*modified).unwrap();
     assert!(age.as_secs() < 5, "File should be very recent");
 }
+
+/// Regression: concurrent operations to same key must get unique temp paths.
+#[tokio::test]
+async fn test_concurrent_temp_objects_get_unique_paths() {
+    let temp_dir = tempfile::tempdir().unwrap();
+    let storage = ObjectStorage::new(temp_dir.path()).await.unwrap();
+
+    let key = "bucket/same-key";
+
+    // Create multiple temp objects for the same key
+    let temp1 = storage.create_temp_object(key).await.unwrap();
+    let temp2 = storage.create_temp_object(key).await.unwrap();
+    let temp3 = storage.create_temp_object(key).await.unwrap();
+
+    // All temp paths should be unique
+    assert_ne!(
+        temp1.temp_path(),
+        temp2.temp_path(),
+        "Concurrent temp objects must have unique paths"
+    );
+    assert_ne!(
+        temp2.temp_path(),
+        temp3.temp_path(),
+        "Concurrent temp objects must have unique paths"
+    );
+    assert_ne!(
+        temp1.temp_path(),
+        temp3.temp_path(),
+        "Concurrent temp objects must have unique paths"
+    );
+
+    // Write actual data to each temp file
+    tokio::fs::write(temp1.temp_path(), b"data1").await.unwrap();
+    tokio::fs::write(temp2.temp_path(), b"data2").await.unwrap();
+    tokio::fs::write(temp3.temp_path(), b"data3").await.unwrap();
+
+    // All files should exist independently
+    assert!(temp1.temp_path().exists(), "temp1 file should exist");
+    assert!(temp2.temp_path().exists(), "temp2 file should exist");
+    assert!(temp3.temp_path().exists(), "temp3 file should exist");
+
+    // Dropping one shouldn't affect the others
+    drop(temp2);
+    assert!(
+        temp1.temp_path().exists(),
+        "temp1 file should still exist after dropping temp2"
+    );
+    assert!(
+        temp3.temp_path().exists(),
+        "temp3 file should still exist after dropping temp2"
+    );
+}

@@ -1,0 +1,52 @@
+{{- if and .Values.tls.enabled .Values.tls.certManager.enabled }}
+{{- if .Values.tls.certManager.createSelfSignedIssuer }}
+{{- if not .Values.tls.certManager.existingIssuer }}
+---
+# Self-signed CA issuer for generating the root CA
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: {{ include "save.fullname" . }}-selfsigned-issuer
+  labels:
+    {{- include "save.labels" . | nindent 4 }}
+spec:
+  selfSigned: {}
+---
+# CA certificate for signing node certificates
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: {{ include "save.fullname" . }}-ca
+  labels:
+    {{- include "save.labels" . | nindent 4 }}
+spec:
+  isCA: true
+  commonName: {{ include "save.fullname" . }}-ca
+  secretName: {{ include "save.fullname" . }}-ca-secret
+  duration: 8760h  # 1 year
+  renewBefore: 720h  # 30 days
+  privateKey:
+    algorithm: {{ .Values.tls.certManager.privateKey.algorithm }}
+    {{- if eq .Values.tls.certManager.privateKey.algorithm "ECDSA" }}
+    size: {{ .Values.tls.certManager.privateKey.size }}
+    {{- else if eq .Values.tls.certManager.privateKey.algorithm "RSA" }}
+    size: {{ default 2048 .Values.tls.certManager.privateKey.size }}
+    {{- end }}
+  issuerRef:
+    name: {{ include "save.fullname" . }}-selfsigned-issuer
+    kind: ClusterIssuer
+    group: cert-manager.io
+---
+# CA issuer that uses the self-signed CA to sign node certificates
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: {{ include "save.fullname" . }}-ca-issuer
+  labels:
+    {{- include "save.labels" . | nindent 4 }}
+spec:
+  ca:
+    secretName: {{ include "save.fullname" . }}-ca-secret
+{{- end }}
+{{- end }}
+{{- end }}

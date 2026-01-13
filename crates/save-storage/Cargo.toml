@@ -12,6 +12,7 @@ save-proto = { path = "../save-proto" }
 tokio = { workspace = true }
 thiserror = { workspace = true }
 sha2 = { workspace = true }
+uuid = { workspace = true }
 tracing = { workspace = true }
 fail = { workspace = true, optional = true }
 async-trait = { workspace = true }

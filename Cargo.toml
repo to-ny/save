@@ -7,6 +7,7 @@ members = [
     "crates/save-common",
     "crates/save-cli",
     "crates/save-proto",
+    "crates/save-traffic-simulator",
     "tests/aws-sdk-compat",
     "tests/aws-cli-compat",
     "tests/concurrency",

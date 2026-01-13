@@ -1,0 +1,53 @@
+# Example configuration for Save Traffic Simulator
+# Copy this file and customize for your environment
+
+[target]
+# S3-compatible endpoint URL
+endpoint = "http://localhost:9000"
+# Authentication credentials
+access_key = "minioadmin"
+secret_key = "minioadmin"
+# Bucket name for simulation (will be created if it doesn't exist)
+bucket = "demo-bucket"
+# AWS region (default: us-east-1)
+region = "us-east-1"
+
+[simulation]
+# Traffic pattern: baseline, business_hours, bursty, or mixed
+# For baseline:
+#   pattern = { type = "baseline", requests_per_second = 10.0 }
+# For business_hours:
+#   pattern = { type = "business_hours", peak_rps = 50.0, duration_secs = 28800 }
+# For bursty:
+#   pattern = { type = "bursty", base_rps = 5.0, spike_rps = 50.0, spike_probability = 0.1 }
+# For mixed (default):
+pattern = { type = "mixed" }
+
+# Number of virtual users generating traffic
+virtual_users = 10
+
+# Read/write ratio (for mixed pattern)
+read_ratio = 0.7
+write_ratio = 0.3
+
+# Target requests per second (distributed across all users)
+requests_per_second = 5.0
+
+[objects]
+# Size distribution for generated objects
+# Each entry has: weight (relative probability), min_bytes, max_bytes
+size_distribution = [
+  { weight = 50, min_bytes = 1024, max_bytes = 10240 },       # 1KB - 10KB (50%)
+  { weight = 30, min_bytes = 10240, max_bytes = 102400 },     # 10KB - 100KB (30%)
+  { weight = 15, min_bytes = 102400, max_bytes = 1048576 },   # 100KB - 1MB (15%)
+  { weight = 5, min_bytes = 1048576, max_bytes = 10485760 },  # 1MB - 10MB (5%)
+]
+
+# Prefix for all generated object keys
+key_prefix = "sim/"
+
+[logging]
+# Log level: trace, debug, info, warn, error
+level = "info"
+# Log format: json, pretty
+format = "json"

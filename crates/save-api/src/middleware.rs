@@ -8,7 +8,7 @@ use std::time::Instant;
 use tracing::{Span, debug, warn};
 use uuid::Uuid;
 
-use crate::forward::{is_already_forwarded, is_write_method};
+use crate::forward::{is_already_forwarded, is_read_method, is_write_method};
 use crate::metrics::{http_request_duration_seconds, http_requests_total};
 use axum::http::{StatusCode, header};
 use axum::response::IntoResponse;
@@ -172,12 +172,16 @@ fn normalize_endpoint(path: &str) -> &'static str {
     }
 }
 
-/// Forwards write requests to the Raft leader if this node is not the leader.
+/// Forwards requests to the Raft leader if this node is not the leader.
+/// - Writes are always forwarded (consistency requirement)
+/// - Reads are forwarded in Strong consistency mode (linearizable reads)
 pub async fn forward_to_leader(
     axum::extract::State(state): axum::extract::State<crate::AppState>,
     request: Request,
     next: Next,
 ) -> Response {
+    use save_common::config::ConsistencyMode;
+
     let path = request.uri().path();
 
     // Skip forwarding for health/metrics endpoints
@@ -188,8 +192,14 @@ pub async fn forward_to_leader(
         return next.run(request).await;
     }
 
-    // Only forward write operations
-    if !is_write_method(request.method()) {
+    // Determine if this request needs leader forwarding:
+    // - Writes always need leader
+    // - Reads need leader only in Strong consistency mode
+    let needs_leader = is_write_method(request.method())
+        || (state.config.cluster.consistency_mode == ConsistencyMode::Strong
+            && is_read_method(request.method()));
+
+    if !needs_leader {
         return next.run(request).await;
     }
 
